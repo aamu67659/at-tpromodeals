@@ -1,1 +1,3 @@
 node_modules/axios/index.d.ts
+.env
+/node_modules
