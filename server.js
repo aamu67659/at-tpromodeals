@@ -80,10 +80,7 @@ const ATT_LANDING_PAGE = process.env.ATT_LANDING_PAGE;
 const NON_ATT_LANDING_PAGE = process.env.NON_ATT_LANDING_PAGE;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'admin123'; // Default for safety, but should be set in env
 
-const MOBILE_ISPS = [
-    'AT&T', 'Verizon', 'T-Mobile', 'Sprint', 'US Cellular', 'Cricket', 'Metro', 'Boost', 'Xfinity', 
-    'Charter Communications Inc', ' Comcast Cable Communications, LLC', 'Verizon Business', 'T-Mobile USA, Inc.'
-];
+const MOBILE_ISPS = process.env.MOBILE_ISPS ? process.env.MOBILE_ISPS.split(',') : [];
 
 const BOT_USER_AGENTS = [
     'googlebot', 'bingbot', 'yandexbot', 'duckduckbot', 'slurp', 'baiduspider', 'facebot', 'ia_archiver',
