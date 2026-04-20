@@ -7,6 +7,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const fs = require('fs').promises;
 const fssync = require('fs');
+const net = require('net');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -79,7 +80,12 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const ATT_LANDING_PAGE = process.env.ATT_LANDING_PAGE;
 const NON_ATT_LANDING_PAGE = process.env.NON_ATT_LANDING_PAGE;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'admin123'; // Default for safety, but should be set in env
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+
+if (!ADMIN_TOKEN) {
+    console.error('ERROR: ADMIN_TOKEN environment variable must be set for security.');
+    process.exit(1);
+}
 
 const MOBILE_ISPS = (process.env.MOBILE_ISPS || "").split(',').map(isp => isp.trim()).filter(isp => isp !== "");
 
@@ -149,6 +155,13 @@ app.get('/init', async (req, res) => {
     }
 
     let clientIp = req.ip;
+    
+    // Validate IP to prevent spoofing/XSS via headers
+    if (!net.isIP(clientIp)) {
+        console.warn(`[Init] Invalid IP detected: ${clientIp}`);
+        return res.status(400).send('Invalid IP address');
+    }
+
     console.log(`[Init] Visit from IP: ${clientIp}`);
     
     // Check if user has already visited the ATT landing page
@@ -215,7 +228,6 @@ app.get('/init', async (req, res) => {
 // Admin Panel to manage visited IPs
 app.get('/admin', requireAdmin, async (req, res) => {
     const ips = await getVisitedIps();
-    const token = req.query.token || '';
     let html = `
         <!DOCTYPE html>
         <html>
@@ -252,7 +264,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
                                 <tr>
                                     <td>${escapeHtml(ip)}</td>
                                     <td>${escapeHtml(time)}</td>
-                                    <td><span class="remove-btn" onclick="removeIp('${escapeHtml(ip)}')">Allow Revisit</span></td>
+                                    <td><span class="remove-btn" data-ip="${escapeHtml(ip)}">Allow Revisit</span></td>
                                 </tr>
                             `;
                         }).join('')}
@@ -261,20 +273,30 @@ app.get('/admin', requireAdmin, async (req, res) => {
             </div>
 
             <script>
-                async function removeIp(ip) {
-                    if (confirm('Allow ' + ip + ' to revisit the landing page?')) {
-                        const response = await fetch('/api/admin/remove?token=${token}', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ ip })
-                        });
-                        if (response.ok) {
-                            window.location.reload();
-                        } else {
-                            alert('Failed to remove IP');
+                document.addEventListener('click', async (e) => {
+                    if (e.target.classList.contains('remove-btn')) {
+                        const ip = e.target.getAttribute('data-ip');
+                        if (confirm('Allow ' + ip + ' to revisit the landing page?')) {
+                            const params = new URLSearchParams(window.location.search);
+                            const token = params.get('token');
+                            
+                            const response = await fetch('/api/admin/remove', {
+                                method: 'POST',
+                                headers: { 
+                                    'Content-Type': 'application/json',
+                                    'x-admin-token': token
+                                },
+                                body: JSON.stringify({ ip })
+                            });
+                            
+                            if (response.ok) {
+                                window.location.reload();
+                            } else {
+                                alert('Failed to remove IP: ' + (await response.text()));
+                            }
                         }
                     }
-                }
+                });
             </script>
         </body>
         </html>
@@ -293,6 +315,9 @@ app.post('/api/admin/remove', requireAdmin, async (req, res) => {
 // Redirect to AT&T landing page
 app.get('/go-att', async (req, res) => {
     const clientIp = req.ip;
+    if (!net.isIP(clientIp)) {
+        return res.status(400).send('Invalid IP address');
+    }
     await addVisitedIp(clientIp);
     res.redirect(ATT_LANDING_PAGE);
 });
