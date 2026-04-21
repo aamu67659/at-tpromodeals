@@ -368,7 +368,8 @@ app.get('/admin', requireAdmin, async (req, res) => {
                     if (response.ok) {
                         window.location.reload();
                     } else {
-                        alert('Error: ' + (await response.text()));
+                        const errorText = await response.text();
+                        alert('Error (' + response.status + '): ' + errorText);
                     }
                 });
 
@@ -391,7 +392,8 @@ app.get('/admin', requireAdmin, async (req, res) => {
                             if (response.ok) {
                                 window.location.reload();
                             } else {
-                                alert('Failed: ' + (await response.text()));
+                                const errorText = await response.text();
+                                alert('Failed (' + response.status + '): ' + errorText);
                             }
                         }
                     }
@@ -414,6 +416,7 @@ app.post('/api/admin/remove', requireAdmin, async (req, res) => {
 // Endpoint to add an IP to forced redirect list
 app.post('/api/admin/forced/add', requireAdmin, async (req, res) => {
     const { ip } = req.body;
+    console.log(`[Admin] Request to add forced IP: ${ip}`);
     if (!ip || !net.isIP(ip)) return res.status(400).send('Valid IP is required');
     await addForcedIp(ip);
     res.status(200).send('IP added to forced list');
@@ -422,6 +425,7 @@ app.post('/api/admin/forced/add', requireAdmin, async (req, res) => {
 // Endpoint to remove an IP from forced redirect list
 app.post('/api/admin/forced/remove', requireAdmin, async (req, res) => {
     const { ip } = req.body;
+    console.log(`[Admin] Request to remove forced IP: ${ip}`);
     if (!ip) return res.status(400).send('IP is required');
     await removeForcedIp(ip);
     res.status(200).send('IP removed from forced list');
