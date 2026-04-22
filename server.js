@@ -213,6 +213,7 @@ app.get('/init', async (req, res) => {
     }
 
     let clientIp = req.ip;
+    const userAgent = req.headers['user-agent'] || 'Unknown';
     
     // Validate IP to prevent spoofing/XSS via headers
     if (!net.isIP(clientIp)) {
@@ -220,7 +221,7 @@ app.get('/init', async (req, res) => {
         return res.status(400).send('Invalid IP address');
     }
 
-    console.log(`[Init] Visit from IP: ${clientIp}`);
+    console.log(`[Init] Visit from IP: ${clientIp} | UA: ${userAgent}`);
     
     // Fetch settings
     const settings = await getSettings();
@@ -258,6 +259,8 @@ app.get('/init', async (req, res) => {
     } else {
         message += `📍 *IP:* ${clientIp}\n⚠️ *ISP info unavailable*\n`;
     }
+    
+    message += `💻 *Browser:* ${userAgent}\n`;
     
     if (isSuspicious) {
         message += `🛡️ *Flags:* ${data.proxy ? 'Proxy ' : ''}${data.hosting ? 'Hosting' : ''}\n`;
