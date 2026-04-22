@@ -539,9 +539,15 @@ app.post('/api/admin/forced/remove', requireAdmin, async (req, res) => {
 
 // Endpoint to update general settings
 app.post('/api/admin/settings/update', requireAdmin, async (req, res) => {
-    const { isSuspiciousEnabled } = req.body;
-    if (typeof isSuspiciousEnabled !== 'boolean') return res.status(400).send('Invalid setting value');
-    await updateSettings({ isSuspiciousEnabled });
+    const { isSuspiciousEnabled, isIspFilterEnabled } = req.body;
+    const update = {};
+    
+    if (typeof isSuspiciousEnabled === 'boolean') update.isSuspiciousEnabled = isSuspiciousEnabled;
+    if (typeof isIspFilterEnabled === 'boolean') update.isIspFilterEnabled = isIspFilterEnabled;
+    
+    if (Object.keys(update).length === 0) return res.status(400).send('Invalid setting value');
+    
+    await updateSettings(update);
     res.status(200).send('Settings updated');
 });
 
