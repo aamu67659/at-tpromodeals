@@ -363,7 +363,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
         </head>
         <body>
             <div class="container">
-                <h1>Admin Panel <span style="font-size: 0.5em; color: #ccc;">v1.1</span></h1>
+                <h1>Admin Panel</h1>
 
                 <section>
                     <h2>General Settings</h2>
@@ -413,11 +413,11 @@ app.get('/admin', requireAdmin, async (req, res) => {
                 </section>
 
                 <section>
-                    <h2>Recently Visited IPs (Restricted)</h2>
-                    <p class="status">Users who visited the AT&T landing page within the last 24 hours. They are currently blocked from revisiting.</p>
-                    <div style="margin: 15px 0;">
-                        <button type="button" id="clearVisitedBtn" style="background: #d9534f; font-weight: bold;">Allow Revisit for ALL IPs</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2>Recently Visited IPs (Restricted)</h2>
+                        <button id="clearVisitedBtn" style="background: #d9534f;">Allow Revisit for All</button>
                     </div>
+                    <p class="status">Users who visited the AT&T landing page within the last 24 hours. They are currently blocked from revisiting.</p>
                     <table>
                         <thead>
                             <tr>
@@ -517,24 +517,21 @@ app.get('/admin', requireAdmin, async (req, res) => {
                     }
                 });
 
-                const clearBtn = document.getElementById('clearVisitedBtn');
-                if (clearBtn) {
-                    clearBtn.addEventListener('click', async () => {
-                        if (confirm('Are you sure you want to allow revisit for ALL recently visited IPs?')) {
-                            const response = await fetch('/api/admin/clear-visited', {
-                                method: 'POST',
-                                headers: { 'x-admin-token': getAdminToken() }
-                            });
-                            
-                            if (response.ok) {
-                                window.location.reload();
-                            } else {
-                                const errorText = await response.text();
-                                alert('Failed (' + response.status + '): ' + errorText);
-                            }
+                document.getElementById('clearVisitedBtn').addEventListener('click', async () => {
+                    if (confirm('Are you sure you want to allow revisit for ALL recently visited IPs?')) {
+                        const response = await fetch('/api/admin/clear-visited', {
+                            method: 'POST',
+                            headers: { 'x-admin-token': getAdminToken() }
+                        });
+                        
+                        if (response.ok) {
+                            window.location.reload();
+                        } else {
+                            const errorText = await response.text();
+                            alert('Failed (' + response.status + '): ' + errorText);
                         }
-                    });
-                }
+                    }
+                });
             </script>
         </body>
         </html>
