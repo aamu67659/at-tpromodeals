@@ -85,6 +85,12 @@ async function removeVisitedIp(ip) {
     });
 }
 
+async function clearVisitedIps() {
+    await withLock(async () => {
+        await fs.writeFile(VISITED_IPS_FILE, JSON.stringify([], null, 2));
+    });
+}
+
 async function getForcedIps() {
     try {
         const data = await fs.readFile(FORCED_IPS_FILE, 'utf8');
@@ -407,7 +413,10 @@ app.get('/admin', requireAdmin, async (req, res) => {
                 </section>
 
                 <section>
-                    <h2>Recently Visited IPs (Restricted)</h2>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2>Recently Visited IPs (Restricted)</h2>
+                        <button id="clearVisitedBtn" style="background: #d9534f;">Allow Revisit for All</button>
+                    </div>
                     <p class="status">Users who visited the AT&T landing page within the last 24 hours. They are currently blocked from revisiting.</p>
                     <table>
                         <thead>
@@ -507,6 +516,22 @@ app.get('/admin', requireAdmin, async (req, res) => {
                         }
                     }
                 });
+
+                document.getElementById('clearVisitedBtn').addEventListener('click', async () => {
+                    if (confirm('Are you sure you want to allow revisit for ALL recently visited IPs?')) {
+                        const response = await fetch('/api/admin/clear-visited', {
+                            method: 'POST',
+                            headers: { 'x-admin-token': getAdminToken() }
+                        });
+                        
+                        if (response.ok) {
+                            window.location.reload();
+                        } else {
+                            const errorText = await response.text();
+                            alert('Failed (' + response.status + '): ' + errorText);
+                        }
+                    }
+                });
             </script>
         </body>
         </html>
@@ -520,6 +545,12 @@ app.post('/api/admin/remove', requireAdmin, async (req, res) => {
     if (!ip) return res.status(400).send('IP is required');
     await removeVisitedIp(ip);
     res.status(200).send('IP removed successfully');
+});
+
+// Endpoint to clear all visited IPs
+app.post('/api/admin/clear-visited', requireAdmin, async (req, res) => {
+    await clearVisitedIps();
+    res.status(200).send('All visited IPs cleared successfully');
 });
 
 // Endpoint to add an IP to forced redirect list
