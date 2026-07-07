@@ -186,7 +186,7 @@ const BOT_USER_AGENTS = [
 
 // Security: Use Helmet for security headers
 app.use(helmet({
-    contentSecurityPolicy: false, // Set to false if you have complex external scripts
+    contentSecurityPolicy: true, // Set to false if you have complex external scripts
 }));
 
 // Crawler Protection: Set X-Robots-Tag to prevent indexing
