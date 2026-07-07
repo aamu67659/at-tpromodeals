@@ -12,7 +12,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // Trust proxy for accurate IP detection behind load balancers
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
 
 // Path to store visited IPs
 const VISITED_IPS_FILE = path.join(__dirname, 'visited_ips.json');
