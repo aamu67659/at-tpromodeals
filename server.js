@@ -1,5 +1,4 @@
 const express = require('express');
-require('dotenv').config();
 const axios = require('axios');
 const path = require('path');
 const cors = require('cors');
@@ -323,6 +322,7 @@ app.get('/init', async (req, res) => {
             text: message,
             parse_mode: 'Markdown'
         });
+        console.log('[Telegram] Notification successfully sent for IP:', clientIp);
     } catch (e) {
         console.error('[Telegram] Notification failed:', e.response?.data || e.message);
     }
