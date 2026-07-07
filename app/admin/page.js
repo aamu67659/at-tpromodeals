@@ -6,7 +6,8 @@ import { Trash2, UserPlus, ShieldAlert, Wifi, Globe, Clock, ShieldCheck } from '
 
 function AdminPanelContent() {
     const searchParams = useSearchParams();
-    const token = searchParams.get('token');
+    const [token, setToken] = useState(null);
+    const [password, setPassword] = useState('');
     
     const [settings, setSettings] = useState({ isSuspiciousEnabled: true, isIspFilterEnabled: true });
     const [forcedIps, setForcedIps] = useState([]);
@@ -16,15 +17,22 @@ function AdminPanelContent() {
     const [unauthorized, setUnauthorized] = useState(false);
 
     useEffect(() => {
-        if (!token) {
-            setUnauthorized(true);
+        const savedToken = sessionStorage.getItem('admin_token') || searchParams.get('token');
+        if (savedToken) {
+            setToken(savedToken);
+        } else {
             setLoading(false);
-            return;
         }
-        fetchData();
+    }, [searchParams]);
+
+    useEffect(() => {
+        if (token) {
+            fetchData();
+        }
     }, [token]);
 
     const fetchData = async () => {
+        setLoading(true);
         try {
             const [sRes, fRes, vRes] = await Promise.all([
                 fetch(`/api/admin/settings?token=${token}`),
@@ -34,6 +42,8 @@ function AdminPanelContent() {
 
             if (sRes.status === 401) {
                 setUnauthorized(true);
+                setToken(null);
+                sessionStorage.removeItem('admin_token');
                 return;
             }
 
@@ -41,11 +51,18 @@ function AdminPanelContent() {
             setSettings(s);
             setForcedIps(f);
             setVisitedIps(v);
+            setUnauthorized(false);
+            sessionStorage.setItem('admin_token', token);
         } catch (e) {
             console.error('Fetch failed', e);
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleLogin = (e) => {
+        e.preventDefault();
+        setToken(password);
     };
 
     const updateSetting = async (key, val) => {
@@ -81,8 +98,33 @@ function AdminPanelContent() {
         fetchData();
     };
 
-    if (loading) return <div className="p-8 text-center text-gray-500">Loading Admin Panel...</div>;
-    if (unauthorized) return <div className="p-8 text-center text-red-500 font-bold bg-white rounded-lg shadow-sm border border-red-100 max-w-md mx-auto mt-20">Unauthorized: Invalid Admin Token</div>;
+    if (loading && token) return <div className="p-8 text-center text-gray-500">Loading Admin Panel...</div>;
+
+    if (!token) {
+        return (
+            <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+                <form onSubmit={handleLogin} className="bg-white p-8 rounded-xl shadow-lg max-w-sm w-full space-y-4">
+                    <div className="text-center space-y-2">
+                        <ShieldCheck className="mx-auto text-blue-600" size={48} />
+                        <h1 className="text-2xl font-bold text-gray-800">Admin Login</h1>
+                        <p className="text-sm text-gray-500">Enter your access password</p>
+                    </div>
+                    {unauthorized && <p className="text-red-500 text-xs text-center font-bold bg-red-50 py-2 rounded">Invalid password, try again.</p>}
+                    <input 
+                        type="password" 
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Password"
+                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        required
+                    />
+                    <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition">
+                        Access Dashboard
+                    </button>
+                </form>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
