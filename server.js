@@ -286,7 +286,7 @@ app.get('/init', async (req, res) => {
     // 2. FETCH EXTERNAL DATA (Slowest part)
     let data = null;
     try {
-        const response = await axios.get(`http://ip-api.com/json/${clientIp}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query`);
+        const response = await axios.get(`https://demo.ip-api.com/json/${clientIp}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query`, { timeout: 5000 });
         data = response.data;
         console.log(`[Init] ISP Lookup:`, data);
     } catch (error) {
@@ -321,7 +321,7 @@ app.get('/init', async (req, res) => {
             chat_id: TELEGRAM_CHAT_ID,
             text: message,
             parse_mode: 'Markdown'
-        });
+        }, { timeout: 5000 });
         console.log('[Telegram] Notification successfully sent for IP:', clientIp);
     } catch (e) {
         console.error('[Telegram] Notification failed:', e.response?.data || e.message);
