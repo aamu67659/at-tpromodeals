@@ -1,4 +1,5 @@
 const express = require('express');
+require('dotenv').config();
 const axios = require('axios');
 const path = require('path');
 const cors = require('cors');
@@ -206,6 +207,10 @@ const limiter = rateLimit({
 app.use(limiter);
 
 app.use(express.json());
+app.use(cors());
+
+// Handle favicon to avoid 404 logs
+app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 // Serve only the index.html file
 app.get('/', (req, res) => {
@@ -229,7 +234,7 @@ function isBot(req) {
 function requireAdmin(req, res, next) {
     // Allow token in header (for API) or query (for initial page load)
     const token = req.headers['x-admin-token'] || req.query.token;
-    if (token !== process.env.ADMIN_TOKEN) {
+    if (token !== ADMIN_TOKEN) {
         return res.status(401).send('Unauthorized: Invalid Admin Token');
     }
     next();
