@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Trash2, UserPlus, ShieldAlert, Wifi, Globe, Clock, ShieldCheck } from 'lucide-react';
 
-export default function AdminPanel() {
+function AdminPanelContent() {
     const searchParams = useSearchParams();
     const token = searchParams.get('token');
     
@@ -81,8 +81,8 @@ export default function AdminPanel() {
         fetchData();
     };
 
-    if (loading) return <div className="p-8 text-center">Loading Admin Panel...</div>;
-    if (unauthorized) return <div className="p-8 text-center text-red-500 font-bold">Unauthorized: Invalid Admin Token</div>;
+    if (loading) return <div className="p-8 text-center text-gray-500">Loading Admin Panel...</div>;
+    if (unauthorized) return <div className="p-8 text-center text-red-500 font-bold bg-white rounded-lg shadow-sm border border-red-100 max-w-md mx-auto mt-20">Unauthorized: Invalid Admin Token</div>;
 
     return (
         <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
@@ -218,3 +218,12 @@ export default function AdminPanel() {
         </div>
     );
 }
+
+export default function AdminPanel() {
+    return (
+        <Suspense fallback={<div className="p-8 text-center text-gray-500 italic">Initializing admin tools...</div>}>
+            <AdminPanelContent />
+        </Suspense>
+    );
+}
+

@@ -1,4 +1,4 @@
-import { getForcedIps, addForcedIp, removeForcedIp } from '@/lib/storage';
+import { getForcedIps, addForcedIp, removeForcedIp } from '../../../../lib/storage';
 import { isIP } from 'net';
 
 export async function GET(req) {

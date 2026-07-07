@@ -1,4 +1,4 @@
-import { getSettings, updateSettings } from '@/lib/storage';
+import { getSettings, updateSettings } from '../../../../lib/storage';
 
 export async function GET(req) {
     const { searchParams } = new URL(req.url);

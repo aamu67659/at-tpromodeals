@@ -1,4 +1,4 @@
-import { getVisitedIps, removeVisitedIp, clearVisitedIps } from '@/lib/storage';
+import { getVisitedIps, removeVisitedIp, clearVisitedIps } from '../../../../lib/storage';
 
 export async function GET(req) {
     const { searchParams } = new URL(req.url);

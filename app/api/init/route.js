@@ -1,6 +1,6 @@
 import { headers } from 'next/headers';
-import { getForcedIps, getVisitedIps, getSettings } from '@/lib/storage';
-import { isBot, lookupIsp, sendTelegramNotification } from '@/lib/services';
+import { getForcedIps, getVisitedIps, getSettings } from '../../../lib/storage';
+import { isBot, lookupIsp, sendTelegramNotification } from '../../../lib/services';
 
 export async function GET(req) {
     const headersList = headers();

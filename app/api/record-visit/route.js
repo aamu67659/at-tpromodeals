@@ -1,4 +1,4 @@
-import { addVisitedIp } from '@/lib/storage';
+import { addVisitedIp } from '../../../lib/storage';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 
