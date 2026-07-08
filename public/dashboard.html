@@ -94,17 +94,33 @@
 
         <div class="card">
             <h2>Your Tracking URL</h2>
-            <p>Share this link to start tracking:</p>
-            <code id="trackingUrl">Loading...</code>
+            <p id="expiryStatus">Loading expiry info...</p>
+            <div id="pricingSection">
+                <p>Choose a plan to generate or extend your link:</p>
+                <select id="planDuration" style="margin-bottom: 10px;">
+                    <option value="1week">1 Week - $25.00</option>
+                    <option value="2weeks">2 Weeks - $50.00</option>
+                    <option value="month">1 Month - $75.00</option>
+                </select>
+                <br>
+                <button onclick="payAndGenerate()" style="background: #17a2b8;">Pay & Generate Anti-Red Link</button>
+            </div>
+            
+            <div id="linkResult" style="margin-top: 15px; display: none;">
+                <strong>Unique Link:</strong>
+                <code id="trackingUrl" style="display: block; background: #eee; padding: 10px; margin-top: 5px; border-radius: 4px;"></code>
+            </div>
         </div>
     </div>
 
     <script>
+        let userSlug = '';
         async function loadData() {
             const res = await fetch('/api/user');
             if (res.status === 401) window.location.href = '/login.html';
             const user = await res.json();
             
+            userSlug = user.slug;
             document.getElementById('userName').innerText = user.name;
             document.getElementById('walletBalance').innerText = user.wallet.toFixed(2);
             document.getElementById('nonRealLink').value = user.settings.nonRealLink;
@@ -113,8 +129,21 @@
             document.getElementById('ispFilter').checked = user.settings.ispFilter;
             document.getElementById('mobileIsps').value = user.settings.mobileIsps.join(', ');
             document.getElementById('reallowVisited').checked = user.settings.reallowVisited;
-            document.getElementById('trackingUrl').innerText = window.location.origin + '/u/' + user.id;
             
+            const expiryStatus = document.getElementById('expiryStatus');
+            if (user.expiryDate) {
+                const expiry = new Date(user.expiryDate);
+                if (expiry > new Date()) {
+                    expiryStatus.innerHTML = `Link Status: <span style="color:green;">ACTIVE</span> (Expires: ${expiry.toLocaleString()})`;
+                    showLink();
+                } else {
+                    expiryStatus.innerHTML = `Link Status: <span style="color:red;">EXPIRED</span>`;
+                    document.getElementById('linkResult').style.display = 'none';
+                }
+            } else {
+                expiryStatus.innerHTML = `Link Status: <span style="color:orange;">NOT GENERATED</span>`;
+            }
+
             const forcedIpList = document.getElementById('forcedIpList');
             forcedIpList.innerHTML = '';
             user.forcedIps.forEach(ip => {
@@ -122,6 +151,30 @@
                 li.innerHTML = `${ip} <span style="color:red; cursor:pointer;" onclick="removeForcedIp('${ip}')">[Remove]</span>`;
                 forcedIpList.appendChild(li);
             });
+        }
+
+        function showLink() {
+            if (!userSlug) return;
+            const link = window.location.origin + '/l/' + userSlug;
+            document.getElementById('trackingUrl').innerText = link;
+            document.getElementById('linkResult').style.display = 'block';
+        }
+
+        async function payAndGenerate() {
+            const duration = document.getElementById('planDuration').value;
+            const res = await fetch('/api/generate-link', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ duration })
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+                alert('Success: ' + data.message);
+                loadData();
+            } else {
+                alert('Error: ' + data.error);
+            }
         }
 
         async function addForcedIp() {

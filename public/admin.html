@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Panel - SaaS Proxy</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f4f7f6; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #007bff; color: white; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        .btn { padding: 5px 10px; cursor: pointer; border: none; border-radius: 4px; color: white; }
+        .btn-balance { background: #28a745; }
+        .btn-status { background: #dc3545; }
+        .btn-status.active { background: #ffc107; color: #333; }
+        .login-box { max-width: 400px; margin: 100px auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        input { padding: 8px; width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div id="loginSection" class="login-box">
+        <h2>Admin Login</h2>
+        <input type="password" id="adminToken" placeholder="Enter Admin Token">
+        <button onclick="loadUsers()" class="btn btn-balance" style="width: 100%;">Login</button>
+    </div>
+
+    <div id="adminSection" class="container" style="display: none;">
+        <h1>Admin User Management</h1>
+        <button onclick="logout()" class="btn btn-status" style="margin-bottom: 20px;">Logout</button>
+        <table id="userTable">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Wallet</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <script>
+        let currentToken = '';
+
+        function logout() {
+            localStorage.removeItem('adminToken');
+            location.reload();
+        }
+
+        async function loadUsers() {
+            const tokenInput = document.getElementById('adminToken').value;
+            const token = tokenInput || localStorage.getItem('adminToken');
+            if (!token) return;
+
+            const res = await fetch('/api/admin/users', {
+                headers: { 'x-admin-token': token }
+            });
+
+            if (res.ok) {
+                currentToken = token;
+                localStorage.setItem('adminToken', token);
+                document.getElementById('loginSection').style.display = 'none';
+                document.getElementById('adminSection').style.display = 'block';
+                
+                const users = await res.json();
+                const tbody = document.querySelector('#userTable tbody');
+                tbody.innerHTML = '';
+                
+                users.forEach(user => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${user.name}</td>
+                        <td>${user.email}</td>
+                        <td>$${user.wallet.toFixed(2)}</td>
+                        <td>${user.isActive ? '✅ Active' : '❌ Disabled'}</td>
+                        <td>
+                            <button class="btn btn-balance" onclick="updateBalance('${user.id}')">Set Balance</button>
+                            <button class="btn btn-status ${user.isActive ? 'active' : ''}" onclick="toggleStatus('${user.id}')">
+                                ${user.isActive ? 'Disable' : 'Enable'}
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } else {
+                alert('Invalid Admin Token');
+            }
+        }
+
+        async function updateBalance(userId) {
+            const amount = prompt("Enter new balance amount:");
+            if (amount === null) return;
+            
+            const res = await fetch('/api/admin/update-balance', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'x-admin-token': currentToken
+                },
+                body: JSON.stringify({ userId, amount })
+            });
+
+            if (res.ok) loadUsers();
+        }
+
+        async function toggleStatus(userId) {
+            const res = await fetch('/api/admin/toggle-status', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'x-admin-token': currentToken
+                },
+                body: JSON.stringify({ userId })
+            });
+
+            if (res.ok) loadUsers();
+        }
+
+        if (localStorage.getItem('adminToken')) {
+            loadUsers();
+        }
+    </script>
+</body>
+</html>

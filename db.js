@@ -34,7 +34,8 @@ async function createUser(userData) {
         telegram: userData.telegram,
         password: userData.password, // hashed
         wallet: 0.0,
-        isActive: false,
+        isActive: true,
+        expiryDate: null, // ISO string for link expiration
         settings: {
             nonRealLink: '',
             realLink: '',
