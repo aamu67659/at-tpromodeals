@@ -2,6 +2,7 @@ const fs = require('fs').promises;
 const fssync = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
@@ -27,6 +28,7 @@ async function createUser(userData) {
     const users = await getUsers();
     const newUser = {
         id: uuidv4(),
+        slug: crypto.randomBytes(4).toString('hex'),
         name: userData.name,
         email: userData.email,
         telegram: userData.telegram,
@@ -60,6 +62,11 @@ async function findUserById(id) {
     return users.find(u => u.id === id);
 }
 
+async function findUserBySlug(slug) {
+    const users = await getUsers();
+    return users.find(u => u.slug === slug);
+}
+
 async function updateUser(id, updates) {
     const users = await getUsers();
     const index = users.findIndex(u => u.id === id);
@@ -76,5 +83,6 @@ module.exports = {
     getUsers,
     findUserByEmail,
     findUserById,
+    findUserBySlug,
     updateUser
 };
