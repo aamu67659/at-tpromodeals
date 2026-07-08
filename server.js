@@ -195,6 +195,11 @@ app.post('/api/generate-link', requireAuth, async (req, res) => {
     });
 });
 
+app.get('/api/isps', (req, res) => {
+    const isps = (process.env.MOBILE_ISPS || "").split(',').map(isp => isp.trim()).filter(isp => isp !== "");
+    res.json(isps);
+});
+
 // --- Proxy Redirection Logic ---
 const BOT_UA_REGEX = /googlebot|bingbot|yandexbot|duckduckbot|slurp|baiduspider|facebot|ia_archiver|crawler|spider|robot|curl|wget|python|postman|insomnia|headless|screaming frog|ahrefsbot|semrushbot|mj12bot|dotbot|rogerbot|exabot|petalbot/i;
 

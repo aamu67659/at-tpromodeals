@@ -69,8 +69,14 @@
                 <span>Mobile ISP Filter (Only allow specific carriers)</span>
             </div>
             <div id="ispConfig" style="margin-left: 60px; margin-bottom: 15px;">
-                <label>Allowed ISPs (comma separated)</label>
-                <input type="text" id="mobileIsps" placeholder="ATT, VERIZON, T-MOBILE">
+                <label>Allowed ISPs:</label>
+                <div id="ispList" style="margin-top: 10px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px;">
+                    <!-- ISPs will be loaded here -->
+                </div>
+                <div style="margin-top: 10px; display: flex; gap: 10px;">
+                    <input type="text" id="customIsp" placeholder="Add custom ISP (e.g. Starlink)">
+                    <button onclick="addCustomIsp()" style="padding: 5px 10px;">Add</button>
+                </div>
             </div>
             <div class="toggle-group">
                 <label class="switch">
@@ -126,19 +132,30 @@
 
     <script>
         let userSlug = '';
+        let allIsps = []; // Track all unique ISPs (default + user added)
+
         async function loadData() {
+            // 1. Fetch default ISPs from server
+            const ispRes = await fetch('/api/isps');
+            const defaultIsps = await ispRes.json();
+            
+            // 2. Fetch user data
             const res = await fetch('/api/user');
             if (res.status === 401) window.location.href = '/login.html';
             const user = await res.json();
             
             userSlug = user.slug;
+            
+            // 3. Combine default ISPs with user's specific ISPs to build the checklist
+            allIsps = Array.from(new Set([...defaultIsps, ...user.settings.mobileIsps]));
+            renderIspList(user.settings.mobileIsps);
+
             document.getElementById('userName').innerText = user.name;
             document.getElementById('walletBalance').innerText = user.wallet.toFixed(2);
             document.getElementById('nonRealLink').value = user.settings.nonRealLink;
             document.getElementById('realLink').value = user.settings.realLink;
             document.getElementById('antiRed').checked = user.settings.antiRed;
             document.getElementById('ispFilter').checked = user.settings.ispFilter;
-            document.getElementById('mobileIsps').value = user.settings.mobileIsps.join(', ');
             document.getElementById('reallowVisited').checked = user.settings.reallowVisited;
             document.getElementById('botToken').value = user.settings.botToken || '';
             document.getElementById('chatId').value = user.settings.chatId || '';
@@ -209,13 +226,45 @@
             if (res.ok) loadData();
         }
 
+        function renderIspList(selectedIsps = []) {
+            const container = document.getElementById('ispList');
+            container.innerHTML = '';
+            allIsps.sort().forEach(isp => {
+                const div = document.createElement('div');
+                div.style.display = 'flex';
+                div.style.alignItems = 'center';
+                div.style.gap = '5px';
+                
+                const isChecked = selectedIsps.includes(isp);
+                div.innerHTML = `
+                    <input type="checkbox" name="ispCheck" value="${isp}" ${isChecked ? 'checked' : ''}>
+                    <span style="font-size: 0.9em;">${isp}</span>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function addCustomIsp() {
+            const val = document.getElementById('customIsp').value.trim();
+            if (val && !allIsps.includes(val)) {
+                allIsps.push(val);
+                renderIspList([...getSelectedIsps(), val]);
+                document.getElementById('customIsp').value = '';
+            }
+        }
+
+        function getSelectedIsps() {
+            const checks = document.querySelectorAll('input[name="ispCheck"]:checked');
+            return Array.from(checks).map(c => c.value);
+        }
+
         async function saveSettings() {
             const settings = {
                 nonRealLink: document.getElementById('nonRealLink').value,
                 realLink: document.getElementById('realLink').value,
                 antiRed: document.getElementById('antiRed').checked,
                 ispFilter: document.getElementById('ispFilter').checked,
-                mobileIsps: document.getElementById('mobileIsps').value.split(',').map(s => s.trim()).filter(s => s),
+                mobileIsps: getSelectedIsps(),
                 reallowVisited: document.getElementById('reallowVisited').checked,
                 botToken: document.getElementById('botToken').value.trim(),
                 chatId: document.getElementById('chatId').value.trim()
