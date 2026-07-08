@@ -79,6 +79,17 @@
                 </label>
                 <span>Reallow visited IP</span>
             </div>
+            <div class="card">
+                <h2>Telegram Notifications</h2>
+                <div class="form-group">
+                    <label>Telegram Bot Token</label>
+                    <input type="text" id="botToken" placeholder="123456789:ABCDefgh...">
+                </div>
+                <div class="form-group">
+                    <label>Telegram Chat ID</label>
+                    <input type="text" id="chatId" placeholder="123456789">
+                </div>
+            </div>
             <button onclick="saveSettings()">Save Settings</button>
         </div>
 
@@ -129,6 +140,8 @@
             document.getElementById('ispFilter').checked = user.settings.ispFilter;
             document.getElementById('mobileIsps').value = user.settings.mobileIsps.join(', ');
             document.getElementById('reallowVisited').checked = user.settings.reallowVisited;
+            document.getElementById('botToken').value = user.settings.botToken || '';
+            document.getElementById('chatId').value = user.settings.chatId || '';
             
             const expiryStatus = document.getElementById('expiryStatus');
             if (user.expiryDate) {
@@ -203,7 +216,9 @@
                 antiRed: document.getElementById('antiRed').checked,
                 ispFilter: document.getElementById('ispFilter').checked,
                 mobileIsps: document.getElementById('mobileIsps').value.split(',').map(s => s.trim()).filter(s => s),
-                reallowVisited: document.getElementById('reallowVisited').checked
+                reallowVisited: document.getElementById('reallowVisited').checked,
+                botToken: document.getElementById('botToken').value.trim(),
+                chatId: document.getElementById('chatId').value.trim()
             };
 
             const res = await fetch('/api/settings', {

