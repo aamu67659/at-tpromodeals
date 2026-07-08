@@ -3,19 +3,25 @@
 <head>
     <title>Admin Panel - SaaS Proxy</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #f4f7f6; }
-        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        h1 { color: #333; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        body { font-family: sans-serif; padding: 20px; background: #f4f7f6; margin: 0; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); width: 100%; box-sizing: border-box; }
+        h1 { color: #333; margin-top: 0; }
+        .table-container { width: 100%; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; min-width: 600px; }
         th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
         th { background-color: #007bff; color: white; }
         tr:nth-child(even) { background-color: #f9f9f9; }
-        .btn { padding: 5px 10px; cursor: pointer; border: none; border-radius: 4px; color: white; }
+        .btn { padding: 8px 12px; cursor: pointer; border: none; border-radius: 4px; color: white; margin-bottom: 5px; }
         .btn-balance { background: #28a745; }
         .btn-status { background: #dc3545; }
         .btn-status.active { background: #ffc107; color: #333; }
-        .login-box { max-width: 400px; margin: 100px auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        input { padding: 8px; width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+        .login-box { width: 100%; max-width: 400px; margin: 100px auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); box-sizing: border-box; }
+        input { padding: 10px; width: 100%; box-sizing: border-box; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; }
+
+        @media (max-width: 600px) {
+            .container { padding: 15px; }
+            td, th { padding: 8px; font-size: 0.9em; }
+        }
     </style>
 </head>
 <body>
@@ -28,18 +34,20 @@
     <div id="adminSection" class="container" style="display: none;">
         <h1>Admin User Management</h1>
         <button onclick="logout()" class="btn btn-status" style="margin-bottom: 20px;">Logout</button>
-        <table id="userTable">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Wallet</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
+        <div class="table-container">
+            <table id="userTable">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Wallet</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
     </div>
 
     <script>

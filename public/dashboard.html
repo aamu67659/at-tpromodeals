@@ -3,20 +3,30 @@
 <head>
     <title>Dashboard - SaaS Proxy</title>
     <style>
-        body { font-family: sans-serif; margin: 0; background: #f0f2f5; display: flex; }
-        .sidebar { width: 250px; background: #343a40; color: white; height: 100vh; padding: 20px; }
-        .main { flex: 1; padding: 40px; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        h1, h2 { color: #333; }
+        body { font-family: sans-serif; margin: 0; background: #f0f2f5; display: flex; flex-direction: row; min-height: 100vh; }
+        .sidebar { width: 250px; background: #343a40; color: white; padding: 20px; box-sizing: border-box; }
+        .main { flex: 1; padding: 20px; max-width: 100%; box-sizing: border-box; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; overflow-x: auto; }
+        h1, h2 { color: #333; margin-top: 0; }
         .sidebar h2 { color: white; }
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; font-weight: bold; }
         input[type="text"], input[type="email"], select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        .toggle-group { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
+        .toggle-group { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
         button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
         button:hover { background: #0056b3; }
-        .logout { margin-top: auto; color: #ff4d4d; cursor: pointer; }
+        .logout { margin-top: 20px; color: #ff4d4d; cursor: pointer; }
         .wallet-info { font-size: 1.2em; color: #28a745; font-weight: bold; }
+        
+        #ispList { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; border-bottom: 1px solid #444; }
+            .main { padding: 15px; }
+            .sidebar h2 { display: inline-block; margin-right: 20px; }
+            .wallet-info { display: inline-block; }
+        }
         
         /* Simple Toggle Switch CSS */
         .switch { position: relative; display: inline-block; width: 50px; height: 24px; }
@@ -68,9 +78,9 @@
                 </label>
                 <span>Mobile ISP Filter (Only allow specific carriers)</span>
             </div>
-            <div id="ispConfig" style="margin-left: 60px; margin-bottom: 15px;">
+            <div id="ispConfig" style="margin-left: 20px; margin-bottom: 15px;">
                 <label>Allowed ISPs:</label>
-                <div id="ispList" style="margin-top: 10px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px;">
+                <div id="ispList" style="margin-top: 10px; max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px;">
                     <!-- ISPs will be loaded here -->
                 </div>
                 <div style="margin-top: 10px; display: flex; gap: 10px;">
