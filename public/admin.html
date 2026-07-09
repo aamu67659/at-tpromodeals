@@ -3,28 +3,52 @@
 <head>
     <title>Admin Panel - SaaS Proxy</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #f4f7f6; margin: 0; }
-        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); width: 100%; box-sizing: border-box; }
-        h1 { color: #333; margin-top: 0; }
+        :root {
+            --bg-color: #f4f7f6;
+            --container-bg: white;
+            --text-color: #333;
+            --input-bg: white;
+            --input-border: #ddd;
+            --table-header: #007bff;
+            --row-even: #f9f9f9;
+        }
+        [data-theme="dark"] {
+            --bg-color: #18191a;
+            --container-bg: #242526;
+            --text-color: #e4e6eb;
+            --input-bg: #3a3b3c;
+            --input-border: #3e4042;
+            --table-header: #1a73e8;
+            --row-even: #1c1c1c;
+        }
+        body { font-family: sans-serif; padding: 20px; background: var(--bg-color); color: var(--text-color); margin: 0; transition: background 0.3s, color 0.3s; }
+        .container { max-width: 1000px; margin: 0 auto; background: var(--container-bg); padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); width: 100%; box-sizing: border-box; transition: background 0.3s; }
+        h1 { color: var(--text-color); margin-top: 0; }
         .table-container { width: 100%; overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; min-width: 600px; }
-        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-        th { background-color: #007bff; color: white; }
-        tr:nth-child(even) { background-color: #f9f9f9; }
+        th, td { border: 1px solid var(--input-border); padding: 12px; text-align: left; }
+        th { background-color: var(--table-header); color: white; }
+        tr:nth-child(even) { background-color: var(--row-even); }
         .btn { padding: 8px 12px; cursor: pointer; border: none; border-radius: 4px; color: white; margin-bottom: 5px; }
         .btn-balance { background: #28a745; }
         .btn-status { background: #dc3545; }
         .btn-status.active { background: #ffc107; color: #333; }
-        .login-box { width: 100%; max-width: 400px; margin: 100px auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); box-sizing: border-box; }
-        input { padding: 10px; width: 100%; box-sizing: border-box; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        .login-box { width: 100%; max-width: 400px; margin: 100px auto; background: var(--container-bg); padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); box-sizing: border-box; }
+        input { padding: 10px; width: 100%; box-sizing: border-box; margin-bottom: 10px; border: 1px solid var(--input-border); border-radius: 4px; background: var(--input-bg); color: var(--text-color); }
+
+        .theme-toggle { position: fixed; top: 20px; right: 20px; background: var(--container-bg); border: 1px solid var(--input-border); color: var(--text-color); padding: 8px 12px; border-radius: 20px; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 
         @media (max-width: 600px) {
             .container { padding: 15px; }
             td, th { padding: 8px; font-size: 0.9em; }
+            .theme-toggle { top: 10px; right: 10px; }
         }
     </style>
 </head>
 <body>
+    <button class="theme-toggle" onclick="toggleTheme()">
+        <span id="themeIcon">🌙</span> <span id="themeText">Dark Mode</span>
+    </button>
     <div id="loginSection" class="login-box">
         <h2>Admin Login</h2>
         <input type="password" id="adminToken" placeholder="Enter Admin Token">
@@ -51,6 +75,22 @@
     </div>
 
     <script>
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            const isDark = theme === 'dark';
+            document.getElementById('themeIcon').innerText = isDark ? '☀️' : '🌙';
+            document.getElementById('themeText').innerText = isDark ? 'Light Mode' : 'Dark Mode';
+            localStorage.setItem('theme', theme);
+        }
+
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme');
+            applyTheme(current === 'dark' ? 'light' : 'dark');
+        }
+
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        applyTheme(savedTheme);
+
         let currentToken = '';
 
         function logout() {
