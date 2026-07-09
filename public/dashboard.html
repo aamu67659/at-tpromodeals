@@ -264,6 +264,26 @@
             padding-left: 15px;
         }
 
+        .content-section {
+            display: none;
+            opacity: 0;
+        }
+        .content-section.active {
+            display: block;
+            animation: terminal-entry 0.3s steps(4) forwards;
+        }
+
+        @keyframes terminal-entry {
+            0% { opacity: 0; transform: translateY(5px); filter: brightness(2) contrast(2); }
+            50% { opacity: 0.5; transform: translateY(-2px); filter: brightness(1.5) contrast(1.5); }
+            100% { opacity: 1; transform: translateY(0); filter: brightness(1) contrast(1); }
+        }
+
+        .nav-item:hover {
+            text-shadow: 0 0 5px var(--accent);
+            letter-spacing: 2px;
+        }
+
         @media (max-width: 768px) {
             body { flex-direction: column; }
             .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
@@ -276,10 +296,10 @@
         <div class="metric-label">OPERATIVE</div>
         <div id="userName" style="margin-bottom: 20px; color: var(--accent);">LOADING...</div>
         
-        <div class="nav-item active" onclick="location.reload()">DASHBOARD</div>
-        <div class="nav-item" onclick="showSection('links')">LINKS_MGR</div>
-        <div class="nav-item" onclick="showSection('security')">PROTOCOL_SEC</div>
-        <div class="nav-item" onclick="showSection('logs')">ACTIVITY_LOG</div>
+        <div class="nav-item active" onclick="showSection('dashboard')">01_OVERVIEW_DASH</div>
+        <div class="nav-item" onclick="showSection('links')">02_LINK_CONTROL_CTR</div>
+        <div class="nav-item" onclick="showSection('security')">03_SECURITY_PROTOCOLS</div>
+        <div class="nav-item" onclick="showSection('logs')">04_VISUAL_LOGS</div>
         
         <div style="margin-top: auto;">
             <div class="metric-label">CREDITS</div>
@@ -290,49 +310,51 @@
     </div>
 
     <div class="main">
-        <div class="metric-grid">
-            <div class="metric-card">
-                <div class="metric-label">UPLINK_STATUS</div>
-                <div class="metric-value" id="uplinkStatus">ACTIVE</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">CREDIT_BALANCE</div>
-                <div class="metric-value">$<span id="walletBalanceMetric">0.00</span></div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">LINK_EXPIRY</div>
-                <div class="metric-value" id="expiryMetric">N/A</div>
-            </div>
-        </div>
-
-        <div id="expiryAlert" class="card" style="display:none; border-color: var(--danger);">
-            <h2 style="color: var(--danger);">!! PROTOCOL_EXPIRATION_WARNING !!</h2>
-            <p>Uplink access has expired. Re-authenticate with a plan below to resume operations.</p>
-        </div>
-
-        <div class="card" id="pricing-section">
-            <h2>ACCESS_PROTOCOL_PLANS</h2>
-            <div id="renewContainer" style="display: none; background: var(--bg-elevated); padding: 15px; border: 1px solid var(--accent); margin-bottom: 20px;">
-                <h3 id="renewTitle" style="margin-top: 0; font-size: 14px;">RENEWING: [LINK_NAME]</h3>
-                <input type="hidden" id="renewSlug">
-                <div style="display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;">
-                    <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
-                        <label>SELECT_RENEWAL_DURATION</label>
-                        <select id="renewDuration">
-                            <option value="3days">03_DAYS :: $15.00</option>
-                            <option value="1week">07_DAYS :: $25.00</option>
-                            <option value="2weeks">14_DAYS :: $50.00</option>
-                            <option value="month">30_DAYS :: $80.00</option>
-                        </select>
-                    </div>
-                    <button onclick="executeRenewal()">[ EXECUTE_RENEWAL ]</button>
-                    <button onclick="cancelRenewal()" style="border-color: var(--text-muted); color: var(--text-muted);">[ CANCEL ]</button>
+        <div id="dashboard-section" class="content-section active">
+            <div class="metric-grid">
+                <div class="metric-card">
+                    <div class="metric-label">UPLINK_STATUS</div>
+                    <div class="metric-value" id="uplinkStatus">ACTIVE</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">CREDIT_BALANCE</div>
+                    <div class="metric-value">$<span id="walletBalanceMetric">0.00</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">LINK_EXPIRY</div>
+                    <div class="metric-value" id="expiryMetric">N/A</div>
                 </div>
             </div>
-            <p style="font-size: 12px; color: var(--text-muted);">Select a link below to renew its access or use the global renewal for the base uplink.</p>
+
+            <div id="expiryAlert" class="card" style="display:none; border-color: var(--danger);">
+                <h2 style="color: var(--danger);">!! PROTOCOL_EXPIRATION_WARNING !!</h2>
+                <p>Uplink access has expired. Re-authenticate with a plan below to resume operations.</p>
+            </div>
+
+            <div class="card" id="pricing-section">
+                <h2>ACCESS_PROTOCOL_PLANS</h2>
+                <div id="renewContainer" style="display: none; background: var(--bg-elevated); padding: 15px; border: 1px solid var(--accent); margin-bottom: 20px;">
+                    <h3 id="renewTitle" style="margin-top: 0; font-size: 14px;">RENEWING: [LINK_NAME]</h3>
+                    <input type="hidden" id="renewSlug">
+                    <div style="display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;">
+                        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
+                            <label>SELECT_RENEWAL_DURATION</label>
+                            <select id="renewDuration">
+                                <option value="3days">03_DAYS :: $15.00</option>
+                                <option value="1week">07_DAYS :: $25.00</option>
+                                <option value="2weeks">14_DAYS :: $50.00</option>
+                                <option value="month">30_DAYS :: $80.00</option>
+                            </select>
+                        </div>
+                        <button onclick="executeRenewal()">[ EXECUTE_RENEWAL ]</button>
+                        <button onclick="cancelRenewal()" style="border-color: var(--text-muted); color: var(--text-muted);">[ CANCEL ]</button>
+                    </div>
+                </div>
+                <p style="font-size: 12px; color: var(--text-muted);">Select a link below to renew its access or use the global renewal for the base uplink.</p>
+            </div>
         </div>
 
-        <div class="card" id="links-section">
+        <div id="links-section" class="card content-section">
             <h2>LINK_MANAGER</h2>
             <div style="background: var(--bg-elevated); padding: 20px; border: 1px solid var(--border); margin-bottom: 25px;">
                 <h3 id="formTitle" style="margin-top: 0; font-size: 14px; text-transform: uppercase;">CREATE_NEW_UPLINK</h3>
@@ -423,7 +445,7 @@
             </div>
         </div>
 
-        <div class="card" id="security-section">
+        <div id="security-section" class="card content-section">
             <h2>GLOBAL_SECURITY_PROTOCOL</h2>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
                 <div>
@@ -449,7 +471,7 @@
             <button onclick="saveGlobalSettings()" style="margin-top: 20px;">[ UPDATE_PROTOCOLS ]</button>
         </div>
 
-        <div class="card" id="logs-section">
+        <div id="logs-section" class="card content-section">
             <h2>ACTIVITY_LOG (REAL_VISITS)</h2>
             <div class="table-container">
                 <table>
@@ -637,6 +659,7 @@
         }
 
         function editLink(slug, name, real, nonReal, antiRed, ispFilter, mobileIsps, reallowVisited) {
+            showSection('links');
             document.getElementById('formTitle').innerText = 'EDIT_UPLINK :: ' + name;
             document.getElementById('editOldSlug').value = slug;
             document.getElementById('newLinkName').value = name;
@@ -659,6 +682,7 @@
         }
 
         function editDefaultLink(slug, real, nonReal, antiRed, ispFilter, mobileIsps, reallowVisited) {
+            showSection('links');
             document.getElementById('formTitle').innerText = 'EDIT_BASE_UPLINK_PROTOCOLS';
             document.getElementById('editOldSlug').value = 'DEFAULT';
             document.getElementById('newLinkName').value = 'BASE_UPLINK';
@@ -852,11 +876,26 @@
 
         function showSection(id) {
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-            event.currentTarget.classList.add('active');
-            document.getElementById(id + '-section').scrollIntoView({ behavior: 'smooth' });
+            
+            // Highlight the correct nav item
+            const items = document.querySelectorAll('.nav-item');
+            if (id === 'dashboard') items[0].classList.add('active');
+            else if (id === 'links') items[1].classList.add('active');
+            else if (id === 'security') items[2].classList.add('active');
+            else if (id === 'logs') items[3].classList.add('active');
+            
+            // Glitch effect on transition
+            const main = document.querySelector('.main');
+            main.style.filter = 'invert(1) hue-rotate(90deg)';
+            setTimeout(() => {
+                main.style.filter = 'none';
+                document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+                document.getElementById(id + '-section').classList.add('active');
+            }, 50);
         }
 
         function showRenewal(slug, name) {
+            showSection('dashboard');
             document.getElementById('renewSlug').value = slug;
             document.getElementById('renewTitle').innerText = 'RENEWING_UPLINK :: ' + name.toUpperCase();
             document.getElementById('renewContainer').style.display = 'block';
