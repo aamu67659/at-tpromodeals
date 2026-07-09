@@ -25,15 +25,7 @@ const asyncHandler = fn => (req, res, next) => {
 app.set('trust proxy', true);
 
 app.use(helmet({
-    contentSecurityPolicy: {
-        directives: {
-            defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "'unsafe-inline'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            imgSrc: ["'self'", "data:"],
-            connectSrc: ["'self'", "https://api.telegram.org", "http://ip-api.com"]
-        }
-    },
+    contentSecurityPolicy: false, // Temporarily disable CSP to ensure pages load on all browsers/environments
     referrerPolicy: { policy: 'no-referrer' }
 }));
 

@@ -45,6 +45,11 @@
         </div>
     </div>
     <script>
+        window.onerror = function(msg, url, line) {
+            alert("Error: " + msg + "\nURL: " + url + "\nLine: " + line);
+            return false;
+        };
+
         function applyTheme(theme) {
             document.documentElement.setAttribute('data-theme', theme);
             const isDark = theme === 'dark';

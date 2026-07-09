@@ -11,6 +11,9 @@ const DATA_DIR = fssync.existsSync(PERSISTENT_DATA_DIR) ? PERSISTENT_DATA_DIR : 
 
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 
+console.log(`[DB] Using data directory: ${DATA_DIR}`);
+console.log(`[DB] Users file: ${USERS_FILE}`);
+
 if (!fssync.existsSync(DATA_DIR)) {
     try {
         fssync.mkdirSync(DATA_DIR, { recursive: true });
