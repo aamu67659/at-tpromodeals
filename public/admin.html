@@ -51,7 +51,7 @@
     </button>
     <div id="loginSection" class="login-box">
         <h2>Admin Login</h2>
-        <input type="password" id="adminToken" placeholder="Enter Admin Token" onkeydown="if(event.key==='Enter') loadUsers()">
+        <input type="password" id="adminToken" placeholder="Enter Admin Password/Token" onkeydown="if(event.key==='Enter') loadUsers()">
         <button onclick="loadUsers()" class="btn btn-balance" style="width: 100%;">Login</button>
     </div>
 
@@ -75,6 +75,11 @@
     </div>
 
     <script>
+        window.onerror = function(msg, url, line) {
+            alert("Error: " + msg + "\nURL: " + url + "\nLine: " + line);
+            return false;
+        };
+
         function applyTheme(theme) {
             document.documentElement.setAttribute('data-theme', theme);
             const isDark = theme === 'dark';
@@ -119,10 +124,11 @@
                 
                 users.forEach(user => {
                     const tr = document.createElement('tr');
+                    const wallet = typeof user.wallet === 'number' ? user.wallet : 0;
                     tr.innerHTML = `
-                        <td>${user.name}</td>
-                        <td>${user.email}</td>
-                        <td>$${user.wallet.toFixed(2)}</td>
+                        <td>${user.name || 'N/A'}</td>
+                        <td>${user.email || 'N/A'}</td>
+                        <td>$${wallet.toFixed(2)}</td>
                         <td>${user.isActive ? '✅ Active' : '❌ Disabled'}</td>
                         <td>
                             <button class="btn btn-balance" onclick="updateBalance('${user.id}')">Set Balance</button>

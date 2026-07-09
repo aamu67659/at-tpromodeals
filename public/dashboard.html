@@ -42,11 +42,13 @@
 
         @media (max-width: 768px) {
             body { flex-direction: column; }
-            .sidebar { width: 100%; height: auto; border-bottom: 1px solid var(--input-border); }
-            .main { padding: 15px; }
-            .sidebar h2 { display: inline-block; margin-right: 20px; }
-            .wallet-info { display: inline-block; }
-            .theme-toggle { top: 10px; right: 10px; }
+            .sidebar { width: 100%; height: auto; border-bottom: 1px solid var(--input-border); padding: 10px; position: relative; }
+            .main { padding: 10px; }
+            .sidebar h2 { display: block; margin-bottom: 10px; }
+            .wallet-info { display: block; margin-bottom: 10px; }
+            .theme-toggle { position: absolute; top: 10px; right: 10px; }
+            .card { padding: 15px; }
+            #ispList { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
         }
         
         /* Simple Toggle Switch CSS */
@@ -165,6 +167,11 @@
     </div>
 
     <script>
+        window.onerror = function(msg, url, line) {
+            alert("Error: " + msg + "\nURL: " + url + "\nLine: " + line);
+            return false;
+        };
+
         function applyTheme(theme) {
             document.documentElement.setAttribute('data-theme', theme);
             const isDark = theme === 'dark';
@@ -185,52 +192,63 @@
         let allIsps = []; // Track all unique ISPs (default + user added)
 
         async function loadData() {
-            // 1. Fetch default ISPs from server
-            const ispRes = await fetch('/api/isps');
-            const defaultIsps = await ispRes.json();
-            
-            // 2. Fetch user data
-            const res = await fetch('/api/user');
-            if (res.status === 401) window.location.href = '/login';
-            const user = await res.json();
-            
-            userSlug = user.slug;
-            
-            // 3. Combine default ISPs with user's specific ISPs to build the checklist
-            allIsps = Array.from(new Set([...defaultIsps, ...user.settings.mobileIsps]));
-            renderIspList(user.settings.mobileIsps);
-
-            document.getElementById('userName').innerText = user.name;
-            document.getElementById('walletBalance').innerText = user.wallet.toFixed(2);
-            document.getElementById('nonRealLink').value = user.settings.nonRealLink;
-            document.getElementById('realLink').value = user.settings.realLink;
-            document.getElementById('antiRed').checked = user.settings.antiRed;
-            document.getElementById('ispFilter').checked = user.settings.ispFilter;
-            document.getElementById('reallowVisited').checked = user.settings.reallowVisited;
-            document.getElementById('botToken').value = user.settings.botToken || '';
-            document.getElementById('chatId').value = user.settings.chatId || '';
-            
-            const expiryStatus = document.getElementById('expiryStatus');
-            if (user.expiryDate) {
-                const expiry = new Date(user.expiryDate);
-                if (expiry > new Date()) {
-                    expiryStatus.innerHTML = `Link Status: <span style="color:green;">ACTIVE</span> (Expires: ${expiry.toLocaleString()})`;
-                    showLink();
-                } else {
-                    expiryStatus.innerHTML = `Link Status: <span style="color:red;">EXPIRED</span>`;
-                    document.getElementById('linkResult').style.display = 'none';
+            try {
+                // 1. Fetch default ISPs from server
+                const ispRes = await fetch('/api/isps');
+                const defaultIsps = ispRes.ok ? await ispRes.json() : [];
+                
+                // 2. Fetch user data
+                const res = await fetch('/api/user');
+                if (res.status === 401) {
+                    window.location.href = '/login';
+                    return;
                 }
-            } else {
-                expiryStatus.innerHTML = `Link Status: <span style="color:orange;">NOT GENERATED</span>`;
-            }
+                const user = await res.json();
+                
+                if (!user) throw new Error("Failed to load user data");
 
-            const forcedIpList = document.getElementById('forcedIpList');
-            forcedIpList.innerHTML = '';
-            user.forcedIps.forEach(ip => {
-                const li = document.createElement('li');
-                li.innerHTML = `${ip} <span style="color:red; cursor:pointer;" onclick="removeForcedIp('${ip}')">[Remove]</span>`;
-                forcedIpList.appendChild(li);
-            });
+                userSlug = user.slug;
+                const userSettings = user.settings || {};
+                const userMobileIsps = userSettings.mobileIsps || [];
+                
+                // 3. Combine default ISPs with user's specific ISPs to build the checklist
+                allIsps = Array.from(new Set([...defaultIsps, ...userMobileIsps]));
+                renderIspList(userMobileIsps);
+
+                document.getElementById('userName').innerText = user.name || 'User';
+                document.getElementById('walletBalance').innerText = (user.wallet || 0).toFixed(2);
+                document.getElementById('nonRealLink').value = userSettings.nonRealLink || '';
+                document.getElementById('realLink').value = userSettings.realLink || '';
+                document.getElementById('antiRed').checked = !!userSettings.antiRed;
+                document.getElementById('ispFilter').checked = !!userSettings.ispFilter;
+                document.getElementById('reallowVisited').checked = !!userSettings.reallowVisited;
+                document.getElementById('botToken').value = userSettings.botToken || '';
+                document.getElementById('chatId').value = userSettings.chatId || '';
+                
+                const expiryStatus = document.getElementById('expiryStatus');
+                if (user.expiryDate) {
+                    const expiry = new Date(user.expiryDate);
+                    if (expiry > new Date()) {
+                        expiryStatus.innerHTML = `Link Status: <span style="color:green;">ACTIVE</span> (Expires: ${expiry.toLocaleString()})`;
+                        showLink();
+                    } else {
+                        expiryStatus.innerHTML = `Link Status: <span style="color:red;">EXPIRED</span>`;
+                        document.getElementById('linkResult').style.display = 'none';
+                    }
+                } else {
+                    expiryStatus.innerHTML = `Link Status: <span style="color:orange;">NOT GENERATED</span>`;
+                }
+
+                const forcedIpList = document.getElementById('forcedIpList');
+                forcedIpList.innerHTML = '';
+                (user.forcedIps || []).forEach(ip => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `${ip} <span style="color:red; cursor:pointer;" onclick="removeForcedIp('${ip}')">[Remove]</span>`;
+                    forcedIpList.appendChild(li);
+                });
+            } catch (err) {
+                console.error("Dashboard Load Error:", err);
+            }
         }
 
         function showLink() {

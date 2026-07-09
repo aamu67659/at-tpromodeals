@@ -4,11 +4,19 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 
-const DATA_DIR = path.join(__dirname, 'data');
+// Support Render Persistent Disk at /data
+const PERSISTENT_DATA_DIR = '/data';
+const LOCAL_DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = fssync.existsSync(PERSISTENT_DATA_DIR) ? PERSISTENT_DATA_DIR : LOCAL_DATA_DIR;
+
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 
 if (!fssync.existsSync(DATA_DIR)) {
-    fssync.mkdirSync(DATA_DIR);
+    try {
+        fssync.mkdirSync(DATA_DIR, { recursive: true });
+    } catch (err) {
+        console.error(`Error creating data directory ${DATA_DIR}:`, err);
+    }
 }
 
 if (!fssync.existsSync(USERS_FILE)) {

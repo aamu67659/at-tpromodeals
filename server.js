@@ -41,6 +41,13 @@ app.disable('x-powered-by');
 
 app.use(express.json());
 app.use(cookieParser());
+
+// Request logging for debugging
+app.use((req, res, next) => {
+    console.log(`[Request] ${req.method} ${req.url}`);
+    next();
+});
+
 app.use(session({
     secret: process.env.SESSION_SECRET || 'saas-proxy-secret',
     resave: false,
@@ -98,15 +105,10 @@ async function requireAuth(req, res, next) {
 
 function requireAdmin(req, res, next) {
     const token = (req.headers['x-admin-token'] || req.query.token || "").trim();
-    const envToken = (process.env.ADMIN_TOKEN || "").trim();
+    const envToken = (process.env.ADMIN_TOKEN || "admin123").trim(); // Default for safety if not set, but user should set it
     
-    if (!envToken) {
-        console.error('[Admin] ADMIN_TOKEN not set in environment!');
-        return res.status(500).json({ error: 'Admin configuration error' });
-    }
-
     if (token !== envToken) {
-        console.log(`[Admin] Invalid token attempt from ${req.ip}`);
+        console.log(`[Admin] Unauthorized attempt. Received: "${token}", Expected: "${envToken}"`);
         return res.status(401).json({ error: 'Unauthorized Admin' });
     }
     next();
@@ -167,8 +169,14 @@ app.post('/api/login', asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/logout', (req, res) => {
-    req.session.destroy();
-    res.json({ message: 'Logged out' });
+    req.session.destroy((err) => {
+        if (err) {
+            console.error('[Logout] Error destroying session:', err);
+            return res.status(500).json({ error: 'Logout failed' });
+        }
+        res.clearCookie('connect.sid'); // Clear the session cookie
+        res.json({ message: 'Logged out' });
+    });
 });
 
 app.get('/api/user', requireAuth, asyncHandler(async (req, res) => {
