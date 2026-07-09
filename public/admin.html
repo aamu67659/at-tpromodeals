@@ -51,7 +51,7 @@
     </button>
     <div id="loginSection" class="login-box">
         <h2>Admin Login</h2>
-        <input type="password" id="adminToken" placeholder="Enter Admin Token">
+        <input type="password" id="adminToken" placeholder="Enter Admin Token" onkeydown="if(event.key==='Enter') loadUsers()">
         <button onclick="loadUsers()" class="btn btn-balance" style="width: 100%;">Login</button>
     </div>
 

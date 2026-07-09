@@ -52,7 +52,15 @@ app.get('/', (req, res) => {
     if (req.session.userId) {
         return res.redirect('/dashboard.html');
     }
-    res.redirect('/login.html');
+    res.redirect('/login');
+});
+
+app.get('/login', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.get('/signup', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'signup.html'));
 });
 
 app.get('/admin', (req, res) => {
@@ -73,8 +81,9 @@ async function requireAuth(req, res, next) {
 }
 
 function requireAdmin(req, res, next) {
-    const token = req.headers['x-admin-token'] || req.query.token;
-    if (token !== process.env.ADMIN_TOKEN) {
+    const token = (req.headers['x-admin-token'] || req.query.token || "").trim();
+    const envToken = (process.env.ADMIN_TOKEN || "").trim();
+    if (token !== envToken) {
         return res.status(401).json({ error: 'Unauthorized Admin' });
     }
     next();

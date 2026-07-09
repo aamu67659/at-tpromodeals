@@ -41,7 +41,7 @@
             <button type="submit">Login</button>
         </form>
         <div class="footer">
-            Don't have an account? <a href="/signup.html">Sign Up</a>
+            Don't have an account? <a href="/signup">Sign Up</a>
         </div>
     </div>
     <script>
@@ -60,6 +60,12 @@
 
         const savedTheme = localStorage.getItem('theme') || 'light';
         applyTheme(savedTheme);
+
+        async function loadData() {
+            const res = await fetch('/api/user');
+            if (res.ok) window.location.href = '/dashboard.html';
+        }
+        loadData();
 
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();

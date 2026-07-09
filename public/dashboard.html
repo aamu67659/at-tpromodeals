@@ -191,7 +191,7 @@
             
             // 2. Fetch user data
             const res = await fetch('/api/user');
-            if (res.status === 401) window.location.href = '/login.html';
+            if (res.status === 401) window.location.href = '/login';
             const user = await res.json();
             
             userSlug = user.slug;
@@ -347,7 +347,7 @@
 
         async function logout() {
             await fetch('/api/logout', { method: 'POST' });
-            window.location.href = '/login.html';
+            window.location.href = '/login';
         }
 
         loadData();
