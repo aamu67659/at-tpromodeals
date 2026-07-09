@@ -14,6 +14,14 @@ const db = require('./db');
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Error handling wrapper for async routes
+const asyncHandler = fn => (req, res, next) => {
+    return Promise.resolve(fn(req, res, next)).catch((err) => {
+        console.error(`[Error] ${req.method} ${req.url}:`, err);
+        res.status(500).json({ error: 'Internal Server Error', details: err.message });
+    });
+};
+
 app.set('trust proxy', true);
 
 app.use(helmet({
@@ -69,52 +77,67 @@ app.get('/admin', (req, res) => {
 
 // --- Authentication Middleware ---
 async function requireAuth(req, res, next) {
-    if (!req.session.userId) {
-        return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        if (!req.session.userId) {
+            console.log(`[Auth] Unauthorized access to ${req.url}`);
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        const user = await db.findUserById(req.session.userId);
+        if (!user) {
+            console.log(`[Auth] User not found for session ${req.session.userId}`);
+            req.session.destroy();
+            return res.status(401).json({ error: 'User not found' });
+        }
+        req.user = user;
+        next();
+    } catch (err) {
+        console.error('[Auth] Middleware Error:', err);
+        res.status(500).json({ error: 'Auth middleware error' });
     }
-    const user = await db.findUserById(req.session.userId);
-    if (!user) {
-        req.session.destroy();
-        return res.status(401).json({ error: 'User not found' });
-    }
-    next();
 }
 
 function requireAdmin(req, res, next) {
     const token = (req.headers['x-admin-token'] || req.query.token || "").trim();
     const envToken = (process.env.ADMIN_TOKEN || "").trim();
+    
+    if (!envToken) {
+        console.error('[Admin] ADMIN_TOKEN not set in environment!');
+        return res.status(500).json({ error: 'Admin configuration error' });
+    }
+
     if (token !== envToken) {
+        console.log(`[Admin] Invalid token attempt from ${req.ip}`);
         return res.status(401).json({ error: 'Unauthorized Admin' });
     }
     next();
 }
 
 // --- Admin Routes ---
-app.get('/api/admin/users', requireAdmin, async (req, res) => {
+app.get('/api/admin/users', requireAdmin, asyncHandler(async (req, res) => {
     const users = await db.getUsers();
     res.json(users.map(({ password, ...u }) => u));
-});
+}));
 
-app.post('/api/admin/update-balance', requireAdmin, async (req, res) => {
+app.post('/api/admin/update-balance', requireAdmin, asyncHandler(async (req, res) => {
     const { userId, amount } = req.body;
     const user = await db.findUserById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     
     const updatedUser = await db.updateUser(userId, { wallet: parseFloat(amount) });
     res.json(updatedUser);
-});
+}));
 
-app.post('/api/admin/toggle-status', requireAdmin, async (req, res) => {
+app.post('/api/admin/toggle-status', requireAdmin, asyncHandler(async (req, res) => {
     const { userId } = req.body;
     const user = await db.findUserById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     
     const updatedUser = await db.updateUser(userId, { isActive: !user.isActive });
     res.json(updatedUser);
-});
+}));
 
 // --- Auth Routes ---
-app.post('/api/signup', async (req, res) => {
+app.post('/api/signup', asyncHandler(async (req, res) => {
     const { name, email, telegram, password } = req.body;
     if (!name || !email || !telegram || !password) {
         return res.status(400).json({ error: 'All fields are required' });
@@ -127,85 +150,82 @@ app.post('/api/signup', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await db.createUser({ name, email, telegram, password: hashedPassword });
+    console.log(`[Signup] New user registered: ${email}`);
     res.json({ message: 'Signup successful' });
-});
+}));
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', asyncHandler(async (req, res) => {
     const { email, password } = req.body;
     const user = await db.findUserByEmail(email);
     if (!user || !(await bcrypt.compare(password, user.password))) {
+        console.log(`[Login] Failed login attempt for ${email}`);
         return res.status(401).json({ error: 'Invalid credentials' });
     }
     req.session.userId = user.id;
+    console.log(`[Login] User logged in: ${email}`);
     res.json({ message: 'Login successful' });
-});
+}));
 
 app.post('/api/logout', (req, res) => {
     req.session.destroy();
     res.json({ message: 'Logged out' });
 });
 
-app.get('/api/user', requireAuth, async (req, res) => {
-    const user = await db.findUserById(req.session.userId);
-    const { password, ...userWithoutPassword } = user;
+app.get('/api/user', requireAuth, asyncHandler(async (req, res) => {
+    const { password, ...userWithoutPassword } = req.user;
     res.json(userWithoutPassword);
-});
+}));
 
 // --- Settings & Wallet Routes ---
-app.post('/api/settings', requireAuth, async (req, res) => {
-    const user = await db.findUserById(req.session.userId);
-    const updatedUser = await db.updateUser(user.id, {
-        settings: { ...user.settings, ...req.body }
+app.post('/api/settings', requireAuth, asyncHandler(async (req, res) => {
+    const updatedUser = await db.updateUser(req.user.id, {
+        settings: { ...req.user.settings, ...req.body }
     });
     res.json(updatedUser.settings);
-});
+}));
 
-app.post('/api/topup', requireAuth, async (req, res) => {
+app.post('/api/topup', requireAuth, asyncHandler(async (req, res) => {
     const { amount } = req.body;
-    const user = await db.findUserById(req.session.userId);
-    const updatedUser = await db.updateUser(user.id, {
-        wallet: user.wallet + amount
+    const updatedUser = await db.updateUser(req.user.id, {
+        wallet: req.user.wallet + amount
     });
     res.json({ balance: updatedUser.wallet });
-});
+}));
 
-app.post('/api/forced-ips', requireAuth, async (req, res) => {
+app.post('/api/forced-ips', requireAuth, asyncHandler(async (req, res) => {
     const { ip } = req.body;
-    const user = await db.findUserById(req.session.userId);
-    if (!user.forcedIps.includes(ip)) {
-        await db.updateUser(user.id, { forcedIps: [...user.forcedIps, ip] });
+    if (!req.user.forcedIps.includes(ip)) {
+        await db.updateUser(req.user.id, { forcedIps: [...req.user.forcedIps, ip] });
     }
     res.json({ message: 'IP added' });
-});
+}));
 
-app.delete('/api/forced-ips/:ip', requireAuth, async (req, res) => {
+app.delete('/api/forced-ips/:ip', requireAuth, asyncHandler(async (req, res) => {
     const { ip } = req.params;
-    const user = await db.findUserById(req.session.userId);
-    await db.updateUser(user.id, { forcedIps: user.forcedIps.filter(i => i !== ip) });
+    await db.updateUser(req.user.id, { forcedIps: req.user.forcedIps.filter(i => i !== ip) });
     res.json({ message: 'IP removed' });
-});
+}));
 
-app.post('/api/generate-link', requireAuth, async (req, res) => {
+app.post('/api/generate-link', requireAuth, asyncHandler(async (req, res) => {
     const { duration } = req.body; // '1week', '2weeks', 'month'
     const prices = { '1week': 25, '2weeks': 50, 'month': 75 };
     const price = prices[duration];
 
     if (!price) return res.status(400).json({ error: 'Invalid duration' });
 
-    const user = await db.findUserById(req.session.userId);
-    if (user.wallet < price) {
+    if (req.user.wallet < price) {
         return res.status(400).json({ error: 'Insufficient wallet balance' });
     }
 
     const now = new Date();
-    let expiry = new Date(user.expiryDate && new Date(user.expiryDate) > now ? user.expiryDate : now);
+    let expiry = new Date(req.user.expiryDate && new Date(req.user.expiryDate) > now ? req.user.expiryDate : now);
     
     if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
     else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);
     else if (duration === 'month') expiry.setMonth(expiry.getMonth() + 1);
 
-    const updatedUser = await db.updateUser(user.id, {
-        wallet: user.wallet - price,
+    const updatedUser = await db.updateUser(req.user.id, {
+        wallet: req.user.wallet - price,
         expiryDate: expiry.toISOString()
     });
 
@@ -214,7 +234,7 @@ app.post('/api/generate-link', requireAuth, async (req, res) => {
         expiryDate: updatedUser.expiryDate,
         balance: updatedUser.wallet 
     });
-});
+}));
 
 app.get('/api/isps', (req, res) => {
     const isps = (process.env.MOBILE_ISPS || "").split(',').map(isp => isp.trim()).filter(isp => isp !== "");
