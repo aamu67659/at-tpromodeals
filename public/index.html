@@ -13,19 +13,7 @@
 <body>
     <div class="loader"></div>
     <script>
-        async function init() {
-            try {
-                // Use relative path so it works on the same service
-                const response = await fetch('/init');
-                const data = await response.json();
-                if (data.redirect) {
-                    window.location.href = data.redirect;
-                }
-            } catch (error) {
-                console.error('Initialization failed');
-            }
-        }
-        init();
+        window.location.href = '/login.html';
     </script>
 </body>
 </html>

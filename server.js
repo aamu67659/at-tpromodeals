@@ -48,14 +48,26 @@ app.use(cors({
 
 app.use(express.static('public'));
 
+app.get('/', (req, res) => {
+    if (req.session.userId) {
+        return res.redirect('/dashboard.html');
+    }
+    res.redirect('/login.html');
+});
+
 app.get('/admin', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
 // --- Authentication Middleware ---
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
     if (!req.session.userId) {
         return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const user = await db.findUserById(req.session.userId);
+    if (!user) {
+        req.session.destroy();
+        return res.status(401).json({ error: 'User not found' });
     }
     next();
 }
