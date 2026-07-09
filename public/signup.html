@@ -1,72 +1,347 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Sign Up - SaaS Proxy</title>
+    <title>OPERATIVE REGISTRATION - SaaS Proxy</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #f0f2f5;
-            --card-bg: white;
-            --text-color: #1c1e21;
-            --input-bg: white;
-            --input-border: #ddd;
+            --bg-base: #0a0e0a;
+            --bg-surface: #0f150f;
+            --bg-elevated: #141b14;
+            --border: #1c2b1c;
+            --text-primary: #d6ffd6;
+            --text-muted: #5f8f5f;
+            --accent: #00ff66;
+            --accent-dim: #00b34a;
+            --danger: #ff2d55;
+            --warning: #ffb000;
+            --glow: 0 0 8px rgba(0,255,102,0.6);
         }
-        [data-theme="dark"] {
-            --bg-color: #18191a;
-            --card-bg: #242526;
-            --text-color: #e4e6eb;
-            --input-bg: #3a3b3c;
-            --input-border: #3e4042;
+
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--bg-base);
+            color: var(--text-primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-x: hidden;
+            position: relative;
         }
-        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px; box-sizing: border-box; transition: background 0.3s, color 0.3s; }
-        .card { background: var(--card-bg); padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 400px; transition: background 0.3s; }
-        h2 { text-align: center; color: var(--text-color); }
-        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid var(--input-border); border-radius: 4px; box-sizing: border-box; background: var(--input-bg); color: var(--text-color); }
-        button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
-        button:hover { background: #0056b3; }
-        .footer { text-align: center; margin-top: 15px; font-size: 14px; }
-        .footer a { color: #007bff; }
-        
-        .theme-toggle { position: fixed; top: 20px; right: 20px; background: var(--card-bg); border: 1px solid var(--input-border); color: var(--text-color); padding: 8px 12px; border-radius: 20px; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+
+        /* Scanline Overlay */
+        body::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 2;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+        }
+
+        /* CRT Vignette */
+        body::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: radial-gradient(circle, rgba(10, 14, 10, 0) 60%, rgba(0, 0, 0, 0.8) 100%);
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        .terminal-window {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            width: 100%;
+            max-width: 500px;
+            position: relative;
+            z-index: 10;
+            box-shadow: var(--glow);
+            margin: 40px 0;
+        }
+
+        .title-bar {
+            background: var(--bg-elevated);
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .dots {
+            display: flex;
+            gap: 6px;
+            margin-right: 12px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--border);
+        }
+
+        .terminal-content {
+            padding: 30px;
+        }
+
+        h2 {
+            font-family: 'Share Tech Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            margin: 0 0 30px 0;
+            color: var(--accent);
+            text-shadow: var(--glow);
+            text-align: left;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        label {
+            display: block;
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-wrapper::before {
+            content: ">";
+            position: absolute;
+            left: 0;
+            color: var(--accent);
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid var(--border);
+            padding: 8px 8px 8px 20px;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            outline: none;
+            transition: border-color 0.3s;
+            font-size: 14px;
+        }
+
+        input:focus {
+            border-bottom: 1px solid var(--accent);
+        }
+
+        .strength-meter {
+            margin-top: 8px;
+            font-size: 10px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .strength-bar {
+            font-family: monospace;
+            color: var(--text-muted);
+        }
+
+        .strength-text {
+            text-transform: uppercase;
+        }
+
+        button {
+            width: 100%;
+            background: transparent;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            padding: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        button:hover {
+            background: var(--accent);
+            color: var(--bg-base);
+            box-shadow: var(--glow);
+        }
+
+        .footer {
+            margin-top: 25px;
+            font-size: 12px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        .footer a {
+            color: var(--accent);
+            text-decoration: none;
+            margin-left: 5px;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Deployment overlay */
+        #deployment-overlay {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: var(--bg-surface);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            font-size: 14px;
+        }
+
+        .progress-bar {
+            width: 240px;
+            height: 4px;
+            background: var(--bg-elevated);
+            margin-top: 15px;
+            position: relative;
+        }
+
+        .progress-fill {
+            position: absolute;
+            height: 100%;
+            background: var(--accent);
+            box-shadow: var(--glow);
+            width: 0%;
+            transition: width 0.1s;
+        }
+
+        .error-msg {
+            color: var(--danger);
+            font-size: 10px;
+            margin-top: 5px;
+            text-transform: uppercase;
+            display: none;
+        }
     </style>
 </head>
 <body>
-    <button class="theme-toggle" onclick="toggleTheme()">
-        <span id="themeIcon">🌙</span> <span id="themeText">Dark Mode</span>
-    </button>
-    <div class="card">
-        <h2>Create Account</h2>
-        <form id="signupForm">
-            <input type="text" id="name" placeholder="Full Name" required>
-            <input type="email" id="email" placeholder="Email Address" required>
-            <input type="text" id="telegram" placeholder="Telegram Username" required>
-            <input type="password" id="password" placeholder="Password" required>
-            <button type="submit">Sign Up</button>
-        </form>
-        <div class="footer">
-            Already have an account? <a href="/login">Login</a>
+    <div class="terminal-window">
+        <div class="title-bar">
+            <div class="dots">
+                <div class="dot"></div>
+                <div class="dot"></div>
+                <div class="dot"></div>
+            </div>
+            <span>root@darknet:~$ ./register-operative</span>
+        </div>
+        <div class="terminal-content">
+            <div id="deployment-overlay">
+                <div>DEPLOYING_IDENTITY_TO_GRID...</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+            </div>
+            <h2>REGISTER NEW OPERATIVE</h2>
+            <form id="signupForm">
+                <div class="form-group">
+                    <label>OPERATIVE_HANDLE</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="name" required spellcheck="false" autocomplete="off" placeholder="full name">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>COMM_LINK_EMAIL</label>
+                    <div class="input-wrapper">
+                        <input type="email" id="email" required spellcheck="false" autocomplete="off" placeholder="email@address.net">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>TELEGRAM_UPLINK</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="telegram" required spellcheck="false" autocomplete="off" placeholder="@username">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>ENCRYPTION_KEY_PASSWORD</label>
+                    <div class="input-wrapper">
+                        <input type="password" id="password" required oninput="updateStrength(this.value)">
+                    </div>
+                    <div class="strength-meter" id="strength-meter" style="display: none;">
+                        <span class="strength-bar" id="strength-bar">[□□□□□□□□]</span>
+                        <span class="strength-text" id="strength-text">ENCRYPTION: NONE</span>
+                    </div>
+                </div>
+                <button type="submit">[ DEPLOY_IDENTITY ]</button>
+            </form>
+            <div class="footer">
+                ALREADY ENLISTED?<a href="/login">RETURN_TO_TERMINAL</a>
+            </div>
         </div>
     </div>
+
     <script>
-        window.onerror = function(msg, url, line) {
-            alert("Error: " + msg + "\nURL: " + url + "\nLine: " + line);
-            return false;
-        };
+        function updateStrength(val) {
+            const meter = document.getElementById('strength-meter');
+            const bar = document.getElementById('strength-bar');
+            const text = document.getElementById('strength-text');
+            
+            if (!val) {
+                meter.style.display = 'none';
+                return;
+            }
+            meter.style.display = 'flex';
+            
+            let score = 0;
+            if (val.length > 6) score++;
+            if (val.length > 10) score++;
+            if (/[A-Z]/.test(val)) score++;
+            if (/[0-9]/.test(val)) score++;
+            if (/[^A-Za-z0-9]/.test(val)) score++;
 
-        function applyTheme(theme) {
-            document.documentElement.setAttribute('data-theme', theme);
-            const isDark = theme === 'dark';
-            document.getElementById('themeIcon').innerText = isDark ? '☀️' : '🌙';
-            document.getElementById('themeText').innerText = isDark ? 'Light Mode' : 'Dark Mode';
-            localStorage.setItem('theme', theme);
+            let bars = '';
+            let label = '';
+            let color = 'var(--text-muted)';
+
+            if (score <= 2) {
+                bars = '[■■□□□□□□]';
+                label = 'ENCRYPTION: WEAK';
+                color = 'var(--danger)';
+            } else if (score <= 4) {
+                bars = '[■■■■■□□□]';
+                label = 'ENCRYPTION: MEDIUM';
+                color = 'var(--warning)';
+            } else {
+                bars = '[■■■■■■■■]';
+                label = 'ENCRYPTION: STRONG';
+                color = 'var(--accent)';
+            }
+
+            bar.innerText = bars;
+            text.innerText = label;
+            text.style.color = color;
         }
-
-        function toggleTheme() {
-            const current = document.documentElement.getAttribute('data-theme');
-            applyTheme(current === 'dark' ? 'light' : 'dark');
-        }
-
-        const savedTheme = localStorage.getItem('theme') || 'light';
-        applyTheme(savedTheme);
 
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -75,20 +350,49 @@
             const telegram = document.getElementById('telegram').value;
             const password = document.getElementById('password').value;
 
-            const res = await fetch('/api/signup', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, email, telegram, password })
-            });
+            // Show deployment overlay
+            const overlay = document.getElementById('deployment-overlay');
+            const progress = document.getElementById('progress-fill');
+            overlay.style.display = 'flex';
+            
+            let width = 0;
+            const interval = setInterval(() => {
+                width += Math.random() * 8;
+                if (width >= 100) {
+                    width = 100;
+                    clearInterval(interval);
+                }
+                progress.style.width = width + '%';
+            }, 50);
 
-            const data = await res.json();
-            if (res.ok) {
-                alert('Signup successful! Please login.');
-                window.location.href = '/login';
-            } else {
-                alert(data.error);
+            try {
+                const res = await fetch('/api/signup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email, telegram, password })
+                });
+
+                const data = await res.json();
+                
+                setTimeout(() => {
+                    if (res.ok) {
+                        alert('IDENTITY_DEPLOYED_SUCCESSFULLY. PROCEED_TO_TERMINAL.');
+                        window.location.href = '/login';
+                    } else {
+                        overlay.style.display = 'none';
+                        alert("!! ERROR: " + (data.error || "IDENTITY_COMPROMISED"));
+                    }
+                }, 1000);
+            } catch (err) {
+                overlay.style.display = 'none';
+                alert("!! ERROR: GRID_CONNECTION_INTERRUPTED");
             }
         });
+
+        window.onerror = function(msg, url, line) {
+            console.error("!! SYSTEM_ERROR: " + msg + " at " + line);
+            return false;
+        };
     </script>
 </body>
 </html>

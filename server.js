@@ -205,23 +205,38 @@ app.get('/api/links', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/links', requireAuth, asyncHandler(async (req, res) => {
-    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited } = req.body;
+    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, duration } = req.body;
+    
+    const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
+    const price = prices[duration];
+
+    if (!price) return res.status(400).json({ error: 'Invalid duration selected' });
+
+    if (req.user.wallet < price) {
+        return res.status(400).json({ error: `Insufficient credits. This plan requires $${price.toFixed(2)}.` });
+    }
+
     if (!name || !realLink || !nonRealLink) {
         return res.status(400).json({ error: 'Name, Real Link, and Safe Link are required' });
     }
 
     const newSlug = slug || require('crypto').randomBytes(4).toString('hex');
     
-    // Validate slug (alphanumeric and dashes only)
     if (slug && !/^[a-zA-Z0-9-]+$/.test(slug)) {
         return res.status(400).json({ error: 'Slug can only contain letters, numbers, and dashes' });
     }
 
-    // Check if slug is already taken
     const existing = await db.findUserBySlug(newSlug);
     if (existing) {
         return res.status(400).json({ error: 'Slug already in use' });
     }
+
+    const now = new Date();
+    let expiry = new Date(now);
+    if (duration === '3days') expiry.setDate(expiry.getDate() + 3);
+    else if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
+    else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);
+    else if (duration === 'month') expiry.setMonth(expiry.getMonth() + 1);
 
     const newLink = {
         id: require('uuid').v4(),
@@ -233,14 +248,16 @@ app.post('/api/links', requireAuth, asyncHandler(async (req, res) => {
         ispFilter: ispFilter !== undefined ? ispFilter : true,
         mobileIsps: mobileIsps || req.user.settings.mobileIsps,
         reallowVisited: reallowVisited !== undefined ? reallowVisited : true,
+        expiryDate: expiry.toISOString(),
         createdAt: new Date().toISOString()
     };
 
     const updatedUser = await db.updateUser(req.user.id, {
+        wallet: req.user.wallet - price,
         links: [...(req.user.links || []), newLink]
     });
 
-    res.json(newLink);
+    res.json({ ...newLink, balance: updatedUser.wallet });
 }));
 
 app.delete('/api/links/:slug', requireAuth, asyncHandler(async (req, res) => {
@@ -298,34 +315,56 @@ app.delete('/api/forced-ips/:ip', requireAuth, asyncHandler(async (req, res) => 
     res.json({ message: 'IP removed' });
 }));
 
-app.post('/api/generate-link', requireAuth, asyncHandler(async (req, res) => {
-    const { duration } = req.body; // '1week', '2weeks', 'month'
-    const prices = { '1week': 25, '2weeks': 50, 'month': 75 };
+app.post('/api/renew-link', requireAuth, asyncHandler(async (req, res) => {
+    const { slug, duration } = req.body;
+    const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
     const price = prices[duration];
 
-    if (!price) return res.status(400).json({ error: 'Invalid duration' });
+    if (!price) return res.status(400).json({ error: 'Invalid duration selected' });
 
     if (req.user.wallet < price) {
-        return res.status(400).json({ error: 'Insufficient wallet balance' });
+        return res.status(400).json({ error: `Insufficient credits. This plan requires $${price.toFixed(2)}.` });
     }
 
     const now = new Date();
-    let expiry = new Date(req.user.expiryDate && new Date(req.user.expiryDate) > now ? req.user.expiryDate : now);
     
-    if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
+    // Check if it's the default link
+    if (slug === req.user.slug) {
+        let expiry = new Date(req.user.expiryDate && new Date(req.user.expiryDate) > now ? req.user.expiryDate : now);
+        if (duration === '3days') expiry.setDate(expiry.getDate() + 3);
+        else if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
+        else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);
+        else if (duration === 'month') expiry.setMonth(expiry.getMonth() + 1);
+
+        const updatedUser = await db.updateUser(req.user.id, {
+            wallet: req.user.wallet - price,
+            expiryDate: expiry.toISOString()
+        });
+
+        return res.json({ message: 'Default uplink extended', expiryDate: updatedUser.expiryDate, balance: updatedUser.wallet });
+    }
+
+    // Check custom links
+    const links = req.user.links || [];
+    const index = links.findIndex(l => l.slug === slug);
+    if (index === -1) return res.status(404).json({ error: 'Uplink not found' });
+
+    let currentExpiry = links[index].expiryDate;
+    let expiry = new Date(currentExpiry && new Date(currentExpiry) > now ? currentExpiry : now);
+    
+    if (duration === '3days') expiry.setDate(expiry.getDate() + 3);
+    else if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
     else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);
     else if (duration === 'month') expiry.setMonth(expiry.getMonth() + 1);
 
+    links[index].expiryDate = expiry.toISOString();
+
     const updatedUser = await db.updateUser(req.user.id, {
         wallet: req.user.wallet - price,
-        expiryDate: expiry.toISOString()
+        links: links
     });
 
-    res.json({ 
-        message: 'Link generated/extended successfully', 
-        expiryDate: updatedUser.expiryDate,
-        balance: updatedUser.wallet 
-    });
+    res.json({ message: 'Uplink extended', expiryDate: links[index].expiryDate, balance: updatedUser.wallet });
 }));
 
 app.get('/api/isps', (req, res) => {
@@ -342,9 +381,15 @@ function isBot(req) {
 }
 
 app.get('/l/:slug', async (req, res) => {
-    const result = await db.findUserBySlug(req.params.slug);
-    if (!result || !result.user || result.user.wallet <= 0) {
-        return res.status(404).send('Not Found or Account Inactive');
+    const slug = req.params.slug;
+    const result = await db.findUserBySlug(slug);
+    if (!result || !result.user) {
+        console.warn(`[Proxy] Slug not found: ${slug} (Full URL: ${req.originalUrl})`);
+        return res.status(404).send('Uplink Not Found. Please check your link or renew it in the dashboard.');
+    }
+    if (result.user.wallet <= 0) {
+        console.warn(`[Proxy] Inactive account for slug: ${slug}`);
+        return res.status(404).send('Account Inactive due to insufficient credits.');
     }
     return handleRedirection(result.user, req, res, result.link);
 });
@@ -367,7 +412,9 @@ async function handleRedirection(user, req, res, linkData) {
         return res.status(403).send('Account Suspended or Inactive');
     }
     
-    if (!user.expiryDate || new Date(user.expiryDate) < new Date()) {
+    // Check specific link expiry
+    const linkExpiry = linkData.expiryDate || user.expiryDate;
+    if (!linkExpiry || new Date(linkExpiry) < new Date()) {
         return res.status(403).send('Tracking Link Expired. Please renew in dashboard.');
     }
 
