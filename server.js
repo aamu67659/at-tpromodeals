@@ -321,7 +321,14 @@ async function handleRedirection(user, req, res) {
 
     // 5. Update Visited IPs
     if (!isVisited) {
-        const newVisited = [...visitedIps, { ip: clientIp, timestamp: Date.now() }];
+        const redirectType = targetUrl === settings.realLink ? 'REAL' : 'SAFE';
+        const newVisited = [...visitedIps, { 
+            ip: clientIp, 
+            timestamp: Date.now(), 
+            type: redirectType,
+            isp: data ? data.isp : 'Unknown',
+            location: data ? `${data.city}, ${data.country}` : 'Unknown'
+        }];
         await db.updateUser(user.id, { visitedIps: newVisited });
     }
 
