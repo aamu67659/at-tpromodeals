@@ -163,8 +163,9 @@
         <div class="card">
             <h2>Manage Landing Pages</h2>
             <p>Create multiple tracking links with different destinations.</p>
-            <div style="background: var(--bg-color); padding: 15px; border-radius: 4px; margin-bottom: 15px; border: 1px solid var(--input-border);">
-                <h3>Create New Link</h3>
+            <div id="linkFormContainer" style="background: var(--bg-color); padding: 15px; border-radius: 4px; margin-bottom: 15px; border: 1px solid var(--input-border);">
+                <h3 id="formTitle">Create New Link</h3>
+                <input type="hidden" id="editOldSlug">
                 <div class="form-group">
                     <label>Link Name (for your reference)</label>
                     <input type="text" id="newLinkName" placeholder="e.g. Google Promo">
@@ -181,7 +182,42 @@
                     <label>Custom Slug (Optional)</label>
                     <input type="text" id="newCustomSlug" placeholder="e.g. my-promo-123">
                 </div>
-                <button onclick="createLink()" style="background: #28a745;">Create Link</button>
+
+                <div style="background: rgba(0,0,0,0.05); padding: 15px; border-radius: 4px; margin-bottom: 15px;">
+                    <h4>Security for this link</h4>
+                    <div class="toggle-group">
+                        <label class="switch">
+                            <input type="checkbox" id="newAntiRed" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <span>Anti-Red</span>
+                    </div>
+                    <div class="toggle-group">
+                        <label class="switch">
+                            <input type="checkbox" id="newIspFilter" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <span>Mobile ISP Filter</span>
+                    </div>
+                    <div id="newLinkIspConfig" style="margin-left: 20px; margin-bottom: 10px;">
+                        <label>Allowed ISPs for this link:</label>
+                        <div id="newLinkIspList" style="margin-top: 5px; max-height: 150px; overflow-y: auto; border: 1px solid var(--input-border); padding: 10px; border-radius: 4px; background: var(--input-bg);">
+                            <!-- ISPs will be loaded here -->
+                        </div>
+                    </div>
+                    <div class="toggle-group">
+                        <label class="switch">
+                            <input type="checkbox" id="newReallowVisited" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <span>Reallow visited IP</span>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 10px;">
+                    <button id="submitLinkBtn" onclick="createLink()" style="background: #28a745;">Create Link</button>
+                    <button id="cancelEditBtn" onclick="cancelEdit()" style="background: #6c757d; display: none;">Cancel</button>
+                </div>
             </div>
 
             <div class="table-container">
@@ -270,6 +306,7 @@
                 // 3. Combine default ISPs with user's specific ISPs to build the checklist
                 allIsps = Array.from(new Set([...defaultIsps, ...userMobileIsps]));
                 renderIspList(userMobileIsps);
+                renderNewLinkIspList(userMobileIsps);
 
                 // 4. Render Links
                 renderLinksTable(user.links || [], user.slug, user.settings);
@@ -356,11 +393,106 @@
                     </td>
                     <td style="padding: 10px; border: 1px solid #ddd;">
                         ${link.isDefault ? '<span style="color: gray;">Permanent</span>' : 
-                          `<button onclick="deleteLink('${link.slug}')" style="background: #dc3545; padding: 5px 10px; font-size: 0.8em;">Delete</button>`}
+                          `<div style="display: flex; gap: 5px;">
+                            <button onclick="editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})" style="background: #ffc107; color: black; padding: 5px 10px; font-size: 0.8em;">Edit</button>
+                            <button onclick="deleteLink('${link.slug}')" style="background: #dc3545; padding: 5px 10px; font-size: 0.8em;">Delete</button>
+                           </div>`}
                     </td>
                 `;
                 tbody.appendChild(tr);
             });
+        }
+
+        function renderNewLinkIspList(selectedIsps = []) {
+            const container = document.getElementById('newLinkIspList');
+            container.innerHTML = '';
+            allIsps.sort().forEach(isp => {
+                const div = document.createElement('div');
+                div.style.display = 'flex';
+                div.style.alignItems = 'center';
+                div.style.gap = '5px';
+                
+                const isChecked = selectedIsps.includes(isp);
+                div.innerHTML = `
+                    <input type="checkbox" name="newLinkIspCheck" value="${isp}" ${isChecked ? 'checked' : ''}>
+                    <span style="font-size: 0.9em;">${isp}</span>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function getNewLinkSelectedIsps() {
+            const checks = document.querySelectorAll('input[name="newLinkIspCheck"]:checked');
+            return Array.from(checks).map(c => c.value);
+        }
+
+        function editLink(slug, name, real, nonReal, antiRed, ispFilter, mobileIsps, reallowVisited) {
+            document.getElementById('formTitle').innerText = 'Edit Link: ' + name;
+            document.getElementById('editOldSlug').value = slug;
+            document.getElementById('newLinkName').value = name;
+            document.getElementById('newRealLink').value = real;
+            document.getElementById('newNonRealLink').value = nonReal;
+            document.getElementById('newCustomSlug').value = slug;
+
+            document.getElementById('newAntiRed').checked = antiRed !== false;
+            document.getElementById('newIspFilter').checked = ispFilter !== false;
+            document.getElementById('newReallowVisited').checked = reallowVisited !== false;
+            renderNewLinkIspList(mobileIsps || []);
+            
+            document.getElementById('submitLinkBtn').innerText = 'Update Link';
+            document.getElementById('submitLinkBtn').onclick = updateLink;
+            document.getElementById('cancelEditBtn').style.display = 'inline-block';
+            document.getElementById('linkFormContainer').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function cancelEdit() {
+            document.getElementById('formTitle').innerText = 'Create New Link';
+            document.getElementById('editOldSlug').value = '';
+            document.getElementById('newLinkName').value = '';
+            document.getElementById('newRealLink').value = '';
+            document.getElementById('newNonRealLink').value = '';
+            document.getElementById('newCustomSlug').value = '';
+
+            document.getElementById('newAntiRed').checked = true;
+            document.getElementById('newIspFilter').checked = true;
+            document.getElementById('newReallowVisited').checked = true;
+            renderNewLinkIspList([]);
+            
+            document.getElementById('submitLinkBtn').innerText = 'Create Link';
+            document.getElementById('submitLinkBtn').onclick = createLink;
+            document.getElementById('cancelEditBtn').style.display = 'none';
+        }
+
+        async function updateLink() {
+            const oldSlug = document.getElementById('editOldSlug').value;
+            const name = document.getElementById('newLinkName').value.trim();
+            const realLink = document.getElementById('newRealLink').value.trim();
+            const nonRealLink = document.getElementById('newNonRealLink').value.trim();
+            const slug = document.getElementById('newCustomSlug').value.trim();
+            const antiRed = document.getElementById('newAntiRed').checked;
+            const ispFilter = document.getElementById('newIspFilter').checked;
+            const mobileIsps = getNewLinkSelectedIsps();
+            const reallowVisited = document.getElementById('newReallowVisited').checked;
+
+            if (!name || !realLink || !nonRealLink) {
+                alert('Please fill in Name, Real Link, and Safe Link');
+                return;
+            }
+
+            const res = await fetch('/api/links/' + oldSlug, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited })
+            });
+
+            if (res.ok) {
+                cancelEdit();
+                loadData();
+                alert('Link updated successfully!');
+            } else {
+                const data = await res.json();
+                alert('Error: ' + data.error);
+            }
         }
 
         function copyToClipboard(text) {
@@ -376,6 +508,10 @@
             const realLink = document.getElementById('newRealLink').value.trim();
             const nonRealLink = document.getElementById('newNonRealLink').value.trim();
             const slug = document.getElementById('newCustomSlug').value.trim();
+            const antiRed = document.getElementById('newAntiRed').checked;
+            const ispFilter = document.getElementById('newIspFilter').checked;
+            const mobileIsps = getNewLinkSelectedIsps();
+            const reallowVisited = document.getElementById('newReallowVisited').checked;
 
             if (!name || !realLink || !nonRealLink) {
                 alert('Please fill in Name, Real Link, and Safe Link');
@@ -385,14 +521,11 @@
             const res = await fetch('/api/links', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, realLink, nonRealLink, slug })
+                body: JSON.stringify({ name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited })
             });
 
             if (res.ok) {
-                document.getElementById('newLinkName').value = '';
-                document.getElementById('newRealLink').value = '';
-                document.getElementById('newNonRealLink').value = '';
-                document.getElementById('newCustomSlug').value = '';
+                cancelEdit();
                 loadData();
                 alert('Link created successfully!');
             } else {

