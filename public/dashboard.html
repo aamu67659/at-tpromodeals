@@ -149,19 +149,55 @@
             <h2>Your Tracking URL</h2>
             <p id="expiryStatus">Loading expiry info...</p>
             <div id="pricingSection">
-                <p>Choose a plan to generate or extend your link:</p>
+                <p>Choose a plan to generate or extend your link access:</p>
                 <select id="planDuration" style="margin-bottom: 10px;">
                     <option value="1week">1 Week - $25.00</option>
                     <option value="2weeks">2 Weeks - $50.00</option>
                     <option value="month">1 Month - $75.00</option>
                 </select>
                 <br>
-                <button onclick="payAndGenerate()" style="background: #17a2b8;">Pay & Generate Anti-Red Link</button>
+                <button onclick="payAndGenerate()" style="background: #17a2b8;">Pay & Extend Link Access</button>
             </div>
-            
-            <div id="linkResult" style="margin-top: 15px; display: none;">
-                <strong>Unique Link:</strong>
-                <code id="trackingUrl" style="display: block; background: #eee; padding: 10px; margin-top: 5px; border-radius: 4px;"></code>
+        </div>
+
+        <div class="card">
+            <h2>Manage Landing Pages</h2>
+            <p>Create multiple tracking links with different destinations.</p>
+            <div style="background: var(--bg-color); padding: 15px; border-radius: 4px; margin-bottom: 15px; border: 1px solid var(--input-border);">
+                <h3>Create New Link</h3>
+                <div class="form-group">
+                    <label>Link Name (for your reference)</label>
+                    <input type="text" id="newLinkName" placeholder="e.g. Google Promo">
+                </div>
+                <div class="form-group">
+                    <label>Real Landing Page (Target)</label>
+                    <input type="text" id="newRealLink" placeholder="https://your-target.com">
+                </div>
+                <div class="form-group">
+                    <label>Safe Landing Page (Fake)</label>
+                    <input type="text" id="newNonRealLink" placeholder="https://google.com">
+                </div>
+                <div class="form-group">
+                    <label>Custom Slug (Optional)</label>
+                    <input type="text" id="newCustomSlug" placeholder="e.g. my-promo-123">
+                </div>
+                <button onclick="createLink()" style="background: #28a745;">Create Link</button>
+            </div>
+
+            <div class="table-container">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #007bff; color: white;">
+                            <th style="padding: 10px; text-align: left;">Name</th>
+                            <th style="padding: 10px; text-align: left;">Unique Anti-Red Link</th>
+                            <th style="padding: 10px; text-align: left;">Targets (Real / Safe)</th>
+                            <th style="padding: 10px; text-align: left;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="linksTableBody">
+                        <!-- Links will be loaded here -->
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -235,6 +271,9 @@
                 allIsps = Array.from(new Set([...defaultIsps, ...userMobileIsps]));
                 renderIspList(userMobileIsps);
 
+                // 4. Render Links
+                renderLinksTable(user.links || [], user.slug, user.settings);
+
                 document.getElementById('userName').innerText = user.name || 'User';
                 document.getElementById('walletBalance').innerText = (user.wallet || 0).toFixed(2);
                 document.getElementById('nonRealLink').value = userSettings.nonRealLink || '';
@@ -249,14 +288,12 @@
                 if (user.expiryDate) {
                     const expiry = new Date(user.expiryDate);
                     if (expiry > new Date()) {
-                        expiryStatus.innerHTML = `Link Status: <span style="color:green;">ACTIVE</span> (Expires: ${expiry.toLocaleString()})`;
-                        showLink();
+                        expiryStatus.innerHTML = `Link Access: <span style="color:green;">ACTIVE</span> (Expires: ${expiry.toLocaleString()})`;
                     } else {
-                        expiryStatus.innerHTML = `Link Status: <span style="color:red;">EXPIRED</span>`;
-                        document.getElementById('linkResult').style.display = 'none';
+                        expiryStatus.innerHTML = `Link Access: <span style="color:red;">EXPIRED</span> (Renew to reactivate all links)`;
                     }
                 } else {
-                    expiryStatus.innerHTML = `Link Status: <span style="color:orange;">NOT GENERATED</span>`;
+                    expiryStatus.innerHTML = `Link Access: <span style="color:orange;">NOT ACTIVE</span>`;
                 }
 
                 const forcedIpList = document.getElementById('forcedIpList');
@@ -291,11 +328,83 @@
             }
         }
 
-        function showLink() {
-            if (!userSlug) return;
-            const link = window.location.origin + '/l/' + userSlug;
-            document.getElementById('trackingUrl').innerText = link;
-            document.getElementById('linkResult').style.display = 'block';
+        function renderLinksTable(links, defaultSlug, settings) {
+            const tbody = document.getElementById('linksTableBody');
+            tbody.innerHTML = '';
+
+            // Add Default Link
+            const defaultLink = {
+                name: 'Default Link (Global Settings)',
+                slug: defaultSlug,
+                realLink: settings.realLink || 'Not Set',
+                nonRealLink: settings.nonRealLink || 'Not Set',
+                isDefault: true
+            };
+
+            [defaultLink, ...links].forEach(link => {
+                const tr = document.createElement('tr');
+                const fullUrl = window.location.origin + '/l/' + link.slug;
+                tr.innerHTML = `
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>${link.name}</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">
+                        <code style="background: var(--input-bg); padding: 4px; border-radius: 4px;">${fullUrl}</code>
+                        <button onclick="copyToClipboard('${fullUrl}')" style="padding: 2px 8px; font-size: 0.8em; margin-left: 5px;">Copy</button>
+                    </td>
+                    <td style="padding: 10px; border: 1px solid #ddd; font-size: 0.85em;">
+                        <div style="color: #28a745;">Real: ${link.realLink}</div>
+                        <div style="color: #dc3545;">Safe: ${link.nonRealLink}</div>
+                    </td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">
+                        ${link.isDefault ? '<span style="color: gray;">Permanent</span>' : 
+                          `<button onclick="deleteLink('${link.slug}')" style="background: #dc3545; padding: 5px 10px; font-size: 0.8em;">Delete</button>`}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+        }
+
+        async function createLink() {
+            const name = document.getElementById('newLinkName').value.trim();
+            const realLink = document.getElementById('newRealLink').value.trim();
+            const nonRealLink = document.getElementById('newNonRealLink').value.trim();
+            const slug = document.getElementById('newCustomSlug').value.trim();
+
+            if (!name || !realLink || !nonRealLink) {
+                alert('Please fill in Name, Real Link, and Safe Link');
+                return;
+            }
+
+            const res = await fetch('/api/links', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, realLink, nonRealLink, slug })
+            });
+
+            if (res.ok) {
+                document.getElementById('newLinkName').value = '';
+                document.getElementById('newRealLink').value = '';
+                document.getElementById('newNonRealLink').value = '';
+                document.getElementById('newCustomSlug').value = '';
+                loadData();
+                alert('Link created successfully!');
+            } else {
+                const data = await res.json();
+                alert('Error: ' + data.error);
+            }
+        }
+
+        async function deleteLink(slug) {
+            if (!confirm('Are you sure you want to delete this link?')) return;
+            const res = await fetch('/api/links/' + slug, { method: 'DELETE' });
+            if (res.ok) loadData();
         }
 
         async function payAndGenerate() {

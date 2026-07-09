@@ -47,6 +47,7 @@ async function createUser(userData) {
         wallet: 0.0,
         isActive: true,
         expiryDate: null, // ISO string for link expiration
+        links: [], // Multiple landing pages
         settings: {
             nonRealLink: '',
             realLink: '',
@@ -78,7 +79,19 @@ async function findUserById(id) {
 
 async function findUserBySlug(slug) {
     const users = await getUsers();
-    return users.find(u => u.slug === slug);
+    // Check both legacy top-level slug and new links array
+    for (const user of users) {
+        if (user.slug === slug) {
+            return { user, link: { 
+                realLink: user.settings.realLink, 
+                nonRealLink: user.settings.nonRealLink,
+                isActive: true
+            } };
+        }
+        const link = (user.links || []).find(l => l.slug === slug);
+        if (link) return { user, link };
+    }
+    return null;
 }
 
 async function updateUser(id, updates) {
