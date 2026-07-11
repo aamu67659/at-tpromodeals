@@ -331,7 +331,7 @@
                 let statusLabel = 'PENDING';
                 if (p.status === 'confirmed') {
                     statusColor = 'var(--accent)';
-                    statusLabel = 'CONFIRMED';
+                    statusLabel = p.autoVerified ? 'CONFIRMED [AUTO]' : 'CONFIRMED';
                 } else if (p.status === 'rejected') {
                     statusColor = 'var(--danger)';
                     statusLabel = 'REJECTED';

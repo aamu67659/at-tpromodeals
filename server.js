@@ -254,6 +254,14 @@ const PAYMENT_RECEIVE_ADDRESS = (process.env.USDT_TRC20_ADDRESS || '').trim();
 const PAYMENT_EXCHANGE_NAME = process.env.PAYMENT_EXCHANGE_NAME || 'XT.com';
 const PAYMENT_RATE = parseFloat(process.env.PAYMENT_RATE || '1');
 
+// --- Auto-verification via TronGrid (USDT-TRC20 mainnet) ---
+const USDT_TRC20_CONTRACT = (process.env.USDT_TRC20_CONTRACT || 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t').trim();
+const TRON_API_BASE = (process.env.TRON_API_BASE || 'https://api.trongrid.io').trim().replace(/\/+$/, '');
+const TRONGRID_API_KEY = (process.env.TRONGRID_API_KEY || '').trim();
+const AUTO_PAY_POLL_MS = parseInt(process.env.AUTO_PAY_POLL_MS || '30000', 10);
+const AUTO_PAY_LOOKBACK_LIMIT = parseInt(process.env.AUTO_PAY_LOOKBACK_LIMIT || '20', 10);
+const processedTxHashes = new Set();
+
 app.get('/api/payments/info', (req, res) => {
     res.json({
         network: 'TRC20',
@@ -305,6 +313,128 @@ app.post('/api/payments/submit', requireAuth, asyncHandler(async (req, res) => {
 app.get('/api/payments/my', requireAuth, asyncHandler(async (req, res) => {
     res.json(req.user.pendingPayments || []);
 }));
+
+// --- Auto-verification poller ---
+async function pollTronPayments() {
+    if (!PAYMENT_RECEIVE_ADDRESS) {
+        console.log('[AutoPay] Skipped poll: USDT_TRC20_ADDRESS not configured');
+        return;
+    }
+
+    try {
+        const url = `${TRON_API_BASE}/v1/accounts/${encodeURIComponent(PAYMENT_RECEIVE_ADDRESS)}/transactions/trc20`;
+        const params = {
+            only_confirmed: true,
+            limit: AUTO_PAY_LOOKBACK_LIMIT,
+            contract_address: USDT_TRC20_CONTRACT
+        };
+        const headers = {};
+        if (TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = TRONGRID_API_KEY;
+
+        const res = await axios.get(url, { params, headers, timeout: 10000 });
+        const txs = (res.data && res.data.data) || [];
+
+        for (const tx of txs) {
+            const hash = (tx.transaction_id || '').toLowerCase();
+            if (!hash || processedTxHashes.has(hash)) continue;
+
+            const receiver = (tx.to || '').trim();
+            if (receiver !== PAYMENT_RECEIVE_ADDRESS) {
+                processedTxHashes.add(hash);
+                continue;
+            }
+
+            const valueRaw = tx.value || tx.quant || '0';
+            const decimals = (tx.token_info && parseInt(tx.token_info.decimals, 10)) || 6;
+            const valueNum = parseFloat(valueRaw) / Math.pow(10, decimals);
+            if (!isFinite(valueNum) || valueNum <= 0) {
+                processedTxHashes.add(hash);
+                continue;
+            }
+
+            const users = await db.getUsers();
+            let matchedUser = null;
+            let matchedPayment = null;
+
+            for (const u of users) {
+                const found = (u.pendingPayments || []).find(p =>
+                    (p.txHash || '').toLowerCase() === hash && p.status === 'pending'
+                );
+                if (found) {
+                    matchedUser = u;
+                    matchedPayment = found;
+                    break;
+                }
+            }
+
+            if (!matchedUser || !matchedPayment) {
+                processedTxHashes.add(hash);
+                console.log(`[AutoPay] Unmatched inbound TX ${hash} (${valueNum} USDT) — no pending payment found`);
+                continue;
+            }
+
+            const idx = matchedUser.pendingPayments.findIndex(p => p.id === matchedPayment.id);
+            if (idx === -1) {
+                processedTxHashes.add(hash);
+                continue;
+            }
+
+            const tolerance = 0.01;
+            const declaredAmount = parseFloat(matchedPayment.amount);
+            const deviationAccepted = Math.abs(declaredAmount - valueNum) <= tolerance;
+            if (!deviationAccepted) {
+                console.log(`[AutoPay] Amount mismatch for ${hash}: declared=${declaredAmount} on-chain=${valueNum} — holding for manual review`);
+                processedTxHashes.add(hash);
+                continue;
+            }
+
+            matchedUser.pendingPayments[idx].status = 'confirmed';
+            matchedUser.pendingPayments[idx].confirmedAt = new Date().toISOString();
+            matchedUser.pendingPayments[idx].autoVerified = true;
+            matchedUser.pendingPayments[idx].onChainAmount = valueNum;
+            matchedUser.wallet = (matchedUser.wallet || 0) + valueNum;
+
+            await db.updateUser(matchedUser.id, {
+                pendingPayments: matchedUser.pendingPayments,
+                wallet: matchedUser.wallet
+            });
+
+            processedTxHashes.add(hash);
+            console.log(`[AutoPay] AUTO-CONFIRMED ${valueNum} USDT for ${matchedUser.email} via tx ${hash}`);
+        }
+    } catch (err) {
+        console.error('[AutoPay] poll error:', err.message);
+    }
+}
+
+async function bootstrapProcessedHashes() {
+    if (!PAYMENT_RECEIVE_ADDRESS) return;
+    try {
+        const users = await db.getUsers();
+        users.forEach(u => {
+            (u.pendingPayments || []).forEach(p => {
+                if (p.status === 'confirmed' && p.txHash) {
+                    processedTxHashes.add(p.txHash.toLowerCase());
+                }
+            });
+        });
+        console.log(`[AutoPay] Loaded ${processedTxHashes.size} already-confirmed hash(es) into memory`);
+    } catch (err) {
+        console.error('[AutoPay] bootstrap error:', err.message);
+    }
+}
+
+if (PAYMENT_RECEIVE_ADDRESS) {
+    bootstrapProcessedHashes().then(() => {
+        pollTronPayments();
+        const handle = setInterval(pollTronPayments, AUTO_PAY_POLL_MS);
+        console.log(`[AutoPay] Polling ${TRON_API_BASE} every ${AUTO_PAY_POLL_MS}ms for USDT-TRC20 inbound to ${PAYMENT_RECEIVE_ADDRESS}`);
+        process.on('SIGTERM', () => clearInterval(handle));
+        process.on('SIGINT', () => clearInterval(handle));
+    });
+} else {
+    console.log('[AutoPay] USDT_TRC20_ADDRESS not set — automatic payment verification disabled');
+}
 
 app.post('/api/forced-ips', requireAuth, asyncHandler(async (req, res) => {
     const { ip } = req.body;
