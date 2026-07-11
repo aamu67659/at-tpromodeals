@@ -61,6 +61,7 @@ async function createUser(userData) {
         forcedIps: [],
         blockedIps: [],
         visitedIps: [],
+        pendingPayments: [],
         createdAt: new Date().toISOString()
     };
     users.push(newUser);

@@ -130,6 +130,63 @@ app.post('/api/admin/toggle-status', requireAdmin, asyncHandler(async (req, res)
     res.json(updatedUser);
 }));
 
+app.get('/api/admin/payments', requireAdmin, asyncHandler(async (req, res) => {
+    const users = await db.getUsers();
+    const all = [];
+    users.forEach(u => {
+        (u.pendingPayments || []).forEach(p => {
+            all.push({
+                ...p,
+                userId: u.id,
+                userName: u.name || 'ANONYMOUS',
+                userEmail: u.email || 'N/A'
+            });
+        });
+    });
+    all.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json(all);
+}));
+
+app.post('/api/admin/confirm-payment', requireAdmin, asyncHandler(async (req, res) => {
+    const { userId, paymentId } = req.body;
+    const user = await db.findUserById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const pending = (user.pendingPayments || []).slice();
+    const idx = pending.findIndex(p => p.id === paymentId);
+    if (idx === -1) return res.status(404).json({ error: 'Payment not found' });
+    if (pending[idx].status !== 'pending') return res.status(400).json({ error: 'Payment already processed' });
+
+    pending[idx].status = 'confirmed';
+    pending[idx].confirmedAt = new Date().toISOString();
+
+    const updatedUser = await db.updateUser(userId, {
+        pendingPayments: pending,
+        wallet: (user.wallet || 0) + pending[idx].amount
+    });
+    res.json({
+        message: 'Payment confirmed',
+        balance: updatedUser.wallet,
+        payment: pending[idx]
+    });
+}));
+
+app.post('/api/admin/reject-payment', requireAdmin, asyncHandler(async (req, res) => {
+    const { userId, paymentId, reason } = req.body;
+    const user = await db.findUserById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const pending = (user.pendingPayments || []).slice();
+    const idx = pending.findIndex(p => p.id === paymentId);
+    if (idx === -1) return res.status(404).json({ error: 'Payment not found' });
+    if (pending[idx].status !== 'pending') return res.status(400).json({ error: 'Payment already processed' });
+
+    pending[idx].status = 'rejected';
+    pending[idx].rejectedAt = new Date().toISOString();
+    pending[idx].rejectReason = reason || 'Invalid transaction';
+
+    const updatedUser = await db.updateUser(userId, { pendingPayments: pending });
+    res.json({ message: 'Payment rejected', payment: pending[idx] });
+}));
+
 // --- Auth Routes ---
 app.post('/api/signup', asyncHandler(async (req, res) => {
     const { name, email, telegram, password } = req.body;
@@ -190,6 +247,63 @@ app.post('/api/topup', requireAuth, asyncHandler(async (req, res) => {
         wallet: req.user.wallet + amount
     });
     res.json({ balance: updatedUser.wallet });
+}));
+
+// --- Payment Routes (USDT TRC20 via XT.com) ---
+const PAYMENT_RECEIVE_ADDRESS = (process.env.USDT_TRC20_ADDRESS || '').trim();
+const PAYMENT_EXCHANGE_NAME = process.env.PAYMENT_EXCHANGE_NAME || 'XT.com';
+const PAYMENT_RATE = parseFloat(process.env.PAYMENT_RATE || '1');
+
+app.get('/api/payments/info', (req, res) => {
+    res.json({
+        network: 'TRC20',
+        asset: 'USDT',
+        exchange: PAYMENT_EXCHANGE_NAME,
+        address: PAYMENT_RECEIVE_ADDRESS,
+        rate: PAYMENT_RATE,
+        minAmount: 5
+    });
+});
+
+app.post('/api/payments/submit', requireAuth, asyncHandler(async (req, res) => {
+    const { amount, txHash } = req.body;
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0 || !isFinite(amt)) {
+        return res.status(400).json({ error: 'Invalid amount' });
+    }
+    const cleanHash = (txHash || '').trim();
+    if (!/^[a-fA-F0-9]{64}$/.test(cleanHash)) {
+        return res.status(400).json({ error: 'Invalid TRC20 transaction hash (expected 64 hex chars)' });
+    }
+    if (!PAYMENT_RECEIVE_ADDRESS) {
+        return res.status(503).json({ error: 'Payment receiving address is not configured. Set USDT_TRC20_ADDRESS in server env.' });
+    }
+
+    const users = await db.getUsers();
+    const dup = users.find(u => (u.pendingPayments || []).some(p => p.txHash === cleanHash));
+    if (dup) {
+        return res.status(400).json({ error: 'This transaction hash has already been submitted' });
+    }
+
+    const payment = {
+        id: require('uuid').v4(),
+        amount: amt,
+        txHash: cleanHash,
+        network: 'USDT-TRC20',
+        address: PAYMENT_RECEIVE_ADDRESS,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+    };
+
+    const updatedUser = await db.updateUser(req.user.id, {
+        pendingPayments: [...(req.user.pendingPayments || []), payment]
+    });
+
+    res.json({ payment, balance: updatedUser.wallet, pending: updatedUser.pendingPayments });
+}));
+
+app.get('/api/payments/my', requireAuth, asyncHandler(async (req, res) => {
+    res.json(req.user.pendingPayments || []);
 }));
 
 app.post('/api/forced-ips', requireAuth, asyncHandler(async (req, res) => {

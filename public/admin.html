@@ -183,7 +183,26 @@
             <div style="font-size: 12px; color: var(--text-muted);">SYSTEM_LEVEL_0 :: TOTAL_NODES_ACTIVE</div>
             <button onclick="logout()" class="btn btn-status" style="font-size: 12px;">[ TERMINATE_SESSION ]</button>
         </div>
-        
+
+        <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">USDT_TRC20_PAYMENT_QUEUE</h2>
+        <div style="overflow-x: auto;">
+            <table id="paymentTable">
+                <thead>
+                    <tr>
+                        <th>STATUS</th>
+                        <th>AMOUNT</th>
+                        <th>NETWORK</th>
+                        <th>TX_HASH</th>
+                        <th>USER</th>
+                        <th>SUBMITTED</th>
+                        <th>ACTIONS</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">OPERATIVE_REGISTRY</h2>
         <div style="overflow-x: auto;">
             <table id="userTable">
                 <thead>
@@ -222,11 +241,11 @@
                 localStorage.setItem('adminToken', token);
                 document.getElementById('loginSection').style.display = 'none';
                 document.getElementById('adminSection').style.display = 'block';
-                
+
                 const users = await res.json();
                 const tbody = document.querySelector('#userTable tbody');
                 tbody.innerHTML = '';
-                
+
                 users.forEach(user => {
                     const tr = document.createElement('tr');
                     const wallet = typeof user.wallet === 'number' ? user.wallet : 0;
@@ -250,6 +269,8 @@
                     `;
                     tbody.appendChild(tr);
                 });
+
+                await loadPayments();
             } else {
                 alert('!! ERROR: ACCESS_DENIED_INVALID_SECRET');
                 localStorage.removeItem('adminToken');
@@ -275,7 +296,7 @@
         async function toggleStatus(userId) {
             const res = await fetch('/api/admin/toggle-status', {
                 method: 'POST',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
                     'x-admin-token': currentToken
                 },
@@ -283,6 +304,104 @@
             });
 
             if (res.ok) loadUsers();
+        }
+
+        async function loadPayments() {
+            const res = await fetch('/api/admin/payments', {
+                headers: { 'x-admin-token': currentToken }
+            });
+            const tbody = document.querySelector('#paymentTable tbody');
+            tbody.innerHTML = '';
+
+            if (!res.ok) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--danger);">!! ERROR_FETCHING_PAYMENTS</td></tr>';
+                return;
+            }
+
+            const payments = await res.json();
+            if (!payments || payments.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">NO_PAYMENTS_IN_QUEUE</td></tr>';
+                return;
+            }
+
+            payments.forEach(p => {
+                const tr = document.createElement('tr');
+
+                let statusColor = 'var(--warning)';
+                let statusLabel = 'PENDING';
+                if (p.status === 'confirmed') {
+                    statusColor = 'var(--accent)';
+                    statusLabel = 'CONFIRMED';
+                } else if (p.status === 'rejected') {
+                    statusColor = 'var(--danger)';
+                    statusLabel = 'REJECTED';
+                }
+
+                const actions = p.status === 'pending' ? `
+                    <div style="display: flex; gap: 5px;">
+                        <button class="btn" style="font-size: 10px; padding: 5px 10px; border-color: var(--accent);" onclick="confirmPayment('${p.userId}', '${p.id}')">[ CONFIRM ]</button>
+                        <button class="btn btn-status" style="font-size: 10px; padding: 5px 10px;" onclick="rejectPayment('${p.userId}', '${p.id}')">[ REJECT ]</button>
+                    </div>
+                ` : '<span style="color:var(--text-muted); font-size:10px;">PROCESSED</span>';
+
+                const txCell = p.txHash
+                    ? `<code style="font-size:10px; word-break:break-all;">${p.txHash}</code>`
+                    : 'N/A';
+
+                tr.innerHTML = `
+                    <td><span class="status-tag" style="color:${statusColor}; border:1px solid ${statusColor};">${statusLabel}</span></td>
+                    <td style="color: var(--accent);">$${(p.amount || 0).toFixed(2)}</td>
+                    <td>${p.network || 'USDT-TRC20'}</td>
+                    <td>${txCell}</td>
+                    <td><strong>${p.userName}</strong><br><span style="color:var(--text-muted); font-size:11px;">${p.userEmail}</span></td>
+                    <td style="font-size:11px;">${new Date(p.createdAt).toLocaleString()}</td>
+                    <td>${actions}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function confirmPayment(userId, paymentId) {
+            if (!confirm('CONFIRM PAYMENT AND CREDIT USER WALLET?')) return;
+            const res = await fetch('/api/admin/confirm-payment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-admin-token': currentToken
+                },
+                body: JSON.stringify({ userId, paymentId })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                alert(`PAYMENT_CONFIRMED // WALLET_BALANCE: $${data.balance.toFixed(2)}`);
+                loadPayments();
+                loadUsers();
+            } else {
+                const data = await res.json().catch(() => ({}));
+                alert('!! ERROR: ' + (data.error || 'CONFIRM_FAILED'));
+            }
+        }
+
+        async function rejectPayment(userId, paymentId) {
+            const reason = prompt('REJECTION_REASON (optional):', 'Invalid transaction on-chain');
+            if (reason === null) return;
+            const res = await fetch('/api/admin/reject-payment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-admin-token': currentToken
+                },
+                body: JSON.stringify({ userId, paymentId, reason })
+            });
+
+            if (res.ok) {
+                alert('PAYMENT_REJECTED');
+                loadPayments();
+            } else {
+                const data = await res.json().catch(() => ({}));
+                alert('!! ERROR: ' + (data.error || 'REJECT_FAILED'));
+            }
         }
 
         if (localStorage.getItem('adminToken')) {

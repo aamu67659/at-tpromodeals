@@ -264,6 +264,63 @@
             padding-left: 15px;
         }
 
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-box {
+            background: var(--bg-surface);
+            border: 1px solid var(--accent);
+            padding: 25px;
+            max-width: 540px;
+            width: 100%;
+            position: relative;
+            box-shadow: var(--glow);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-box h2 {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 16px;
+            color: var(--accent);
+            margin: 0 0 15px 0;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        .modal-close {
+            position: absolute;
+            top: 10px;
+            right: 14px;
+            cursor: pointer;
+            color: var(--text-muted);
+            font-size: 18px;
+        }
+        .modal-close:hover { color: var(--danger); }
+
+        .qr-placeholder {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #ffffff;
+            color: #000;
+            width: 180px;
+            height: 180px;
+            margin: 10px auto;
+            font-family: monospace;
+            font-size: 11px;
+            text-align: center;
+            padding: 10px;
+            box-sizing: border-box;
+            word-break: break-all;
+        }
+
         .content-section {
             display: none;
             opacity: 0;
@@ -328,6 +385,7 @@
             <div class="metric-label">CREDITS</div>
             <div style="font-size: 20px; color: var(--accent); margin-bottom: 15px;">$<span id="walletBalance">0.00</span></div>
             <button onclick="topUp()" style="width: 100%; font-size: 12px;">[ RECHARGE ]</button>
+            <div id="pendingPaymentsMini" style="margin-top: 12px; font-size: 10px; color: var(--warning);"></div>
             <div class="nav-item" onclick="logout()" style="margin-top: 20px; color: var(--danger);">[ DISCONNECT ]</div>
         </div>
     </div>
@@ -658,6 +716,8 @@
                         realVisitsTable.appendChild(tr);
                     });
                 }
+
+                refreshPaymentHistory();
             } catch (err) {
                 console.error("CRITICAL_SYSTEM_ERROR:", err);
             }
@@ -935,17 +995,138 @@
         }
 
         async function topUp() {
-            const amount = prompt("ENTER_CREDIT_AMOUNT:", "50.00");
-            if (amount) {
-                const res = await fetch('/api/topup', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ amount: parseFloat(amount) })
-                });
-                if (res.ok) {
-                    alert('CREDITS_ACQUIRED');
-                    loadData();
+            await openPaymentModal();
+        }
+
+        async function openPaymentModal() {
+            const modal = document.getElementById('paymentModal');
+            modal.classList.add('open');
+
+            const banner = document.getElementById('paymentInfoBanner');
+            banner.style.display = 'none';
+            banner.innerText = '';
+
+            try {
+                const res = await fetch('/api/payments/info');
+                const info = await res.json();
+                const addrEl = document.getElementById('paymentAddress');
+                const qrEl = document.getElementById('paymentQr');
+                const exEl = document.getElementById('paymentExchange');
+
+                if (!info.address) {
+                    addrEl.innerText = 'NOT_CONFIGURED';
+                    qrEl.innerText = 'Server has not configured USDT_TRC20_ADDRESS';
+                    banner.style.display = 'block';
+                    banner.innerText = '!! Receiving address is not configured on the server. Set USDT_TRC20_ADDRESS in the server environment.';
+                    document.getElementById('paymentAmount').disabled = true;
+                    document.getElementById('paymentTxHash').disabled = true;
+                    return;
                 }
+
+                addrEl.innerText = info.address;
+                qrEl.innerText = info.address;
+                exEl.innerText = (info.exchange || 'XT.com').toUpperCase();
+
+                document.getElementById('paymentAmount').disabled = false;
+                document.getElementById('paymentTxHash').disabled = false;
+            } catch (err) {
+                document.getElementById('paymentAddress').innerText = 'ERROR_FETCHING_INFO';
+            }
+
+            await refreshPaymentHistory();
+        }
+
+        function closePaymentModal() {
+            document.getElementById('paymentModal').classList.remove('open');
+        }
+
+        function copyPaymentAddress() {
+            const addr = document.getElementById('paymentAddress').innerText.trim();
+            if (!addr || addr === 'LOADING...' || addr === 'NOT_CONFIGURED') return;
+            copyToClipboard(addr);
+            alert('ADDRESS_COPIED');
+        }
+
+        async function submitPayment() {
+            const amount = parseFloat(document.getElementById('paymentAmount').value);
+            const txHash = document.getElementById('paymentTxHash').value.trim();
+
+            if (!amount || amount <= 0) {
+                alert('!! ERROR: ENTER_VALID_AMOUNT');
+                return;
+            }
+            if (!/^[a-fA-F0-9]{64}$/.test(txHash)) {
+                alert('!! ERROR: INVALID_TX_HASH (must be 64 hex chars)');
+                return;
+            }
+
+            const res = await fetch('/api/payments/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ amount, txHash })
+            });
+
+            if (res.ok) {
+                alert('PAYMENT_SUBMITTED_PENDING_CONFIRMATION');
+                document.getElementById('paymentAmount').value = '';
+                document.getElementById('paymentTxHash').value = '';
+                await refreshPaymentHistory();
+                loadData();
+            } else {
+                const data = await res.json().catch(() => ({}));
+                alert('!! ERROR: ' + (data.error || 'SUBMIT_FAILED'));
+            }
+        }
+
+        async function refreshPaymentHistory() {
+            const list = document.getElementById('paymentHistoryList');
+            const mini = document.getElementById('pendingPaymentsMini');
+
+            try {
+                const res = await fetch('/api/payments/my');
+                const payments = await res.json();
+
+                if (!payments || payments.length === 0) {
+                    list.innerText = 'NO_PENDING_PAYMENTS';
+                    if (mini) mini.innerText = '';
+                    return;
+                }
+
+                list.innerHTML = '';
+                let pendingCount = 0;
+                payments.slice().reverse().forEach(p => {
+                    const div = document.createElement('div');
+                    div.style.padding = '5px 0';
+                    div.style.borderBottom = '1px solid var(--border)';
+
+                    let statusColor = 'var(--warning)';
+                    let statusLabel = '[PENDING]';
+                    if (p.status === 'confirmed') {
+                        statusColor = 'var(--accent)';
+                        statusLabel = '[CONFIRMED]';
+                    } else if (p.status === 'rejected') {
+                        statusColor = 'var(--danger)';
+                        statusLabel = '[REJECTED]';
+                    } else {
+                        pendingCount++;
+                    }
+
+                    div.innerHTML = `
+                        <span style="color:${statusColor};">${statusLabel}</span>
+                        <span style="color:var(--accent);">$${p.amount.toFixed(2)}</span>
+                        <span style="color:var(--text-muted); font-size:10px; word-break:break-all;">${p.txHash.substring(0,16)}...${p.txHash.substring(48)}</span>
+                        <span style="color:var(--text-muted); font-size:10px;">${new Date(p.createdAt).toLocaleString()}</span>
+                    `;
+                    list.appendChild(div);
+                });
+
+                if (mini && pendingCount > 0) {
+                    mini.innerText = `> ${pendingCount} PAYMENT(S) AWAITING_CONFIRMATION`;
+                } else if (mini) {
+                    mini.innerText = '';
+                }
+            } catch (err) {
+                list.innerText = 'ERROR_LOADING_PAYMENTS';
             }
         }
 
@@ -1077,5 +1258,55 @@
 
         loadData();
     </script>
+
+    <div id="paymentModal" class="modal-overlay" onclick="if(event.target===this) closePaymentModal()">
+        <div class="modal-box">
+            <span class="modal-close" onclick="closePaymentModal()">[X]</span>
+            <h2>USDT_TRC20_RECHARGE</h2>
+            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
+                Send USDT via the TRC20 network to the address below, then submit your TX hash for confirmation.
+            </div>
+
+            <div id="paymentInfoBanner" style="font-size: 11px; color: var(--danger); margin-bottom: 12px; display: none;"></div>
+
+            <label>RECEIVE_ADDRESS</label>
+            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 15px;">
+                <code id="paymentAddress" style="flex: 1; font-size: 12px;">LOADING...</code>
+                <button onclick="copyPaymentAddress()" style="font-size: 10px; padding: 6px 10px;">[ COPY ]</button>
+            </div>
+
+            <div id="paymentQrWrap" style="text-align: center; margin-bottom: 15px;">
+                <div class="qr-placeholder" id="paymentQr">Address will load here</div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 11px; color: var(--text-muted); margin-bottom: 18px;">
+                <div>NETWORK :: <span style="color: var(--accent);">TRC20</span></div>
+                <div>ASSET :: <span style="color: var(--accent);">USDT</span></div>
+                <div>EXCHANGE :: <span style="color: var(--accent);" id="paymentExchange">XT.com</span></div>
+                <div>RATE :: <span style="color: var(--accent);">1 USDT = 1 CREDIT</span></div>
+            </div>
+
+            <div class="form-group">
+                <label>AMOUNT_SENT (USDT)</label>
+                <input type="number" id="paymentAmount" min="1" step="0.01" placeholder="50.00">
+            </div>
+            <div class="form-group">
+                <label>TRC20_TX_HASH (64 HEX CHARS)</label>
+                <input type="text" id="paymentTxHash" placeholder="e.g. a1b2c3..." style="font-size: 11px;">
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <button onclick="submitPayment()">[ SUBMIT_PAYMENT ]</button>
+                <button onclick="closePaymentModal()" style="border-color: var(--text-muted); color: var(--text-muted);">[ CANCEL ]</button>
+            </div>
+
+            <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
+                <label style="margin-bottom: 8px;">YOUR_PENDING_PAYMENTS</label>
+                <div id="paymentHistoryList" style="font-size: 11px; max-height: 140px; overflow-y: auto;">
+                    NO_PENDING_PAYMENTS
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
