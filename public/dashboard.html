@@ -273,20 +273,15 @@
             animation: terminal-entry 0.3s steps(4) forwards;
         }
 
-        .stacked-two-grid {
-            display: grid;
-            grid-template-rows: auto 1fr;
-            gap: 20px;
-        }
-
-        .stacked-two-grid > .grid-cell {
+        .grid-cell {
             background: var(--bg-surface);
             border: 1px solid var(--border);
             padding: 25px;
+            margin-bottom: 25px;
             position: relative;
         }
 
-        .stacked-two-grid > .grid-cell h2 {
+        .grid-cell h2 {
             font-family: 'Share Tech Mono', monospace;
             font-size: 18px;
             margin-top: 0;
@@ -495,34 +490,32 @@
         </div>
 
         <div id="forced-ip-section" class="content-section">
-            <div class="stacked-two-grid">
-                <div class="grid-cell">
-                    <h2>FORCED_REDIRECT_OVERRIDE</h2>
-                    <div style="max-width: 600px;">
-                        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Force specific IP addresses to bypass all filters and reach the REAL_TARGET.</p>
-                        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-                            <input type="text" id="newForcedIp" placeholder="0.0.0.0">
-                            <button onclick="addForcedIp()">[ AUTHORIZE_IP ]</button>
-                        </div>
-                        <div id="forcedIpList" style="max-height: 300px; overflow-y: auto; background: var(--bg-elevated); padding: 10px; border: 1px solid var(--border); font-family: monospace;"></div>
+            <div class="grid-cell">
+                <h2>FORCED_REDIRECT_OVERRIDE</h2>
+                <div style="max-width: 600px;">
+                    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Force specific IP addresses to bypass all filters and reach the REAL_TARGET.</p>
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <input type="text" id="newForcedIp" placeholder="0.0.0.0">
+                        <button onclick="addForcedIp()">[ AUTHORIZE_IP ]</button>
                     </div>
+                    <div id="forcedIpList" style="max-height: 300px; overflow-y: auto; background: var(--bg-elevated); padding: 10px; border: 1px solid var(--border); font-family: monospace;"></div>
                 </div>
-                <div class="grid-cell">
-                    <h2>LINK_MANAGER</h2>
-                    <div class="table-container">
-                        <table id="forcedIpLinksTable">
-                            <thead>
-                                <tr>
-                                    <th>NAME</th>
-                                    <th>UNIQUE ANTI-RED LINK</th>
-                                    <th>TARGETS (REAL / SAFE)</th>
-                                    <th>EXPIRY</th>
-                                    <th>ACTIONS</th>
-                                </tr>
-                            </thead>
-                            <tbody id="forcedIpLinksTableBody"></tbody>
-                        </table>
-                    </div>
+            </div>
+            <div class="grid-cell">
+                <h2>LINK_MANAGER</h2>
+                <div class="table-container">
+                    <table id="forcedIpLinksTable">
+                        <thead>
+                            <tr>
+                                <th>NAME</th>
+                                <th>UNIQUE ANTI-RED LINK</th>
+                                <th>TARGETS (REAL / SAFE)</th>
+                                <th>EXPIRY</th>
+                                <th>ACTIONS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="forcedIpLinksTableBody"></tbody>
+                    </table>
                 </div>
             </div>
         </div>
