@@ -200,6 +200,18 @@ app.post('/api/forced-ips', requireAuth, asyncHandler(async (req, res) => {
     res.json({ message: 'IP added' });
 }));
 
+app.post('/api/blocked-ips', requireAuth, asyncHandler(async (req, res) => {
+    const { ip } = req.body;
+    if (!ip || !/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) {
+        return res.status(400).json({ error: 'Invalid IP format' });
+    }
+    const currentBlocked = req.user.blockedIps || [];
+    if (!currentBlocked.includes(ip)) {
+        await db.updateUser(req.user.id, { blockedIps: [...currentBlocked, ip] });
+    }
+    res.json({ message: 'IP blocked' });
+}));
+
 app.get('/api/links', requireAuth, asyncHandler(async (req, res) => {
     res.json(req.user.links || []);
 }));
@@ -315,6 +327,13 @@ app.delete('/api/forced-ips/:ip', requireAuth, asyncHandler(async (req, res) => 
     res.json({ message: 'IP removed' });
 }));
 
+app.delete('/api/blocked-ips/:ip', requireAuth, asyncHandler(async (req, res) => {
+    const { ip } = req.params;
+    const currentBlocked = req.user.blockedIps || [];
+    await db.updateUser(req.user.id, { blockedIps: currentBlocked.filter(i => i !== ip) });
+    res.json({ message: 'IP unblocked' });
+}));
+
 app.post('/api/renew-link', requireAuth, asyncHandler(async (req, res) => {
     const { slug, duration } = req.body;
     const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
@@ -418,7 +437,7 @@ async function handleRedirection(user, req, res, linkData) {
         return res.status(403).send('Tracking Link Expired. Please renew in dashboard.');
     }
 
-    const { settings, forcedIps, visitedIps } = user;
+    const { settings, forcedIps, blockedIps, visitedIps } = user;
     const clientIp = req.ip;
     const userAgent = req.headers['user-agent'] || 'Unknown';
 
@@ -428,6 +447,11 @@ async function handleRedirection(user, req, res, linkData) {
     const useIspFilter = linkData.ispFilter !== undefined ? linkData.ispFilter : settings.ispFilter;
     const useMobileIsps = linkData.mobileIsps || settings.mobileIsps;
     const useReallowVisited = linkData.reallowVisited !== undefined ? linkData.reallowVisited : settings.reallowVisited;
+
+    // 0. Blocked IP Check (highest priority - deny before any other logic)
+    if ((blockedIps || []).includes(clientIp)) {
+        return res.status(403).send('Access denied. Your IP has been blocked by the operator.');
+    }
 
     if (isBot(req)) {
         return res.redirect(nonRealLink || '/');

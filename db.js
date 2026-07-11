@@ -59,6 +59,7 @@ async function createUser(userData) {
             mobileIsps: ['ATT', 'VERIZON', 'T-MOBILE', 'SPRINT', 'CRICKET', 'METROPCS']
         },
         forcedIps: [],
+        blockedIps: [],
         visitedIps: [],
         createdAt: new Date().toISOString()
     };

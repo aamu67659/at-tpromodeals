@@ -322,6 +322,7 @@
         <div class="nav-item" onclick="showSection('logs')">04_VISUAL_LOGS</div>
         <div class="nav-item" onclick="showSection('telegram')">05_TELEGRAM_UPLINK</div>
         <div class="nav-item" onclick="showSection('forced-ip')">06_FORCED_IP_CONTROL</div>
+        <div class="nav-item" onclick="showSection('block-ip')">07_BLOCK_IP_CONTROL</div>
         
         <div style="margin-top: auto;">
             <div class="metric-label">CREDITS</div>
@@ -520,6 +521,20 @@
             </div>
         </div>
 
+        <div id="block-ip-section" class="content-section">
+            <div class="grid-cell">
+                <h2 style="color: var(--danger);">BLOCK_IP_CONTROL</h2>
+                <div style="max-width: 600px;">
+                    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Block specific IP addresses from accessing any of your uplinks. Blocked IPs are denied at the gateway.</p>
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <input type="text" id="newBlockedIp" placeholder="0.0.0.0">
+                        <button onclick="addBlockedIp()" class="btn-danger">[ BLOCK_IP ]</button>
+                    </div>
+                    <div id="blockedIpList" style="max-height: 300px; overflow-y: auto; background: var(--bg-elevated); padding: 10px; border: 1px solid var(--border); font-family: monospace;"></div>
+                </div>
+            </div>
+        </div>
+
         <div id="telegram-section" class="card content-section">
             <h2>TELEGRAM_UPLINK_CONFIGURATION</h2>
             <div style="max-width: 600px;">
@@ -624,6 +639,18 @@
                     div.style.padding = '5px 0';
                     div.innerHTML = `<span>${ip}</span> <span style="color:var(--danger); cursor:pointer;" onclick="removeForcedIp('${ip}')">[RM]</span>`;
                     forcedIpList.appendChild(div);
+                });
+
+                // Blocked IPs
+                const blockedIpList = document.getElementById('blockedIpList');
+                blockedIpList.innerHTML = '';
+                (user.blockedIps || []).forEach(ip => {
+                    const div = document.createElement('div');
+                    div.style.display = 'flex';
+                    div.style.justifyContent = 'space-between';
+                    div.style.padding = '5px 0';
+                    div.innerHTML = `<span style="color: var(--danger);">${ip}</span> <span style="color:var(--accent); cursor:pointer;" onclick="removeBlockedIp('${ip}')">[UNBLOCK]</span>`;
+                    blockedIpList.appendChild(div);
                 });
 
                 // Visits
@@ -955,6 +982,25 @@
             if (res.ok) loadData();
         }
 
+        async function addBlockedIp() {
+            const ip = document.getElementById('newBlockedIp').value.trim();
+            if (!ip) return;
+            const res = await fetch('/api/blocked-ips', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip })
+            });
+            if (res.ok) {
+                document.getElementById('newBlockedIp').value = '';
+                loadData();
+            }
+        }
+
+        async function removeBlockedIp(ip) {
+            const res = await fetch('/api/blocked-ips/' + ip, { method: 'DELETE' });
+            if (res.ok) loadData();
+        }
+
         async function saveGlobalSettings() {
             const settings = {
                 botToken: document.getElementById('botToken').value.trim(),
@@ -989,6 +1035,7 @@
             else if (id === 'logs') items[3].classList.add('active');
             else if (id === 'telegram') items[4].classList.add('active');
             else if (id === 'forced-ip') items[5].classList.add('active');
+            else if (id === 'block-ip') items[6].classList.add('active');
             
             // Glitch effect on transition
             const main = document.querySelector('.main');
