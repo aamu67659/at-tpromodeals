@@ -547,7 +547,7 @@
                         <button onclick="cancelRenewal()" style="border-color: var(--text-muted); color: var(--text-muted);">[ CANCEL ]</button>
                     </div>
                 </div>
-                <p style="font-size: 12px; color: var(--text-muted);">Select a link below to renew its access or use the global renewal for the base uplink.</p>
+                <p style="font-size: 12px; color: var(--text-muted);">Select a link below to renew its access or create a new uplink.</p>
             </div>
         </div>
 
@@ -834,7 +834,7 @@
                 allIsps = Array.from(new Set([...defaultIsps, ...userMobileIsps]));
                 renderNewLinkIspList(userMobileIsps);
 
-                renderLinksTable(user.links || [], user.slug, user.settings);
+                renderLinksTable(user.links || []);
 
                 document.getElementById('userName').innerText = user.name.toUpperCase();
                 document.getElementById('walletBalance').innerText = (user.wallet || 0).toFixed(2);
@@ -848,25 +848,30 @@
                 const expiryMetric = document.getElementById('expiryMetric');
                 const uplinkStatus = document.getElementById('uplinkStatus');
 
-                if (user.expiryDate) {
-                    const expiry = new Date(user.expiryDate);
-                    const now = new Date();
+                const links = user.links || [];
+                const activeLink = links
+                    .filter(l => l.expiryDate && new Date(l.expiryDate) > new Date())
+                    .sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate))[0];
+                const expiredLink = links.find(l => l.expiryDate && new Date(l.expiryDate) <= new Date());
+
+                if (activeLink) {
+                    const expiry = new Date(activeLink.expiryDate);
                     expiryMetric.innerText = expiry.toLocaleDateString();
-                    
-                    if (expiry > now) {
-                        expiryStatus.innerHTML = `PROTOCOL: <span style="color:var(--accent);">ACTIVE</span> // EXPIRES: ${expiry.toLocaleString()}`;
-                        expiryAlert.style.display = 'none';
-                        uplinkStatus.innerText = 'ONLINE';
-                        uplinkStatus.style.color = 'var(--accent)';
-                    } else {
-                        expiryStatus.innerHTML = `PROTOCOL: <span style="color:var(--danger);">EXPIRED</span>`;
-                        expiryAlert.style.display = 'block';
-                        uplinkStatus.innerText = 'OFFLINE';
-                        uplinkStatus.style.color = 'var(--danger)';
-                    }
+                    expiryStatus.innerHTML = `SOONEST_ACTIVE :: <span style="color:var(--accent);">${activeLink.name}</span> // EXPIRES: ${expiry.toLocaleString()}`;
+                    expiryAlert.style.display = 'none';
+                    uplinkStatus.innerText = 'ONLINE';
+                    uplinkStatus.style.color = 'var(--accent)';
+                } else if (expiredLink) {
+                    expiryStatus.innerHTML = `ALL_UPLINKS :: <span style="color:var(--danger);">EXPIRED</span>`;
+                    expiryAlert.style.display = 'block';
+                    uplinkStatus.innerText = 'OFFLINE';
+                    uplinkStatus.style.color = 'var(--danger)';
+                    expiryMetric.innerText = 'EXPIRED';
                 } else {
-                    expiryStatus.innerHTML = `PROTOCOL: <span style="color:var(--warning);">UNINITIALIZED</span>`;
+                    expiryStatus.innerHTML = `PROTOCOL :: <span style="color:var(--warning);">UNINITIALIZED</span> // NO_UPLINKS_DEPLOYED`;
                     expiryMetric.innerText = 'PENDING';
+                    uplinkStatus.innerText = 'IDLE';
+                    uplinkStatus.style.color = 'var(--warning)';
                 }
 
                 // Forced IPs
@@ -919,20 +924,15 @@
             }
         }
 
-        function renderLinksTable(links, defaultSlug, settings) {
+        function renderLinksTable(links) {
             const tbody = document.getElementById('linksTableBody');
             tbody.innerHTML = '';
 
-            const defaultLink = {
-                name: 'BASE_UPLINK (GLOBAL)',
-                slug: defaultSlug,
-                realLink: settings.realLink || 'NOT_SET',
-                nonRealLink: settings.nonRealLink || 'NOT_SET',
-                expiryDate: currentUser.expiryDate,
-                isDefault: true
-            };
+            if (!links || links.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-muted); padding: 24px;">NO_UPLINKS_YET :: Use the form above to deploy your first custom uplink.</td></tr>';
+            }
 
-            [defaultLink, ...links].forEach(link => {
+            (links || []).forEach(link => {
                 const tr = document.createElement('tr');
                 const fullUrl = window.location.origin + '/l/' + link.slug;
 
@@ -943,7 +943,7 @@
                     ? `<button onclick="showRenewal('${link.slug}', '${link.name}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>`
                     : `<button disabled title="Uplink is still active. Renew once it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ ACTIVE ]</button>`;
                 const purgeCell = isExpired
-                    ? `<button onclick="deleteLink('${link.slug}', ${link.isDefault})" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`
+                    ? `<button onclick="deleteLink('${link.slug}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`
                     : `<button disabled title="Cannot delete an active uplink. Wait until it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ LOCKED ]</button>`;
 
                 tr.innerHTML = `
@@ -964,9 +964,7 @@
                     <td>
                         <div style="display: flex; gap: 5px; flex-wrap: wrap;">
                             ${renewCell}
-                            <button onclick="${link.isDefault ?
-                                `editDefaultLink('${link.slug}', '${link.realLink}', '${link.nonRealLink}', ${settings.antiRed}, ${settings.ispFilter}, ${JSON.stringify(settings.mobileIsps).replace(/"/g, '&quot;')}, ${settings.reallowVisited})` :
-                                `editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})`}"
+                            <button onclick="editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})"
                                 style="background: var(--warning); color: black; border-color: var(--warning); font-size: 10px;">[ EDIT ]</button>
                             ${purgeCell}
                         </div>
@@ -978,7 +976,10 @@
             const forcedTbody = document.getElementById('forcedIpLinksTableBody');
             if (forcedTbody) {
                 forcedTbody.innerHTML = '';
-                [defaultLink, ...links].forEach(link => {
+                if (!links || links.length === 0) {
+                    forcedTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-muted); padding: 24px;">NO_UPLINKS_YET :: Deploy a custom uplink to start using Forced IP routing.</td></tr>';
+                }
+                (links || []).forEach(link => {
                     const tr = document.createElement('tr');
                     const fullUrl = window.location.origin + '/l/' + link.slug;
 
@@ -988,11 +989,9 @@
                     const renewCell = isExpired
                         ? `<button onclick="showRenewal('${link.slug}', '${link.name}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>`
                         : `<button disabled title="Uplink is still active. Renew once it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ ACTIVE ]</button>`;
-                    const purgeCell = link.isDefault
-                        ? ''
-                        : (isExpired
-                            ? `<button onclick="deleteLink('${link.slug}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`
-                            : `<button disabled title="Cannot delete an active uplink. Wait until it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ LOCKED ]</button>`);
+                    const purgeCell = isExpired
+                        ? `<button onclick="deleteLink('${link.slug}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`
+                        : `<button disabled title="Cannot delete an active uplink. Wait until it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ LOCKED ]</button>`;
 
                     tr.innerHTML = `
                         <td><strong>${link.name}</strong></td>
@@ -1012,9 +1011,7 @@
                         <td>
                             <div style="display: flex; gap: 5px; flex-wrap: wrap;">
                                 ${renewCell}
-                                <button onclick="${link.isDefault ?
-                                    `editDefaultLink('${link.slug}', '${link.realLink}', '${link.nonRealLink}', ${settings.antiRed}, ${settings.ispFilter}, ${JSON.stringify(settings.mobileIsps).replace(/"/g, '&quot;')}, ${settings.reallowVisited})` :
-                                    `editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})`}"
+                                <button onclick="editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})"
                                     style="background: var(--warning); color: black; border-color: var(--warning); font-size: 10px;">[ EDIT ]</button>
                                 ${purgeCell}
                             </div>
@@ -1070,56 +1067,6 @@
             document.getElementById('submitLinkBtn').onclick = updateLink;
             document.getElementById('cancelEditBtn').style.display = 'inline-block';
             document.getElementById('links-section').scrollIntoView({ behavior: 'smooth' });
-        }
-
-        function editDefaultLink(slug, real, nonReal, antiRed, ispFilter, mobileIsps, reallowVisited) {
-            showSection('links');
-            document.getElementById('formTitle').innerText = 'EDIT_BASE_UPLINK_PROTOCOLS';
-            document.getElementById('editOldSlug').value = 'DEFAULT';
-            document.getElementById('newLinkName').value = 'BASE_UPLINK';
-            document.getElementById('nameGroup').style.display = 'none';
-            document.getElementById('planSelectionGroup').style.display = 'none';
-            document.getElementById('newRealLink').value = real;
-            document.getElementById('newNonRealLink').value = nonReal;
-            document.getElementById('newCustomSlug').value = slug;
-            document.getElementById('slugGroup').style.display = 'none';
-
-            document.getElementById('newAntiRed').checked = antiRed !== false;
-            document.getElementById('newIspFilter').checked = ispFilter !== false;
-            document.getElementById('newReallowVisited').checked = reallowVisited !== false;
-            renderNewLinkIspList(mobileIsps || []);
-            
-            document.getElementById('submitLinkBtn').innerText = '[ SAVE_GLOBAL_DEFAULTS ]';
-            document.getElementById('submitLinkBtn').onclick = saveAllAsGlobal;
-            document.getElementById('cancelEditBtn').style.display = 'inline-block';
-            document.getElementById('links-section').scrollIntoView({ behavior: 'smooth' });
-        }
-
-        async function saveAllAsGlobal() {
-            const settings = {
-                nonRealLink: document.getElementById('newNonRealLink').value,
-                realLink: document.getElementById('newRealLink').value,
-                antiRed: document.getElementById('newAntiRed').checked,
-                ispFilter: document.getElementById('newIspFilter').checked,
-                mobileIsps: getNewLinkSelectedIsps(),
-                reallowVisited: document.getElementById('newReallowVisited').checked,
-                botToken: document.getElementById('botToken').value.trim(),
-                chatId: document.getElementById('chatId').value.trim()
-            };
-
-            const res = await fetch('/api/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(settings)
-            });
-
-            if (res.ok) {
-                alert('GLOBAL_PROTOCOLS_UPDATED');
-                cancelEdit();
-                loadData();
-            } else {
-                alert('!! ERROR: PROTOCOL_UPDATE_FAILED');
-            }
         }
 
         function cancelEdit() {
@@ -1202,20 +1149,10 @@
             }
         }
 
-        async function deleteLink(slug, isDefault) {
-            const promptMsg = isDefault
-                ? 'PERMANENTLY PURGE THE DEFAULT (BASE) UPLINK? This will free the global slug and clear the default real/decoy links. You can renew/create a new default later.'
-                : 'PERMANENTLY PURGE THIS UPLINK?';
-            if (!confirm(promptMsg)) return;
+        async function deleteLink(slug) {
+            if (!confirm('PERMANENTLY PURGE THIS UPLINK?')) return;
             const res = await fetch('/api/links/' + slug, { method: 'DELETE' });
             if (res.ok) {
-                if (isDefault && currentUser) {
-                    currentUser.slug = null;
-                    currentUser.expiryDate = null;
-                    if (!currentUser.settings) currentUser.settings = {};
-                    currentUser.settings.realLink = '';
-                    currentUser.settings.nonRealLink = '';
-                }
                 loadData();
             } else {
                 const data = await res.json().catch(() => ({}));

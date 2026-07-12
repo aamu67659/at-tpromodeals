@@ -81,16 +81,10 @@ async function findUserById(id) {
 }
 
 async function findUserBySlug(slug) {
+    if (!slug) return null;
     const users = await getUsers();
-    // Check both legacy top-level slug and new links array
+    // Only custom uplinks in user.links[] are resolvable now.
     for (const user of users) {
-        if (user.slug === slug) {
-            return { user, link: { 
-                realLink: user.settings.realLink, 
-                nonRealLink: user.settings.nonRealLink,
-                isActive: true
-            } };
-        }
         const link = (user.links || []).find(l => l.slug === slug);
         if (link) return { user, link };
     }

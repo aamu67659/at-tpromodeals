@@ -913,20 +913,6 @@ app.post('/api/links', requireAuth, asyncHandler(async (req, res) => {
 app.delete('/api/links/:slug', requireAuth, asyncHandler(async (req, res) => {
     const { slug } = req.params;
 
-    // Default uplink lives on the user record, not in `links[]`.
-    if (slug === req.user.slug) {
-        if (isExpiryActive(req.user.expiryDate)) {
-            return res.status(400).json({ error: 'Default uplink is still active and cannot be deleted until it expires.' });
-        }
-        const settings = req.user.settings || {};
-        await db.updateUser(req.user.id, {
-            slug: null,
-            expiryDate: null,
-            settings: { ...settings, realLink: '', nonRealLink: '' }
-        });
-        return res.json({ message: 'Default uplink deleted', deletedDefault: true });
-    }
-
     const links = req.user.links || [];
     const target = links.find(l => l.slug === slug);
     if (!target) return res.status(404).json({ error: 'Link not found' });
@@ -937,7 +923,7 @@ app.delete('/api/links/:slug', requireAuth, asyncHandler(async (req, res) => {
 
     const updatedLinks = links.filter(l => l.slug !== slug);
     await db.updateUser(req.user.id, { links: updatedLinks });
-    res.json({ message: 'Link deleted', deletedDefault: false });
+    res.json({ message: 'Link deleted' });
 }));
 
 app.put('/api/links/:oldSlug', requireAuth, asyncHandler(async (req, res) => {
@@ -1014,26 +1000,7 @@ app.post('/api/renew-link', requireAuth, asyncHandler(async (req, res) => {
 
     const now = new Date();
 
-    // Check if it's the default link
-    if (slug === req.user.slug) {
-        if (isExpiryActive(req.user.expiryDate)) {
-            return res.status(400).json({ error: 'Default uplink is still active and cannot be renewed until it expires. Overlapping renewals are not allowed.' });
-        }
-        let expiry = new Date(now);
-        if (duration === '3days') expiry.setDate(expiry.getDate() + 3);
-        else if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
-        else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);
-        else if (duration === 'month') expiry.setMonth(expiry.getMonth() + 1);
-
-        const updatedUser = await db.updateUser(req.user.id, {
-            wallet: req.user.wallet - price,
-            expiryDate: expiry.toISOString()
-        });
-
-        return res.json({ message: 'Default uplink extended', expiryDate: updatedUser.expiryDate, balance: updatedUser.wallet });
-    }
-
-    // Check custom links
+    // Only custom uplinks managed by the user can be renewed.
     const links = req.user.links || [];
     const index = links.findIndex(l => l.slug === slug);
     if (index === -1) return res.status(404).json({ error: 'Uplink not found' });
@@ -1083,19 +1050,6 @@ app.get('/l/:slug', async (req, res) => {
         return res.status(404).send('Account Inactive due to insufficient credits.');
     }
     return handleRedirection(result.user, req, res, result.link);
-});
-
-app.get('/u/:userId', async (req, res) => {
-    const user = await db.findUserById(req.params.userId);
-    if (!user || user.wallet <= 0) {
-        return res.status(404).send('Not Found or Account Inactive');
-    }
-    // Default link settings for legacy /u/ route
-    const defaultLink = {
-        realLink: user.settings.realLink,
-        nonRealLink: user.settings.nonRealLink
-    };
-    return handleRedirection(user, req, res, defaultLink);
 });
 
 async function handleRedirection(user, req, res, linkData) {
