@@ -598,7 +598,6 @@
         </div>
 
         <h2>ADMIN_BLOCK_IPS</h2>
-        <p>Site-wide IP block. Matching visitors are denied at <code>/l/:slug</code> regardless of which user's AntiRed link is hit. Accepts exact IPv4/IPv6, IPv4 wildcard (<code>192.168.1.*</code>), and CIDR (<code>10.0.0.0/8</code>, <code>2001:db8::/32</code>). Suggestions come from real visit IPs.</p>
         <div class="block-panel" style="max-width: 1000px;">
             <div class="block-row">
                 <div class="block-field">
@@ -631,7 +630,6 @@
         </div>
 
         <h2>ADMIN_BLOCK_ISPS</h2>
-        <p>Site-wide ISP block. Substring match against the ISP / org name returned by the geo lookup at visit time. Minimum 2 characters. Suggestions come from real visit ISPs.</p>
         <div class="block-panel" style="max-width: 1000px;">
             <div class="block-row">
                 <div class="block-field">
@@ -663,7 +661,6 @@
         </div>
 
         <h2>ADMIN_BLOCK_COUNTRIES</h2>
-        <p>Site-wide country block. Uses the visitor's <code>cf-ipcountry</code> (or <code>x-country-code</code>) header. Pick from the full ISO 3166-1 list below. Cached briefly; changes take effect immediately on next visit.</p>
         <div class="block-panel" style="max-width: 1000px;">
             <div class="block-row">
                 <div class="block-field">
