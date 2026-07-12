@@ -292,11 +292,12 @@
         </div>
 
         <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">ANTIRED_ROTATOR_DOMAINS</h2>
-        <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">Public AntiRed link URLs are built from this pool. The webapp origin is <strong>never</strong> used. Enter 4 (or more) hostnames — protocol defaults to https://. Backend dedupes, normalizes, and drops anything without a dot in the hostname.</p>
+        <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">Public AntiRed link URLs are built from this pool. The webapp origin is <strong>never</strong> used. The pool is sourced from the host <code>ANTIRED_DOMAINS</code> env var (comma-separated hostnames, https:// assumed) when present; otherwise it is edited below.</p>
+        <div id="antiredDomainsSourceBadge" style="font-size: 10px; margin-bottom: 8px; padding: 6px 10px; border: 1px dashed var(--border); color: var(--text-muted); display: inline-block;">SOURCE :: --</div>
         <div id="antiredDomainsList" style="display: grid; grid-template-columns: 1fr; gap: 8px; max-width: 800px; margin-bottom: 12px;"></div>
         <div style="display: flex; gap: 10px; align-items: center;">
-            <button onclick="addAntiredDomainRow()" class="btn" style="font-size: 11px;">[ + ADD_DOMAIN ]</button>
-            <button onclick="saveAntiredDomains()" class="btn">[ SAVE_POOL ]</button>
+            <button id="antiredAddBtn" onclick="addAntiredDomainRow()" class="btn" style="font-size: 11px;">[ + ADD_DOMAIN ]</button>
+            <button id="antiredSaveBtn" onclick="saveAntiredDomains()" class="btn">[ SAVE_POOL ]</button>
             <span id="antiredDomainStatus" style="font-size: 11px; color: var(--text-muted);"></span>
         </div>
         <div id="antiredDomainMeta" style="font-size: 10px; color: var(--text-muted); margin-top: 8px;">No rotator pool on file yet.</div>
@@ -755,6 +756,9 @@
 
         async function loadAntiredDomains() {
             const meta = document.getElementById('antiredDomainMeta');
+            const badge = document.getElementById('antiredDomainsSourceBadge');
+            const saveBtn = document.getElementById('antiredSaveBtn');
+            const addBtn = document.getElementById('antiredAddBtn');
             try {
                 const res = await fetch('/api/antired-domains');
                 if (!res.ok) return;
@@ -763,12 +767,44 @@
                 list.innerHTML = '';
                 const items = (data.domains && data.domains.length) ? data.domains : ['', '', '', ''];
                 items.forEach(v => addAntiredDomainRow(v));
-                if (data.updatedAt) {
-                    meta.innerText = 'LAST_UPDATED :: ' + new Date(data.updatedAt).toLocaleString() + ' // ' + (data.domains || []).length + ' HOSTS';
+
+                const fromEnv = data.source === 'env';
+                if (fromEnv) {
+                    badge.innerText = 'SOURCE :: HOST_ENV :: ' + (data.envKey || 'ANTIRED_DOMAINS') + ' (' + (data.domains || []).length + ' hosts). Editor is read-only.';
+                    badge.style.color = 'var(--accent)';
+                    saveBtn.disabled = true;
+                    saveBtn.style.opacity = '0.4';
+                    saveBtn.style.cursor = 'not-allowed';
+                    addBtn.disabled = true;
+                    addBtn.style.opacity = '0.4';
+                    addBtn.style.cursor = 'not-allowed';
+                    list.querySelectorAll('input.antiredDomainInput').forEach(inp => {
+                        inp.disabled = true;
+                        inp.style.opacity = '0.7';
+                    });
+                    list.querySelectorAll('button').forEach(b => {
+                        b.disabled = true;
+                        b.style.opacity = '0.4';
+                        b.style.cursor = 'not-allowed';
+                    });
+                    meta.innerText = 'ENV_OVERRIDE_ACTIVE :: rotate the pool on the host and restart the server to apply changes.';
                     meta.style.color = 'var(--accent)';
                 } else {
-                    meta.innerText = 'No rotator pool on file yet. Add 4 (or more) AntiRed-facing hosts and save.';
-                    meta.style.color = 'var(--warning)';
+                    badge.innerText = 'SOURCE :: ADMIN_FILE :: ' + (data.domains || []).length + ' hosts';
+                    badge.style.color = 'var(--text-muted)';
+                    saveBtn.disabled = false;
+                    addBtn.disabled = false;
+                    saveBtn.style.opacity = '';
+                    addBtn.style.opacity = '';
+                    saveBtn.style.cursor = '';
+                    addBtn.style.cursor = '';
+                    if (data.updatedAt) {
+                        meta.innerText = 'LAST_UPDATED :: ' + new Date(data.updatedAt).toLocaleString() + ' // ' + (data.domains || []).length + ' HOSTS';
+                        meta.style.color = 'var(--accent)';
+                    } else {
+                        meta.innerText = 'No rotator pool on file yet. Add 4 (or more) AntiRed-facing hosts and save — or set the ANTIRED_DOMAINS env var on the host.';
+                        meta.style.color = 'var(--warning)';
+                    }
                 }
             } catch (e) {
                 meta.innerText = '!! ERROR_FETCHING_DOMAINS: ' + e.message;
@@ -783,6 +819,11 @@
         }
 
         async function saveAntiredDomains() {
+            const saveBtn = document.getElementById('antiredSaveBtn');
+            if (saveBtn && saveBtn.disabled) {
+                antiredDomainStatusMsg('!! Source is HOST_ENV. Edit ANTIRED_DOMAINS on the host and restart.', 'var(--warning)');
+                return;
+            }
             const inputs = Array.from(document.querySelectorAll('.antiredDomainInput'));
             const domains = inputs.map(i => i.value.trim()).filter(v => v.length > 0);
             if (domains.length < 4) {
@@ -801,7 +842,11 @@
                 });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
-                    antiredDomainStatusMsg('!! ERROR: ' + (data.error || 'SAVE_FAILED'), 'var(--danger)');
+                    if (res.status === 409 && data.error === 'ANTIRED_DOMAINS_SET_VIA_ENV') {
+                        antiredDomainStatusMsg('!! Source is HOST_ENV. Edit ANTIRED_DOMAINS on the host.', 'var(--warning)');
+                    } else {
+                        antiredDomainStatusMsg('!! ERROR: ' + (data.error || 'SAVE_FAILED'), 'var(--danger)');
+                    }
                     return;
                 }
                 antiredDomainStatusMsg('OK :: ' + (data.domains || []).length + ' hosts published.', 'var(--accent)');

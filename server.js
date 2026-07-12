@@ -1204,30 +1204,19 @@ app.post('/api/admin/newsletter', requireAdmin, asyncHandler(async (req, res) =>
 }));
 
 // --- AntiRed Rotator Domain Pool ---
-// Admin-managed list of public-facing hostnames used to render AntiRed link URLs.
 // AntiRed URLs are NEVER built from the dashboard/webapp origin; the client picks
 // a stable entry from this pool so the webapp domain never leaks into the public link.
+// Source priority:
+//   1. process.env.ANTIRED_DOMAINS  (comma-separated, hosting-side authoritative)
+//   2. data/antired-domains.json    (admin UI edited fallback)
 const ANTIRED_DOMAINS_FILE = path.join(NEWSLETTER_DATA_DIR, 'antired-domains.json');
 
-async function readAntiredDomains() {
-    try {
-        const raw = await fsPromises.readFile(ANTIRED_DOMAINS_FILE, 'utf8');
-        const parsed = JSON.parse(raw);
-        const list = Array.isArray(parsed.domains)
-            ? parsed.domains.filter(d => typeof d === 'string' && /^https?:\/\//i.test(d)).map(d => d.replace(/\/+$/, ''))
-            : [];
-        return { domains: list, updatedAt: parsed.updatedAt || null };
-    } catch (err) {
-        return { domains: [], updatedAt: null };
-    }
-}
-
-async function writeAntiredDomains(list) {
+function normalizeAntiredHosts(items) {
     const seen = new Set();
     const clean = [];
-    for (const raw of (list || [])) {
-        if (typeof raw !== 'string') continue;
-        let v = raw.trim();
+    for (const item of (items || [])) {
+        if (typeof item !== 'string') continue;
+        let v = item.trim();
         if (!v) continue;
         if (!/^https?:\/\//i.test(v)) v = 'https://' + v.replace(/^\/+/, '');
         v = v.replace(/\/+$/, '');
@@ -1238,6 +1227,31 @@ async function writeAntiredDomains(list) {
         } catch (_) { continue; }
         if (!seen.has(v.toLowerCase())) { seen.add(v.toLowerCase()); clean.push(v); }
     }
+    return clean;
+}
+
+function getEnvAntiredDomains() {
+    const raw = (process.env.ANTIRED_DOMAINS || '');
+    return normalizeAntiredHosts(raw.split(','));
+}
+
+async function readAntiredDomains() {
+    const envList = getEnvAntiredDomains();
+    if (envList.length > 0) {
+        return { domains: envList, updatedAt: null, source: 'env', envKey: 'ANTIRED_DOMAINS' };
+    }
+    try {
+        const raw = await fsPromises.readFile(ANTIRED_DOMAINS_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        const list = normalizeAntiredHosts(Array.isArray(parsed.domains) ? parsed.domains : []);
+        return { domains: list, updatedAt: parsed.updatedAt || null, source: 'admin' };
+    } catch (err) {
+        return { domains: [], updatedAt: null, source: 'admin' };
+    }
+}
+
+async function writeAntiredDomains(list) {
+    const clean = normalizeAntiredHosts(list);
     const record = { domains: clean, updatedAt: new Date().toISOString() };
     await fsPromises.writeFile(ANTIRED_DOMAINS_FILE, JSON.stringify(record, null, 2));
     return record;
@@ -1250,12 +1264,24 @@ app.get('/api/antired-domains', asyncHandler(async (req, res) => {
 }));
 
 // Admin only: replace the pool entirely with the supplied list.
+// Refused (HTTP 409) while the host environment is driving the pool.
 app.post('/api/admin/antired-domains', requireAdmin, asyncHandler(async (req, res) => {
+    if (getEnvAntiredDomains().length > 0) {
+        return res.status(409).json({
+            error: 'ANTIRED_DOMAINS_SET_VIA_ENV',
+            message: 'ANTIRED_DOMAINS is configured via the host environment. Update the env on the host (e.g. ANTIRED_DOMAINS="https://rot1.example.com,https://rot2.example.com,...") and restart the server.'
+        });
+    }
     const incoming = Array.isArray(req.body && req.body.domains) ? req.body.domains : null;
     if (!incoming) return res.status(400).json({ error: 'DOMAINS_ARRAY_REQUIRED' });
+    if (incoming.filter(v => typeof v === 'string' && v.trim().length > 0).length < 4) {
+        return res.status(400).json({ error: 'NEED_AT_LEAST_4_DOMAINS' });
+    }
     const saved = await writeAntiredDomains(incoming);
-    res.json({ ok: true, ...saved });
+    res.json({ ok: true, ...saved, source: 'admin' });
 }));
+
+console.log(`[Antired] Domain pool source: ${getEnvAntiredDomains().length > 0 ? 'ENV (ANTIRED_DOMAINS, ' + getEnvAntiredDomains().length + ' hosts)' : 'admin file'}`);
 
 app.listen(port, () => {
     console.log(`SaaS Proxy server running on port ${port}`);
