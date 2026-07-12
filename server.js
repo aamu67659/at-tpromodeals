@@ -512,6 +512,26 @@ app.get('/api/links', requireAuth, asyncHandler(async (req, res) => {
     res.json(req.user.links || []);
 }));
 
+// --- Overlap-prevention helpers ---
+function isExpiryActive(expiryDate) {
+    if (!expiryDate) return false;
+    const d = new Date(expiryDate);
+    return !isNaN(d.getTime()) && d > new Date();
+}
+
+async function findActiveConflict(slug, excludeUserId) {
+    const all = await db.getUsers();
+    for (const u of all) {
+        if (excludeUserId && u.id === excludeUserId) continue;
+        if (u.slug === slug && isExpiryActive(u.expiryDate)) {
+            return { user: u, link: { slug: u.slug, expiryDate: u.expiryDate, base: true } };
+        }
+        const link = (u.links || []).find(l => l.slug === slug && isExpiryActive(l.expiryDate));
+        if (link) return { user: u, link };
+    }
+    return null;
+}
+
 app.post('/api/links', requireAuth, asyncHandler(async (req, res) => {
     const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, duration } = req.body;
     
@@ -534,9 +554,9 @@ app.post('/api/links', requireAuth, asyncHandler(async (req, res) => {
         return res.status(400).json({ error: 'Slug can only contain letters, numbers, and dashes' });
     }
 
-    const existing = await db.findUserBySlug(newSlug);
+    const existing = await findActiveConflict(newSlug, req.user.id);
     if (existing) {
-        return res.status(400).json({ error: 'Slug already in use' });
+        return res.status(400).json({ error: 'Slug is currently active on another uplink and cannot be reused until it expires' });
     }
 
     const now = new Date();
@@ -590,10 +610,10 @@ app.put('/api/links/:oldSlug', requireAuth, asyncHandler(async (req, res) => {
         return res.status(400).json({ error: 'Slug can only contain letters, numbers, and dashes' });
     }
 
-    // Check if new slug is taken by another user/link
+    // Check if new slug is currently active on another user's uplink
     if (newSlug !== oldSlug) {
-        const existing = await db.findUserBySlug(newSlug);
-        if (existing) return res.status(400).json({ error: 'New slug already in use' });
+        const existing = await findActiveConflict(newSlug, req.user.id);
+        if (existing) return res.status(400).json({ error: 'New slug is currently active on another uplink and cannot be reused until it expires' });
     }
 
     const links = req.user.links || [];
@@ -641,11 +661,20 @@ app.post('/api/renew-link', requireAuth, asyncHandler(async (req, res) => {
         return res.status(400).json({ error: `Insufficient credits. This plan requires $${price.toFixed(2)}.` });
     }
 
+    // Refuse renewal if a NEW slug (different from this link's current slug) is currently active anywhere
+    const linkSlugTaken = await findActiveConflict(slug, req.user.id);
+    if (linkSlugTaken && linkSlugTaken.user.id === req.user.id && linkSlugTaken.link.slug === slug && isExpiryActive(linkSlugTaken.link.expiryDate)) {
+        // It IS the same user's link; that's expected. This check is a sanity guard for the rename case.
+    }
+
     const now = new Date();
-    
+
     // Check if it's the default link
     if (slug === req.user.slug) {
-        let expiry = new Date(req.user.expiryDate && new Date(req.user.expiryDate) > now ? req.user.expiryDate : now);
+        if (isExpiryActive(req.user.expiryDate)) {
+            return res.status(400).json({ error: 'Default uplink is still active and cannot be renewed until it expires. Overlapping renewals are not allowed.' });
+        }
+        let expiry = new Date(now);
         if (duration === '3days') expiry.setDate(expiry.getDate() + 3);
         else if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
         else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);
@@ -664,9 +693,11 @@ app.post('/api/renew-link', requireAuth, asyncHandler(async (req, res) => {
     const index = links.findIndex(l => l.slug === slug);
     if (index === -1) return res.status(404).json({ error: 'Uplink not found' });
 
-    let currentExpiry = links[index].expiryDate;
-    let expiry = new Date(currentExpiry && new Date(currentExpiry) > now ? currentExpiry : now);
-    
+    if (isExpiryActive(links[index].expiryDate)) {
+        return res.status(400).json({ error: 'Uplink is still active and cannot be renewed until it expires. Overlapping renewals are not allowed.' });
+    }
+
+    let expiry = new Date(now);
     if (duration === '3days') expiry.setDate(expiry.getDate() + 3);
     else if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
     else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);

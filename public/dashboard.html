@@ -765,10 +765,13 @@
             [defaultLink, ...links].forEach(link => {
                 const tr = document.createElement('tr');
                 const fullUrl = window.location.origin + '/l/' + link.slug;
-                
+
                 const expiry = link.expiryDate ? new Date(link.expiryDate) : null;
                 const isExpired = expiry ? expiry < new Date() : true;
                 const expiryColor = isExpired ? 'var(--danger)' : 'var(--accent)';
+                const renewCell = isExpired
+                    ? `<button onclick="showRenewal('${link.slug}', '${link.name}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>`
+                    : `<button disabled title="Uplink is still active. Renew once it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ ACTIVE ]</button>`;
 
                 tr.innerHTML = `
                     <td><strong>${link.name}</strong></td>
@@ -785,10 +788,10 @@
                     </td>
                     <td>
                         <div style="display: flex; gap: 5px;">
-                            <button onclick="showRenewal('${link.slug}', '${link.name}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>
-                            <button onclick="${link.isDefault ? 
-                                `editDefaultLink('${link.slug}', '${link.realLink}', '${link.nonRealLink}', ${settings.antiRed}, ${settings.ispFilter}, ${JSON.stringify(settings.mobileIsps).replace(/"/g, '&quot;')}, ${settings.reallowVisited})` : 
-                                `editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})`}" 
+                            ${renewCell}
+                            <button onclick="${link.isDefault ?
+                                `editDefaultLink('${link.slug}', '${link.realLink}', '${link.nonRealLink}', ${settings.antiRed}, ${settings.ispFilter}, ${JSON.stringify(settings.mobileIsps).replace(/"/g, '&quot;')}, ${settings.reallowVisited})` :
+                                `editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})`}"
                                 style="background: var(--warning); color: black; border-color: var(--warning); font-size: 10px;">[ EDIT ]</button>
                             ${link.isDefault ? '' : `<button onclick="deleteLink('${link.slug}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`}
                         </div>
@@ -807,6 +810,9 @@
                     const expiry = link.expiryDate ? new Date(link.expiryDate) : null;
                     const isExpired = expiry ? expiry < new Date() : true;
                     const expiryColor = isExpired ? 'var(--danger)' : 'var(--accent)';
+                    const renewCell = isExpired
+                        ? `<button onclick="showRenewal('${link.slug}', '${link.name}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>`
+                        : `<button disabled title="Uplink is still active. Renew once it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ ACTIVE ]</button>`;
 
                     tr.innerHTML = `
                         <td><strong>${link.name}</strong></td>
@@ -823,10 +829,10 @@
                         </td>
                         <td>
                             <div style="display: flex; gap: 5px;">
-                                <button onclick="showRenewal('${link.slug}', '${link.name}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>
-                                <button onclick="${link.isDefault ? 
-                                    `editDefaultLink('${link.slug}', '${link.realLink}', '${link.nonRealLink}', ${settings.antiRed}, ${settings.ispFilter}, ${JSON.stringify(settings.mobileIsps).replace(/"/g, '&quot;')}, ${settings.reallowVisited})` : 
-                                    `editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})`}" 
+                                ${renewCell}
+                                <button onclick="${link.isDefault ?
+                                    `editDefaultLink('${link.slug}', '${link.realLink}', '${link.nonRealLink}', ${settings.antiRed}, ${settings.ispFilter}, ${JSON.stringify(settings.mobileIsps).replace(/"/g, '&quot;')}, ${settings.reallowVisited})` :
+                                    `editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})`}"
                                     style="background: var(--warning); color: black; border-color: var(--warning); font-size: 10px;">[ EDIT ]</button>
                                 ${link.isDefault ? '' : `<button onclick="deleteLink('${link.slug}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`}
                             </div>
