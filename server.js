@@ -285,9 +285,20 @@ app.post('/api/admin/toggle-status', requireAdmin, asyncHandler(async (req, res)
     const { userId } = req.body;
     const user = await db.findUserById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    
+
     const updatedUser = await db.updateUser(userId, { isActive: !user.isActive });
     res.json(updatedUser);
+}));
+
+app.delete('/api/admin/users/:id', requireAdmin, asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'ID_REQUIRED' });
+    const user = await db.findUserById(id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const removed = await db.deleteUser(id);
+    if (!removed) return res.status(404).json({ error: 'User not found' });
+    res.json({ ok: true, message: 'User deleted', user: removed });
 }));
 
 app.get('/api/admin/payments', requireAdmin, asyncHandler(async (req, res) => {

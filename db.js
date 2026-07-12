@@ -490,6 +490,21 @@ async function updateUser(id, updates) {
     });
 }
 
+async function deleteUser(id) {
+    return await withFileLock(USERS_FILE, async () => {
+        const buf = await fs.readFile(USERS_FILE, 'utf8');
+        const parsed = safeParseLimited(buf, [], MAX_USERS_FILE_BYTES);
+        const users = Array.isArray(parsed) ? parsed : [];
+        const index = users.findIndex(u => u.id === id);
+        if (index === -1) return null;
+        const removed = users.splice(index, 1)[0];
+        await atomicWriteJSON(USERS_FILE, users);
+        _usersSnapshot = users;
+        _userIndex = rebuildUserIndex(users);
+        return stripSecrets(removed);
+    });
+}
+
 module.exports = {
     DATA_DIR,
     USERS_FILE,
@@ -502,6 +517,7 @@ module.exports = {
     findUserById,
     findUserBySlug,
     updateUser,
+    deleteUser,
     readAdminBlocks,
     writeAdminBlocks,
     addAdminBlock,

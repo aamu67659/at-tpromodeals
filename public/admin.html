@@ -775,6 +775,9 @@
                                 <button class="btn btn-status ${user.isActive ? 'active' : ''}" style="font-size: 10px; padding: 5px 10px;" onclick="toggleStatus('${escapeHtml(user.id)}')">
                                     [ ${user.isActive ? 'DEACTIVATE' : 'ACTIVATE'} ]
                                 </button>
+                                <button class="btn btn-status" style="font-size: 10px; padding: 5px 10px; background: var(--danger); color: #fff;" onclick="deleteUser('${escapeHtml(user.id)}', '${escapeHtml(user.name || 'ANONYMOUS')}')">
+                                    [ DELETE ]
+                                </button>
                             </div>
                         </td>
                     `;
@@ -1013,6 +1016,26 @@
             });
 
             if (res.ok) loadUsers();
+        }
+
+        async function deleteUser(userId, userName) {
+            if (!confirm(`!! PERMANENTLY DELETE account "${userName}"?\n\nThis will erase the user, all links, wallet, pending payments, and history.\nThis action cannot be undone.`)) return;
+
+            try {
+                const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+                    method: 'DELETE',
+                    headers: { 'x-admin-token': currentToken }
+                });
+
+                if (res.ok) {
+                    loadUsers();
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    alert('!! ERROR: ' + (data.error || 'DELETE_FAILED'));
+                }
+            } catch (e) {
+                alert('!! ERROR: ' + (e && e.message ? e.message : 'NETWORK'));
+            }
         }
 
         async function loadPayments() {
