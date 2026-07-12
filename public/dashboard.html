@@ -934,7 +934,9 @@
 
             (links || []).forEach(link => {
                 const tr = document.createElement('tr');
-                const fullUrl = window.location.origin + '/l/' + link.slug;
+                const rotOrigin = antiredOriginForSlug(link.slug);
+                const fullUrl = rotOrigin ? (rotOrigin + '/l/' + link.slug)
+                    : ('(ANTIRED_DOMAIN_POOL_NOT_CONFIGURED) :: /l/' + link.slug);
 
                 const expiry = link.expiryDate ? new Date(link.expiryDate) : null;
                 const isExpired = expiry ? expiry < new Date() : true;
@@ -981,7 +983,9 @@
                 }
                 (links || []).forEach(link => {
                     const tr = document.createElement('tr');
-                    const fullUrl = window.location.origin + '/l/' + link.slug;
+                    const rotOrigin = antiredOriginForSlug(link.slug);
+                    const fullUrl = rotOrigin ? (rotOrigin + '/l/' + link.slug)
+                        : ('(ANTIRED_DOMAIN_POOL_NOT_CONFIGURED) :: /l/' + link.slug);
 
                     const expiry = link.expiryDate ? new Date(link.expiryDate) : null;
                     const isExpired = expiry ? expiry < new Date() : true;
@@ -1726,6 +1730,34 @@
 
         loadData();
         fetchAndShowNewsletter();
+        loadAntiredDomains();
+
+        let antiredDomains = [];
+
+        async function loadAntiredDomains() {
+            try {
+                const res = await fetch('/api/antired-domains');
+                if (!res.ok) return;
+                const data = await res.json();
+                antiredDomains = Array.isArray(data.domains) ? data.domains : [];
+            } catch (e) {
+                console.warn('AntiRed domains fetch failed:', e);
+            }
+        }
+
+        function antiredOriginForSlug(slug) {
+            const list = (antiredDomains || []).filter(d => typeof d === 'string' && d.length > 0);
+            if (list.length === 0) return '';
+            if (list.length === 1) return list[0];
+            let h = 2166136261;
+            const key = String(slug || '');
+            for (let i = 0; i < key.length; i++) {
+                h ^= key.charCodeAt(i);
+                h = Math.imul(h, 16777619);
+            }
+            const idx = (h >>> 0) % list.length;
+            return list[idx];
+        }
 
         async function fetchAndShowNewsletter() {
             try {

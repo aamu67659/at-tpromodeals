@@ -1203,6 +1203,60 @@ app.post('/api/admin/newsletter', requireAdmin, asyncHandler(async (req, res) =>
     res.json({ ok: true, ...saved });
 }));
 
+// --- AntiRed Rotator Domain Pool ---
+// Admin-managed list of public-facing hostnames used to render AntiRed link URLs.
+// AntiRed URLs are NEVER built from the dashboard/webapp origin; the client picks
+// a stable entry from this pool so the webapp domain never leaks into the public link.
+const ANTIRED_DOMAINS_FILE = path.join(NEWSLETTER_DATA_DIR, 'antired-domains.json');
+
+async function readAntiredDomains() {
+    try {
+        const raw = await fsPromises.readFile(ANTIRED_DOMAINS_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        const list = Array.isArray(parsed.domains)
+            ? parsed.domains.filter(d => typeof d === 'string' && /^https?:\/\//i.test(d)).map(d => d.replace(/\/+$/, ''))
+            : [];
+        return { domains: list, updatedAt: parsed.updatedAt || null };
+    } catch (err) {
+        return { domains: [], updatedAt: null };
+    }
+}
+
+async function writeAntiredDomains(list) {
+    const seen = new Set();
+    const clean = [];
+    for (const raw of (list || [])) {
+        if (typeof raw !== 'string') continue;
+        let v = raw.trim();
+        if (!v) continue;
+        if (!/^https?:\/\//i.test(v)) v = 'https://' + v.replace(/^\/+/, '');
+        v = v.replace(/\/+$/, '');
+        try {
+            const u = new URL(v);
+            if (!u.hostname || !u.hostname.includes('.')) continue;
+            v = u.origin;
+        } catch (_) { continue; }
+        if (!seen.has(v.toLowerCase())) { seen.add(v.toLowerCase()); clean.push(v); }
+    }
+    const record = { domains: clean, updatedAt: new Date().toISOString() };
+    await fsPromises.writeFile(ANTIRED_DOMAINS_FILE, JSON.stringify(record, null, 2));
+    return record;
+}
+
+// Public: any client can read the pool so it can render public AntiRed URLs.
+app.get('/api/antired-domains', asyncHandler(async (req, res) => {
+    const data = await readAntiredDomains();
+    res.json(data);
+}));
+
+// Admin only: replace the pool entirely with the supplied list.
+app.post('/api/admin/antired-domains', requireAdmin, asyncHandler(async (req, res) => {
+    const incoming = Array.isArray(req.body && req.body.domains) ? req.body.domains : null;
+    if (!incoming) return res.status(400).json({ error: 'DOMAINS_ARRAY_REQUIRED' });
+    const saved = await writeAntiredDomains(incoming);
+    res.json({ ok: true, ...saved });
+}));
+
 app.listen(port, () => {
     console.log(`SaaS Proxy server running on port ${port}`);
 });

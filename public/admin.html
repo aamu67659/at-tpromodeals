@@ -291,6 +291,16 @@
             <div id="statsLoading" style="color: var(--text-muted);">Loading telemetry from all nodes...</div>
         </div>
 
+        <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">ANTIRED_ROTATOR_DOMAINS</h2>
+        <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">Public AntiRed link URLs are built from this pool. The webapp origin is <strong>never</strong> used. Enter 4 (or more) hostnames — protocol defaults to https://. Backend dedupes, normalizes, and drops anything without a dot in the hostname.</p>
+        <div id="antiredDomainsList" style="display: grid; grid-template-columns: 1fr; gap: 8px; max-width: 800px; margin-bottom: 12px;"></div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <button onclick="addAntiredDomainRow()" class="btn" style="font-size: 11px;">[ + ADD_DOMAIN ]</button>
+            <button onclick="saveAntiredDomains()" class="btn">[ SAVE_POOL ]</button>
+            <span id="antiredDomainStatus" style="font-size: 11px; color: var(--text-muted);"></span>
+        </div>
+        <div id="antiredDomainMeta" style="font-size: 10px; color: var(--text-muted); margin-top: 8px;">No rotator pool on file yet.</div>
+
         <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">DASHBOARD_NEWSLETTER_BROADCAST</h2>
         <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">This notice is shown to every user in a popup the moment they open their Dashboard. Only the admin can author it.</p>
         <div style="display: grid; grid-template-columns: 1fr; gap: 12px; max-width: 800px;">
@@ -400,6 +410,7 @@
                 await loadPayments();
                 loadStats();
                 loadNewsletter();
+                loadAntiredDomains();
             } else {
                 alert('!! ERROR: ACCESS_DENIED_INVALID_SECRET');
                 localStorage.removeItem('adminToken');
@@ -727,6 +738,77 @@
 
         if (localStorage.getItem('adminToken')) {
             loadUsers();
+        }
+
+        function addAntiredDomainRow(value) {
+            const list = document.getElementById('antiredDomainsList');
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.gap = '8px';
+            row.style.alignItems = 'center';
+            row.innerHTML = `
+                <input type="text" class="antiredDomainInput" placeholder="https://rotator-1.example.com" value="${(value || '').replace(/"/g, '&quot;')}" style="flex: 1; padding: 8px 10px; background: var(--bg-base); border: 1px solid var(--border); color: var(--text-primary); font-family: inherit; font-size: 12px;">
+                <button onclick="this.parentNode.remove();" class="btn btn-status" style="font-size: 11px;">[ REMOVE ]</button>
+            `;
+            list.appendChild(row);
+        }
+
+        async function loadAntiredDomains() {
+            const meta = document.getElementById('antiredDomainMeta');
+            try {
+                const res = await fetch('/api/antired-domains');
+                if (!res.ok) return;
+                const data = await res.json();
+                const list = document.getElementById('antiredDomainsList');
+                list.innerHTML = '';
+                const items = (data.domains && data.domains.length) ? data.domains : ['', '', '', ''];
+                items.forEach(v => addAntiredDomainRow(v));
+                if (data.updatedAt) {
+                    meta.innerText = 'LAST_UPDATED :: ' + new Date(data.updatedAt).toLocaleString() + ' // ' + (data.domains || []).length + ' HOSTS';
+                    meta.style.color = 'var(--accent)';
+                } else {
+                    meta.innerText = 'No rotator pool on file yet. Add 4 (or more) AntiRed-facing hosts and save.';
+                    meta.style.color = 'var(--warning)';
+                }
+            } catch (e) {
+                meta.innerText = '!! ERROR_FETCHING_DOMAINS: ' + e.message;
+                meta.style.color = 'var(--danger)';
+            }
+        }
+
+        function antiredDomainStatusMsg(msg, color) {
+            const el = document.getElementById('antiredDomainStatus');
+            el.innerText = msg;
+            el.style.color = color || 'var(--text-muted)';
+        }
+
+        async function saveAntiredDomains() {
+            const inputs = Array.from(document.querySelectorAll('.antiredDomainInput'));
+            const domains = inputs.map(i => i.value.trim()).filter(v => v.length > 0);
+            if (domains.length < 4) {
+                antiredDomainStatusMsg('!! Need at least 4 domains so the AntiRed link can rotate without exposing the webapp origin.', 'var(--danger)');
+                return;
+            }
+            antiredDomainStatusMsg('Saving...', 'var(--warning)');
+            try {
+                const res = await fetch('/api/admin/antired-domains', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-admin-token': currentToken
+                    },
+                    body: JSON.stringify({ domains })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    antiredDomainStatusMsg('!! ERROR: ' + (data.error || 'SAVE_FAILED'), 'var(--danger)');
+                    return;
+                }
+                antiredDomainStatusMsg('OK :: ' + (data.domains || []).length + ' hosts published.', 'var(--accent)');
+                loadAntiredDomains();
+            } catch (e) {
+                antiredDomainStatusMsg('!! ERROR: ' + e.message, 'var(--danger)');
+            }
         }
 
         async function loadNewsletter() {
