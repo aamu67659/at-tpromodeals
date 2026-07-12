@@ -371,6 +371,150 @@
             font-size: 11.5px;
         }
 
+        /* --- Admin block-lists panels (IP / ISP / Country) --- */
+        .block-panel {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 18px;
+            margin-bottom: 4px;
+            box-shadow: var(--shadow-sm);
+        }
+        .block-row {
+            display: grid;
+            grid-template-columns: minmax(260px, 320px) 1fr auto;
+            gap: 12px;
+            align-items: end;
+        }
+        .block-field {
+            display: flex;
+            flex-direction: column;
+        }
+        .block-field label {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.10em;
+            color: var(--text-muted);
+            margin-bottom: 5px;
+        }
+        .block-field input,
+        .block-field select {
+            width: 100%;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 9px 12px;
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            outline: none;
+            box-sizing: border-box;
+            margin-bottom: 0;
+            transition: border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+        }
+        .block-field select { appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 28px; }
+        .block-field input:focus,
+        .block-field select:focus {
+            border-color: var(--accent);
+            box-shadow: var(--shadow-focus);
+        }
+        .block-hint {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-faint);
+            letter-spacing: 0.06em;
+            margin-top: 4px;
+        }
+        .block-add { white-space: nowrap; height: 38px; }
+        .block-status-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-top: 12px;
+        }
+        .block-status {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .block-faint {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-faint);
+            letter-spacing: 0.08em;
+        }
+        .block-list {
+            margin-top: 14px;
+        }
+        .block-bulk-panel {
+            margin-top: 14px;
+            border: 1px dashed var(--border);
+            border-radius: 10px;
+            padding: 0;
+            background: var(--bg-input);
+            transition: border-color 160ms var(--ease-out);
+        }
+        .block-bulk-panel[open] { padding: 12px 14px; border-color: var(--accent-border); }
+        .block-bulk-panel summary {
+            cursor: pointer;
+            padding: 10px 14px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.10em;
+            list-style: none;
+            user-select: none;
+        }
+        .block-bulk-panel summary::-webkit-details-marker { display: none; }
+        .block-bulk-panel summary::before {
+            content: "+";
+            display: inline-block;
+            margin-right: 8px;
+            color: var(--accent);
+            font-weight: 700;
+        }
+        .block-bulk-panel[open] summary::before { content: "−"; }
+        .block-bulk-panel summary:hover { color: var(--accent); }
+        .block-bulk-panel textarea {
+            width: 100%;
+            background: var(--bg-canvas);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            resize: vertical;
+            box-sizing: border-box;
+            outline: none;
+            transition: border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+        }
+        .block-bulk-panel textarea:focus { border-color: var(--accent); box-shadow: var(--shadow-focus); }
+        .block-bulk-panel p {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin: 8px 0 10px;
+            line-height: 1.5;
+        }
+        .row-rule-tag {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 9.5px;
+            padding: 2px 6px;
+            border-radius: 999px;
+            margin-left: 8px;
+            letter-spacing: 0.08em;
+            font-weight: 700;
+            text-transform: uppercase;
+            vertical-align: middle;
+        }
+        .row-rule-tag.cidr      { color: var(--info);    border: 1px solid rgba(123,217,255,0.45); background: var(--info-bg); }
+        .row-rule-tag.wildcard  { color: var(--warning); border: 1px solid rgba(240,192,116,0.45); background: var(--warning-bg); }
+        .row-rule-tag.exact     { color: var(--accent);  border: 1px solid rgba(123,224,164,0.45); background: var(--accent-bg); }
+        .row-rule-tag.iso       { color: var(--info);    border: 1px solid rgba(123,217,255,0.45); background: var(--info-bg); }
+
         #statsContent .pulse-dot {
             display: inline-block;
             width: 8px;
@@ -390,6 +534,8 @@
             .container { padding: 20px; }
             table, .stats-table { font-size: 12px; }
             thead th, tbody td { padding: 10px; }
+            .block-row { grid-template-columns: 1fr; }
+            .block-add { width: 100%; }
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -452,64 +598,101 @@
         </div>
 
         <h2>ADMIN_BLOCK_IPS</h2>
-        <p>Site-wide IP block. Matching visitors are denied at <code>/l/:slug</code> regardless of which user's AntiRed link is hit. IPv4, IPv6, or CIDR accepted. Exact-match against the visitor's resolved IP.</p>
-        <div style="max-width: 900px;">
-            <div style="display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: end;">
-                <div>
+        <p>Site-wide IP block. Matching visitors are denied at <code>/l/:slug</code> regardless of which user's AntiRed link is hit. Accepts exact IPv4/IPv6, IPv4 wildcard (<code>192.168.1.*</code>), and CIDR (<code>10.0.0.0/8</code>, <code>2001:db8::/32</code>). Suggestions come from real visit IPs.</p>
+        <div class="block-panel" style="max-width: 1000px;">
+            <div class="block-row">
+                <div class="block-field">
                     <label>IP_ADDRESS</label>
-                    <input type="text" id="blockIpsValue" placeholder="e.g. 192.168.1.42 or 2001:db8::1">
+                    <input type="text" id="blockIpsValue" list="blockIpsSuggestions" placeholder="e.g. 192.168.1.42, 10.0.0.0/8, 2001:db8::1" autocomplete="off" autocapitalize="off" spellcheck="false">
+                    <datalist id="blockIpsSuggestions"></datalist>
+                    <div class="block-hint">Exact · Wildcard · CIDR · Suggestions from visit log</div>
                 </div>
-                <div>
+                <div class="block-field block-field-grow">
                     <label>REASON (OPTIONAL)</label>
                     <input type="text" id="blockIpsReason" maxlength="200" placeholder="e.g. Repeat fraud attempts">
                 </div>
-                <button onclick="addAdminBlock('ips')" class="btn">[ + ADD_IP ]</button>
+                <button onclick="addAdminBlock('ips')" class="btn block-add">[ + ADD_IP ]</button>
             </div>
-            <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
-                <span id="blockIpsStatus" style="font-size: 11px; color: var(--text-muted);"></span>
-                <span style="font-size: 10px; color: var(--text-faint); font-family: var(--font-mono); letter-spacing: 0.08em;">CACHE_INVALIDATES_ON_CHANGE</span>
+            <details class="block-bulk-panel">
+                <summary>[ BULK_IMPORT_CSV / TEXT ]</summary>
+                <p>Paste one entry per line. Format: <code>VALUE</code> or <code>VALUE, REASON</code>. Lines starting with <code>#</code> are ignored. Up to 1000 entries per submission.</p>
+                <textarea id="blockIpsBulk" rows="6" placeholder="192.168.1.0/24, internal subnet&#10;10.0.0.0/8, RFC1918 corp net&#10;2001:db8::/32, IPv6 test range"></textarea>
+                <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                    <button onclick="bulkImport('ips')" class="btn">[ IMPORT_BULK ]</button>
+                    <button onclick="document.getElementById('blockIpsBulk').value=''" class="btn btn-status">[ CLEAR ]</button>
+                    <span id="blockIpsBulkStatus" class="block-status"></span>
+                </div>
+            </details>
+            <div class="block-status-row">
+                <span id="blockIpsStatus" class="block-status"></span>
+                <span class="block-faint">CACHE_INVALIDATES_ON_CHANGE</span>
             </div>
-            <div id="blockIpsList" style="margin-top: 14px;"></div>
+            <div id="blockIpsList" class="block-list"></div>
         </div>
 
         <h2>ADMIN_BLOCK_ISPS</h2>
-        <p>Site-wide ISP block. Substring match against the ISP / org name returned by the geo lookup at visit time. Minimum 2 characters.</p>
-        <div style="max-width: 900px;">
-            <div style="display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: end;">
-                <div>
+        <p>Site-wide ISP block. Substring match against the ISP / org name returned by the geo lookup at visit time. Minimum 2 characters. Suggestions come from real visit ISPs.</p>
+        <div class="block-panel" style="max-width: 1000px;">
+            <div class="block-row">
+                <div class="block-field">
                     <label>ISP_OR_ORG_NAME</label>
-                    <input type="text" id="blockIspsValue" placeholder="e.g. Comcast or AS15169 Google">
+                    <input type="text" id="blockIspsValue" list="blockIspsSuggestions" placeholder="e.g. Comcast, AS15169 Google" autocomplete="off">
+                    <datalist id="blockIspsSuggestions"></datalist>
+                    <div class="block-hint">Substring match · Suggestions from visit log</div>
                 </div>
-                <div>
+                <div class="block-field block-field-grow">
                     <label>REASON (OPTIONAL)</label>
                     <input type="text" id="blockIspsReason" maxlength="200" placeholder="e.g. datacenter hosting abuse">
                 </div>
-                <button onclick="addAdminBlock('isps')" class="btn">[ + ADD_ISP ]</button>
+                <button onclick="addAdminBlock('isps')" class="btn block-add">[ + ADD_ISP ]</button>
             </div>
-            <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
-                <span id="blockIspsStatus" style="font-size: 11px; color: var(--text-muted);"></span>
+            <details class="block-bulk-panel">
+                <summary>[ BULK_IMPORT_CSV / TEXT ]</summary>
+                <p>Paste one entry per line. Format: <code>VALUE</code> or <code>VALUE, REASON</code>. Lines starting with <code>#</code> are ignored.</p>
+                <textarea id="blockIspsBulk" rows="6" placeholder="Comcast, regional cable ISP&#10;Google LLC, AS15169 datacenter abuse&#10;OVH SAS, hosting provider"></textarea>
+                <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                    <button onclick="bulkImport('isps')" class="btn">[ IMPORT_BULK ]</button>
+                    <button onclick="document.getElementById('blockIspsBulk').value=''" class="btn btn-status">[ CLEAR ]</button>
+                    <span id="blockIspsBulkStatus" class="block-status"></span>
+                </div>
+            </details>
+            <div class="block-status-row">
+                <span id="blockIspsStatus" class="block-status"></span>
             </div>
-            <div id="blockIspsList" style="margin-top: 14px;"></div>
+            <div id="blockIspsList" class="block-list"></div>
         </div>
 
         <h2>ADMIN_BLOCK_COUNTRIES</h2>
-        <p>Site-wide country block. Uses the visitor's <code>cf-ipcountry</code> (or <code>x-country-code</code>) header. Enter 2-letter ISO codes (<code>US</code>, <code>RU</code>, etc.). Cached briefly; changes take effect immediately on next visit.</p>
-        <div style="max-width: 900px;">
-            <div style="display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: end;">
-                <div>
-                    <label>COUNTRY_CODE</label>
-                    <input type="text" id="blockCountriesValue" placeholder="e.g. US" maxlength="2" style="text-transform: uppercase;">
+        <p>Site-wide country block. Uses the visitor's <code>cf-ipcountry</code> (or <code>x-country-code</code>) header. Pick from the full ISO 3166-1 list below. Cached briefly; changes take effect immediately on next visit.</p>
+        <div class="block-panel" style="max-width: 1000px;">
+            <div class="block-row">
+                <div class="block-field">
+                    <label>COUNTRY</label>
+                    <select id="blockCountriesValue" data-placeholder="CHOOSE_COUNTRY">
+                        <option value="">-- CHOOSE_COUNTRY --</option>
+                    </select>
+                    <div class="block-hint">ISO 3166-1 alpha-2 · Full registry loaded</div>
                 </div>
-                <div>
+                <div class="block-field block-field-grow">
                     <label>REASON (OPTIONAL)</label>
                     <input type="text" id="blockCountriesReason" maxlength="200" placeholder="e.g. regulatory region">
                 </div>
-                <button onclick="addAdminBlock('countries')" class="btn">[ + ADD_COUNTRY ]</button>
+                <button onclick="addAdminBlock('countries')" class="btn block-add">[ + ADD_COUNTRY ]</button>
             </div>
-            <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
-                <span id="blockCountriesStatus" style="font-size: 11px; color: var(--text-muted);"></span>
+            <details class="block-bulk-panel">
+                <summary>[ BULK_IMPORT_ISO_CODES ]</summary>
+                <p>Paste one ISO-2 code per line, optionally with a reason. Format: <code>US</code> or <code>US, regulatory region</code>. Unknown codes will be reported as errors.</p>
+                <textarea id="blockCountriesBulk" rows="6" placeholder="US, sanctions&#10;RU&#10;KP&#10;IR"></textarea>
+                <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                    <button onclick="bulkImport('countries')" class="btn">[ IMPORT_BULK ]</button>
+                    <button onclick="document.getElementById('blockCountriesBulk').value=''" class="btn btn-status">[ CLEAR ]</button>
+                    <span id="blockCountriesBulkStatus" class="block-status"></span>
+                </div>
+            </details>
+            <div class="block-status-row">
+                <span id="blockCountriesStatus" class="block-status"></span>
             </div>
-            <div id="blockCountriesList" style="margin-top: 14px;"></div>
+            <div id="blockCountriesList" class="block-list"></div>
         </div>
 
         <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">USDT_TRC20_PAYMENT_QUEUE</h2>
@@ -603,6 +786,8 @@
                 loadNewsletter();
                 loadAntiredDomains();
                 loadAdminBlocks();
+                loadIsoCountries();
+                loadBlockSuggestions();
             } else {
                 alert('!! ERROR: ACCESS_DENIED_INVALID_SECRET');
                 localStorage.removeItem('adminToken');
@@ -1159,6 +1344,89 @@
             ]);
         }
 
+        async function loadIsoCountries() {
+            const sel = document.getElementById('blockCountriesValue');
+            if (!sel) return;
+            try {
+                const res = await fetch('/api/iso-countries');
+                if (!res.ok) return;
+                const data = await res.json();
+                const items = Array.isArray(data.items) ? data.items : [];
+                const sorted = items.slice().sort((a, b) => a.name.localeCompare(b.name));
+                sorted.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.code;
+                    opt.textContent = `${c.code} — ${c.name}`;
+                    sel.appendChild(opt);
+                });
+            } catch (_) { /* keep fallback */ }
+        }
+
+        async function loadBlockSuggestions() {
+            const groups = [
+                { type: 'ips',  dlId: 'blockIpsSuggestions' },
+                { type: 'isps', dlId: 'blockIspsSuggestions' }
+            ];
+            for (const g of groups) {
+                try {
+                    const res = await fetch(`/api/admin/block-suggestions/${g.type}`, {
+                        headers: { 'x-admin-token': currentToken }
+                    });
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    const dl = document.getElementById(g.dlId);
+                    if (!dl) continue;
+                    dl.innerHTML = '';
+                    (data.items || []).forEach(it => {
+                        const opt = document.createElement('option');
+                        opt.value = it.key;
+                        opt.textContent = `${it.key}  (${it.count} hit${it.count === 1 ? '' : 's'})`;
+                        dl.appendChild(opt);
+                    });
+                } catch (_) { /* silent */ }
+            }
+        }
+
+        function setBulkStatus(type, msg, color) {
+            const el = document.getElementById(`block${cap(type)}BulkStatus`);
+            if (!el) return;
+            el.textContent = msg || '';
+            el.style.color = color || 'var(--text-muted)';
+        }
+
+        async function bulkImport(type) {
+            const ta = document.getElementById(`block${cap(type)}Bulk`);
+            if (!ta) return;
+            const text = ta.value;
+            if (!text.trim()) {
+                setBulkStatus(type, '!! Paste at least one entry first.', 'var(--danger)');
+                return;
+            }
+            setBulkStatus(type, 'importing…', 'var(--text-muted)');
+            try {
+                const res = await fetch(`/api/admin/blocks/${type}/bulk`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-admin-token': currentToken },
+                    body: JSON.stringify({ text })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setBulkStatus(type, '!! ' + (data.error || 'IMPORT_FAILED'), 'var(--danger)');
+                    return;
+                }
+                const parts = [];
+                if ((data.added || []).length) parts.push('+ ' + data.added.length + ' added');
+                if ((data.skipped || []).length) parts.push('= ' + data.skipped.length + ' duplicate');
+                if ((data.errors || []).length) parts.push('× ' + data.errors.length + ' invalid');
+                const summary = parts.length ? parts.join(' / ') + ' of ' + (data.totalSubmitted || 0) + ' submitted' : 'no rows';
+                setBulkStatus(type, 'import :: ' + summary, (data.errors || []).length ? 'var(--warning)' : 'var(--accent)');
+                ta.value = '';
+                await Promise.all([renderAdminBlockList(type), loadBlockSuggestions()]);
+            } catch (e) {
+                setBulkStatus(type, '!! ' + e.message, 'var(--danger)');
+            }
+        }
+
         async function renderAdminBlockList(type) {
             const list = document.getElementById(`block${cap(type)}List`);
             if (!list) return;
@@ -1179,11 +1447,12 @@
                     return;
                 }
                 const label = blockLabels(type);
+                const showRule = (type === 'ips');
                 list.innerHTML = `
                     <table class="stats-table">
                         <thead>
                             <tr>
-                                <th style="width: 22%;">${label}</th>
+                                <th style="width: 26%;">${label}${showRule ? ' <span style="color:var(--text-faint);">(rule)</span>' : ''}</th>
                                 <th>REASON</th>
                                 <th style="width: 18%;">ADDED</th>
                                 <th style="width: 12%; text-align: right;">ACTIONS</th>
@@ -1193,8 +1462,10 @@
                             ${items.map(it => {
                                 const valSafe = escapeHtml(it.value);
                                 const reasonSafe = escapeHtml(it.reason || '—');
+                                const rule = (it.rule || 'exact').toLowerCase();
+                                const tag = showRule ? `<span class="row-rule-tag ${rule}">${escapeHtml(rule)}</span>` : '';
                                 return `<tr>
-                                    <td><code>${valSafe}</code></td>
+                                    <td><code>${valSafe}</code>${tag}</td>
                                     <td>${reasonSafe}</td>
                                     <td style="color: var(--text-muted); font-size: 11px;">${escapeHtml(fmtDateShort(it.addedAt))}</td>
                                     <td style="text-align: right;">

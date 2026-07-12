@@ -1312,23 +1312,9 @@ console.log(`[Antired] Domain pool source: ${getEnvAntiredDomains().length > 0 ?
 // --- Admin-level blocklists (IP / ISP / Country) ---
 // Site-wide rules applied to /l/:slug regardless of which user's link was hit.
 
-function isValidIpLiteral(v) {
-    // IPv4 (with optional CIDR) or IPv6 (with optional CIDR). Loose: accept . / : / hex.
-    if (typeof v !== 'string' || !v) return false;
-    if (v.includes('/')) {
-        const [base] = v.split('/');
-        return isValidIpLiteral(base);
-    }
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) {
-        return v.split('.').every(o => {
-            const n = Number(o);
-            return n >= 0 && n <= 255;
-        });
-    }
-    // IPv6 (full or partial)
-    if (/^[0-9a-fA-F:]+$/.test(v) && v.includes(':')) return true;
-    return false;
-}
+app.get('/api/iso-countries', asyncHandler(async (req, res) => {
+    res.json({ items: db.ISO_COUNTRIES });
+}));
 
 app.get('/api/admin/blocks/:type', requireAdmin, asyncHandler(async (req, res) => {
     const { type } = req.params;
@@ -1343,8 +1329,8 @@ app.post('/api/admin/blocks/:type', requireAdmin, asyncHandler(async (req, res) 
     const { value, reason } = req.body || {};
     const v = typeof value === 'string' ? value.trim() : '';
     if (!v) return res.status(400).json({ error: 'EMPTY_VALUE' });
-    if (type === 'ips' && !isValidIpLiteral(v)) {
-        return res.status(400).json({ error: 'INVALID_IP_FORMAT' });
+    if (type === 'ips' && !db.ipRuleKind(v)) {
+        return res.status(400).json({ error: 'INVALID_IP_FORMAT (use exact v4/v6, wildcard, or CIDR)' });
     }
     if (type === 'countries' && !/^[A-Za-z]{2}$/.test(v)) {
         return res.status(400).json({ error: 'COUNTRY_CODE_REQUIRED_2_LETTERS' });
@@ -1362,6 +1348,57 @@ app.post('/api/admin/blocks/:type', requireAdmin, asyncHandler(async (req, res) 
         if (err.message === 'EMPTY_VALUE') return res.status(400).json({ error: 'EMPTY_VALUE' });
         throw err;
     }
+}));
+
+app.post('/api/admin/blocks/:type/bulk', requireAdmin, asyncHandler(async (req, res) => {
+    const { type } = req.params;
+    if (!db.VALID_BLOCK_TYPES.has(type)) return res.status(400).json({ error: 'INVALID_TYPE' });
+
+    const lines = Array.isArray(req.body && req.body.lines) ? req.body.lines : null;
+    const text = typeof req.body && typeof req.body.text === 'string' ? req.body.text : null;
+    if (!lines && !text) return res.status(400).json({ error: 'LINES_OR_TEXT_REQUIRED' });
+
+    // Accept: array of strings OR array of {value, reason} OR raw CSV/text.
+    const parsed = [];
+    if (Array.isArray(lines)) {
+        for (const item of lines) {
+            if (typeof item === 'string') parsed.push({ value: item, reason: '' });
+            else if (item && typeof item === 'object')
+                parsed.push({ value: String(item.value || ''), reason: String(item.reason || '') });
+        }
+    }
+    if (text) {
+        for (const raw of text.split(/\r?\n/)) {
+            const line = raw.trim();
+            if (!line || line.startsWith('#')) continue;
+            const match = line.match(/^"?(.*?)"?\s*,\s*(.*)$/);
+            parsed.push(match ? { value: match[1], reason: match[2] } : { value: line, reason: '' });
+        }
+    }
+
+    if (parsed.length === 0) return res.status(400).json({ error: 'NO_VALID_ROWS' });
+    if (parsed.length > 1000) return res.status(400).json({ error: 'BULK_LIMIT_1000' });
+
+    const added = [], skipped = [], errors = [];
+    for (const row of parsed) {
+        const v = String(row.value || '').trim();
+        if (!v) { errors.push({ value: row.value, error: 'EMPTY_VALUE' }); continue; }
+        let valid = true;
+        if (type === 'ips' && !db.ipRuleKind(v)) valid = false;
+        if (type === 'countries' && !/^[A-Za-z]{2}$/.test(v)) valid = false;
+        if (type === 'isps' && v.length < 2) valid = false;
+        if (!valid) { errors.push({ value: v, error: 'INVALID_FORMAT' }); continue; }
+        try {
+            const blocks = await db.addAdminBlock(type, v, row.reason || '');
+            added.push(blocks[type][blocks[type].length - 1]);
+        } catch (err) {
+            if (err.code === 'DUPLICATE_VALUE') skipped.push({ value: v, error: 'DUPLICATE_VALUE' });
+            else errors.push({ value: v, error: err.message || 'UNKNOWN' });
+        }
+    }
+
+    if (added.length > 0) _adminBlocksCache = null;
+    res.json({ ok: true, added, skipped, errors, totalSubmitted: parsed.length });
 }));
 
 app.delete('/api/admin/blocks/:type/:id', requireAdmin, asyncHandler(async (req, res) => {
@@ -1397,7 +1434,8 @@ function ispMatchesAnyBlock(ispValue, blockedIsps) {
 
 function blockedByAdmin(ip, countryHdr, geoData, blocks) {
     if (!blocks) return null;
-    if ((blocks.ips || []).some(b => b.value === ip)) return 'IP';
+    // IP match honours exact, IPv4/IPv6 CIDR, and '*' wildcard entries.
+    if (ip && db.ipMatchesAnyBlock(ip, blocks.ips || [])) return 'IP';
     if (countryHdr && (blocks.countries || []).some(b => b.value === countryHdr.toUpperCase())) return 'COUNTRY';
     if (geoData) {
         const candidates = [geoData.isp, geoData.org].filter(Boolean);
@@ -1405,6 +1443,34 @@ function blockedByAdmin(ip, countryHdr, geoData, blocks) {
     }
     return null;
 }
+
+// --- Admin block-suggestions endpoint (ISP autosuggest from real visit logs) ---
+app.get('/api/admin/block-suggestions/:type', requireAdmin, asyncHandler(async (req, res) => {
+    const { type } = req.params;
+    if (!['isps', 'countries', 'ips'].includes(type)) return res.status(400).json({ error: 'INVALID_TYPE' });
+    const users = await db.getUsers();
+    const counts = new Map();
+
+    for (const u of users) {
+        for (const v of (u.visitedIps || [])) {
+            let key = null;
+            if (type === 'isps') key = v.isp;
+            else if (type === 'countries') {
+                const m = (v.location || '').match(/,\s*([A-Za-z]{2})$/);
+                if (m) key = m[1].toUpperCase();
+            } else if (type === 'ips') key = v.ip;
+            if (!key || key === 'Unknown') continue;
+            counts.set(key, (counts.get(key) || 0) + 1);
+        }
+    }
+
+    const items = Array.from(counts.entries())
+        .map(([key, count]) => ({ key, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 50);
+
+    res.json({ type, items });
+}));
 
 app.listen(port, () => {
     console.log(`SaaS Proxy server running on port ${port}`);
