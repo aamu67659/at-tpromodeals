@@ -1198,6 +1198,57 @@ async function handleRedirection(user, req, res, linkData) {
     res.redirect(targetUrl);
 }
 
+// --- Newsletter (admin-authored broadcast shown on user dashboard) ---
+const fsPromises = require('fs').promises;
+const fsSync = require('fs');
+const NEWSLETTER_DATA_DIR = fsSync.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
+if (!fsSync.existsSync(NEWSLETTER_DATA_DIR)) {
+    try { fsSync.mkdirSync(NEWSLETTER_DATA_DIR, { recursive: true }); } catch (_) {}
+}
+const NEWSLETTER_FILE = path.join(NEWSLETTER_DATA_DIR, 'newsletter.json');
+
+async function readNewsletter() {
+    try {
+        const raw = await fsPromises.readFile(NEWSLETTER_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        return {
+            title: typeof parsed.title === 'string' ? parsed.title : '',
+            body: typeof parsed.body === 'string' ? parsed.body : '',
+            updatedAt: parsed.updatedAt || null
+        };
+    } catch (err) {
+        return { title: '', body: '', updatedAt: null };
+    }
+}
+
+async function writeNewsletter(payload) {
+    const record = {
+        title: typeof payload.title === 'string' ? payload.title : '',
+        body: typeof payload.body === 'string' ? payload.body : '',
+        updatedAt: new Date().toISOString()
+    };
+    await fsPromises.writeFile(NEWSLETTER_FILE, JSON.stringify(record, null, 2));
+    return record;
+}
+
+// Public: any logged-in client can read the current broadcast.
+app.get('/api/newsletter', asyncHandler(async (req, res) => {
+    const data = await readNewsletter();
+    res.json(data);
+}));
+
+// Admin only: write/update the broadcast.
+app.post('/api/admin/newsletter', requireAdmin, asyncHandler(async (req, res) => {
+    const { title, body } = req.body || {};
+    const cleanTitle = typeof title === 'string' ? title.slice(0, 120) : '';
+    const cleanBody = typeof body === 'string' ? body.slice(0, 4000) : '';
+    if (!cleanTitle && !cleanBody) {
+        return res.status(400).json({ error: 'EMPTY_NEWSLETTER' });
+    }
+    const saved = await writeNewsletter({ title: cleanTitle, body: cleanBody });
+    res.json({ ok: true, ...saved });
+}));
+
 app.listen(port, () => {
     console.log(`SaaS Proxy server running on port ${port}`);
 });

@@ -291,6 +291,26 @@
             <div id="statsLoading" style="color: var(--text-muted);">Loading telemetry from all nodes...</div>
         </div>
 
+        <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">DASHBOARD_NEWSLETTER_BROADCAST</h2>
+        <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">This notice is shown to every user in a popup the moment they open their Dashboard. Only the admin can author it.</p>
+        <div style="display: grid; grid-template-columns: 1fr; gap: 12px; max-width: 800px;">
+            <div>
+                <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">HEADLINE_TITLE</label>
+                <input type="text" id="newsletterTitle" maxlength="120" placeholder="e.g. SCHEDULED_MAINTENANCE_WINDOW" style="margin-top: 4px; padding: 8px 10px; background: var(--bg-base); border: 1px solid var(--border); color: var(--text-primary); font-family: inherit; font-size: 12px; width: 100%; box-sizing: border-box;">
+            </div>
+            <div>
+                <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">MESSAGE_BODY</label>
+                <textarea id="newsletterBody" rows="6" maxlength="4000" placeholder="Plain text notice. Newlines are preserved." style="margin-top: 4px; padding: 8px 10px; background: var(--bg-base); border: 1px solid var(--border); color: var(--text-primary); font-family: inherit; font-size: 12px; width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+                <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Max 4000 chars. Plain text only &mdash; line breaks are rendered as-is in the user popup.</div>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button onclick="saveNewsletter()" class="btn">[ PUBLISH_TO_DASHBOARD ]</button>
+                <button onclick="clearNewsletter()" class="btn btn-status">[ CLEAR_BROADCAST ]</button>
+                <span id="newsletterStatus" style="font-size: 11px; color: var(--text-muted);"></span>
+            </div>
+            <div id="newsletterMeta" style="font-size: 10px; color: var(--text-muted);">No broadcast on file yet.</div>
+        </div>
+
         <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">USDT_TRC20_PAYMENT_QUEUE</h2>
         <div style="overflow-x: auto;">
             <table id="paymentTable">
@@ -379,6 +399,7 @@
 
                 await loadPayments();
                 loadStats();
+                loadNewsletter();
             } else {
                 alert('!! ERROR: ACCESS_DENIED_INVALID_SECRET');
                 localStorage.removeItem('adminToken');
@@ -706,6 +727,90 @@
 
         if (localStorage.getItem('adminToken')) {
             loadUsers();
+        }
+
+        async function loadNewsletter() {
+            const meta = document.getElementById('newsletterMeta');
+            try {
+                const res = await fetch('/api/newsletter');
+                if (!res.ok) return;
+                const data = await res.json();
+                document.getElementById('newsletterTitle').value = data.title || '';
+                document.getElementById('newsletterBody').value = data.body || '';
+                if (data.updatedAt) {
+                    meta.innerText = 'LAST_UPDATED :: ' + new Date(data.updatedAt).toLocaleString();
+                    meta.style.color = 'var(--accent)';
+                } else {
+                    meta.innerText = 'No broadcast on file yet.';
+                    meta.style.color = 'var(--text-muted)';
+                }
+            } catch (e) {
+                meta.innerText = '!! ERROR_FETCHING_NEWSLETTER: ' + e.message;
+                meta.style.color = 'var(--danger)';
+            }
+        }
+
+        function newsletterStatusMsg(msg, color) {
+            const el = document.getElementById('newsletterStatus');
+            el.innerText = msg;
+            el.style.color = color || 'var(--text-muted)';
+        }
+
+        async function saveNewsletter() {
+            const title = document.getElementById('newsletterTitle').value.trim();
+            const body = document.getElementById('newsletterBody').value.trim();
+            if (!title && !body) {
+                newsletterStatusMsg('!! Provide a title and/or body first.', 'var(--danger)');
+                return;
+            }
+            newsletterStatusMsg('Publishing...', 'var(--warning)');
+            try {
+                const res = await fetch('/api/admin/newsletter', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-admin-token': currentToken
+                    },
+                    body: JSON.stringify({ title, body })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    newsletterStatusMsg('!! ERROR: ' + (data.error || 'PUBLISH_FAILED'), 'var(--danger)');
+                    return;
+                }
+                newsletterStatusMsg('OK :: users will see this on next dashboard open.', 'var(--accent)');
+                loadNewsletter();
+            } catch (e) {
+                newsletterStatusMsg('!! ERROR: ' + e.message, 'var(--danger)');
+            }
+        }
+
+        async function clearNewsletter() {
+            if (!confirm('CLEAR CURRENT DASHBOARD BROADCAST?')) return;
+            newsletterStatusMsg('Clearing...', 'var(--warning)');
+            try {
+                const res = await fetch('/api/admin/newsletter', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-admin-token': currentToken
+                    },
+                    body: JSON.stringify({ title: ' ', body: ' ' })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    newsletterStatusMsg('!! ERROR: ' + (data.error || 'CLEAR_FAILED'), 'var(--danger)');
+                    return;
+                }
+                document.getElementById('newsletterTitle').value = '';
+                document.getElementById('newsletterBody').value = '';
+                newsletterStatusMsg('CLEARED :: empty record saved.', 'var(--accent)');
+                const meta = document.getElementById('newsletterMeta');
+                meta.innerText = 'No broadcast on file yet.';
+                meta.style.color = 'var(--text-muted)';
+            } catch (e) {
+                newsletterStatusMsg('!! ERROR: ' + e.message, 'var(--danger)');
+            }
         }
     </script>
 </body>

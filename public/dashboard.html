@@ -1741,6 +1741,7 @@
                 document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
                 document.getElementById(id + '-section').classList.add('active');
                 if (id === 'profile') refreshProfileSection();
+                if (id === 'dashboard') fetchAndShowNewsletter();
             }, 50);
         }
 
@@ -1787,7 +1788,53 @@
         }
 
         loadData();
+        fetchAndShowNewsletter();
+
+        async function fetchAndShowNewsletter() {
+            try {
+                const res = await fetch('/api/newsletter');
+                if (!res.ok) return;
+                const data = await res.json();
+                openNewsletterPopup(data);
+            } catch (e) {
+                console.warn('Newsletter fetch failed:', e);
+            }
+        }
+
+        function openNewsletterPopup(data) {
+            if (!data) return;
+            const title = (data.title || '').trim();
+            const body = (data.body || '').trim();
+            if (!title && !body) return;
+
+            const modal = document.getElementById('newsletterModal');
+            document.getElementById('newsletterPopupTitle').innerText = title || 'OPERATOR_NOTICE';
+            document.getElementById('newsletterPopupBody').innerText = body || title;
+            const meta = document.getElementById('newsletterPopupMeta');
+            if (data.updatedAt) {
+                meta.innerText = 'POSTED :: ' + new Date(data.updatedAt).toLocaleString();
+            } else {
+                meta.innerText = '';
+            }
+            modal.classList.add('open');
+        }
+
+        function closeNewsletterPopup() {
+            const modal = document.getElementById('newsletterModal');
+            if (modal) modal.classList.remove('open');
+        }
     </script>
+
+    <div id="newsletterModal" class="modal-overlay" onclick="if(event.target===this) closeNewsletterPopup()">
+        <div class="modal-box">
+            <span class="modal-close" onclick="closeNewsletterPopup()">[X]</span>
+            <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">OPERATOR_BROADCAST</div>
+            <h2 id="newsletterPopupTitle" style="margin-top: 0;">--</h2>
+            <pre id="newsletterPopupBody" style="font-family: 'JetBrains Mono', monospace; background: var(--bg); border: 1px solid var(--border); padding: 14px; white-space: pre-wrap; word-wrap: break-word; margin: 0 0 14px 0; color: var(--text-primary); font-size: 12px; line-height: 1.6; max-height: 50vh; overflow-y: auto;"></pre>
+            <div id="newsletterPopupMeta" style="font-size: 10px; color: var(--text-muted); margin-bottom: 14px;"></div>
+            <button onclick="closeNewsletterPopup()" style="background: var(--accent); color: black; border-color: var(--accent); width: 100%; font-size: 12px;">[ ACKNOWLEDGE ]</button>
+        </div>
+    </div>
 
     <div id="paymentModal" class="modal-overlay" onclick="if(event.target===this) closePaymentModal()">
         <div class="modal-box">
