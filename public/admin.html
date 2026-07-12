@@ -451,6 +451,67 @@
             <div id="newsletterMeta" style="font-size: 10px; color: var(--text-muted);">No broadcast on file yet.</div>
         </div>
 
+        <h2>ADMIN_BLOCK_IPS</h2>
+        <p>Site-wide IP block. Matching visitors are denied at <code>/l/:slug</code> regardless of which user's AntiRed link is hit. IPv4, IPv6, or CIDR accepted. Exact-match against the visitor's resolved IP.</p>
+        <div style="max-width: 900px;">
+            <div style="display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: end;">
+                <div>
+                    <label>IP_ADDRESS</label>
+                    <input type="text" id="blockIpsValue" placeholder="e.g. 192.168.1.42 or 2001:db8::1">
+                </div>
+                <div>
+                    <label>REASON (OPTIONAL)</label>
+                    <input type="text" id="blockIpsReason" maxlength="200" placeholder="e.g. Repeat fraud attempts">
+                </div>
+                <button onclick="addAdminBlock('ips')" class="btn">[ + ADD_IP ]</button>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                <span id="blockIpsStatus" style="font-size: 11px; color: var(--text-muted);"></span>
+                <span style="font-size: 10px; color: var(--text-faint); font-family: var(--font-mono); letter-spacing: 0.08em;">CACHE_INVALIDATES_ON_CHANGE</span>
+            </div>
+            <div id="blockIpsList" style="margin-top: 14px;"></div>
+        </div>
+
+        <h2>ADMIN_BLOCK_ISPS</h2>
+        <p>Site-wide ISP block. Substring match against the ISP / org name returned by the geo lookup at visit time. Minimum 2 characters.</p>
+        <div style="max-width: 900px;">
+            <div style="display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: end;">
+                <div>
+                    <label>ISP_OR_ORG_NAME</label>
+                    <input type="text" id="blockIspsValue" placeholder="e.g. Comcast or AS15169 Google">
+                </div>
+                <div>
+                    <label>REASON (OPTIONAL)</label>
+                    <input type="text" id="blockIspsReason" maxlength="200" placeholder="e.g. datacenter hosting abuse">
+                </div>
+                <button onclick="addAdminBlock('isps')" class="btn">[ + ADD_ISP ]</button>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                <span id="blockIspsStatus" style="font-size: 11px; color: var(--text-muted);"></span>
+            </div>
+            <div id="blockIspsList" style="margin-top: 14px;"></div>
+        </div>
+
+        <h2>ADMIN_BLOCK_COUNTRIES</h2>
+        <p>Site-wide country block. Uses the visitor's <code>cf-ipcountry</code> (or <code>x-country-code</code>) header. Enter 2-letter ISO codes (<code>US</code>, <code>RU</code>, etc.). Cached briefly; changes take effect immediately on next visit.</p>
+        <div style="max-width: 900px;">
+            <div style="display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: end;">
+                <div>
+                    <label>COUNTRY_CODE</label>
+                    <input type="text" id="blockCountriesValue" placeholder="e.g. US" maxlength="2" style="text-transform: uppercase;">
+                </div>
+                <div>
+                    <label>REASON (OPTIONAL)</label>
+                    <input type="text" id="blockCountriesReason" maxlength="200" placeholder="e.g. regulatory region">
+                </div>
+                <button onclick="addAdminBlock('countries')" class="btn">[ + ADD_COUNTRY ]</button>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                <span id="blockCountriesStatus" style="font-size: 11px; color: var(--text-muted);"></span>
+            </div>
+            <div id="blockCountriesList" style="margin-top: 14px;"></div>
+        </div>
+
         <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">USDT_TRC20_PAYMENT_QUEUE</h2>
         <div style="overflow-x: auto;">
             <table id="paymentTable">
@@ -541,6 +602,7 @@
                 loadStats();
                 loadNewsletter();
                 loadAntiredDomains();
+                loadAdminBlocks();
             } else {
                 alert('!! ERROR: ACCESS_DENIED_INVALID_SECRET');
                 localStorage.removeItem('adminToken');
@@ -1066,6 +1128,142 @@
                 meta.style.color = 'var(--text-muted)';
             } catch (e) {
                 newsletterStatusMsg('!! ERROR: ' + e.message, 'var(--danger)');
+            }
+        }
+
+        // --- Admin block lists (IP / ISP / Country) ---
+        function blockLabels(type) {
+            return { ips: 'IP', isps: 'ISP', countries: 'COUNTRY' }[type] || type.toUpperCase();
+        }
+        function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+        function escapeHtml(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+            ));
+        }
+        function fmtDateShort(iso) {
+            if (!iso) return '—';
+            try {
+                const d = new Date(iso);
+                return d.toLocaleString();
+            } catch (_) {
+                return String(iso);
+            }
+        }
+
+        async function loadAdminBlocks() {
+            await Promise.all([
+                renderAdminBlockList('ips'),
+                renderAdminBlockList('isps'),
+                renderAdminBlockList('countries')
+            ]);
+        }
+
+        async function renderAdminBlockList(type) {
+            const list = document.getElementById(`block${cap(type)}List`);
+            if (!list) return;
+            list.innerHTML = `<table class="stats-table"><tbody><tr><td><span class="stats-empty">loading…</span></td></tr></tbody></table>`;
+            try {
+                const res = await fetch(`/api/admin/blocks/${type}`, {
+                    headers: { 'x-admin-token': currentToken }
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    list.innerHTML = `<div class="stats-empty">!! ${escapeHtml(err.error || 'LOAD_FAILED')}</div>`;
+                    return;
+                }
+                const data = await res.json();
+                const items = Array.isArray(data.items) ? data.items : [];
+                if (!items.length) {
+                    list.innerHTML = `<div class="stats-empty">No ${blockLabels(type).toLowerCase()} entries yet. Add one above to take effect site-wide.</div>`;
+                    return;
+                }
+                const label = blockLabels(type);
+                list.innerHTML = `
+                    <table class="stats-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 22%;">${label}</th>
+                                <th>REASON</th>
+                                <th style="width: 18%;">ADDED</th>
+                                <th style="width: 12%; text-align: right;">ACTIONS</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${items.map(it => {
+                                const valSafe = escapeHtml(it.value);
+                                const reasonSafe = escapeHtml(it.reason || '—');
+                                return `<tr>
+                                    <td><code>${valSafe}</code></td>
+                                    <td>${reasonSafe}</td>
+                                    <td style="color: var(--text-muted); font-size: 11px;">${escapeHtml(fmtDateShort(it.addedAt))}</td>
+                                    <td style="text-align: right;">
+                                        <button class="btn btn-status" style="font-size: 10px; padding: 5px 10px;" onclick="removeAdminBlock('${type}', '${escapeHtml(it.id)}')">[ REMOVE ]</button>
+                                    </td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } catch (e) {
+                list.innerHTML = `<div class="stats-empty">!! ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        function setBlockStatus(type, msg, color) {
+            const el = document.getElementById(`block${cap(type)}Status`);
+            if (!el) return;
+            el.textContent = msg || '';
+            el.style.color = color || 'var(--text-muted)';
+        }
+
+        async function addAdminBlock(type) {
+            const valEl = document.getElementById(`block${cap(type)}Value`);
+            const reasonEl = document.getElementById(`block${cap(type)}Reason`);
+            const value = valEl ? valEl.value.trim() : '';
+            const reason = reasonEl ? reasonEl.value.trim() : '';
+            if (!value) {
+                setBlockStatus(type, '!! VALUE_REQUIRED', 'var(--danger)');
+                return;
+            }
+            setBlockStatus(type, 'saving…', 'var(--text-muted)');
+            try {
+                const res = await fetch(`/api/admin/blocks/${type}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-admin-token': currentToken },
+                    body: JSON.stringify({ value, reason })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setBlockStatus(type, '!! ' + (data.error || 'SAVE_FAILED'), 'var(--danger)');
+                    return;
+                }
+                setBlockStatus(type, 'saved :: ' + value, 'var(--accent)');
+                if (valEl) valEl.value = '';
+                if (reasonEl) reasonEl.value = '';
+                await renderAdminBlockList(type);
+            } catch (e) {
+                setBlockStatus(type, '!! ' + e.message, 'var(--danger)');
+            }
+        }
+
+        async function removeAdminBlock(type, id) {
+            const label = blockLabels(type);
+            if (!confirm(`Remove this ${label} from the site-wide admin block list?`)) return;
+            try {
+                const res = await fetch(`/api/admin/blocks/${encodeURIComponent(type)}/${encodeURIComponent(id)}`, {
+                    method: 'DELETE',
+                    headers: { 'x-admin-token': currentToken }
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setBlockStatus(type, '!! ' + (data.error || 'DELETE_FAILED'), 'var(--danger)');
+                    return;
+                }
+                setBlockStatus(type, 'removed :: ' + id, 'var(--accent)');
+                await renderAdminBlockList(type);
+            } catch (e) {
+                setBlockStatus(type, '!! ' + e.message, 'var(--danger)');
             }
         }
     </script>
