@@ -167,6 +167,105 @@
 
         .status-active { color: var(--accent); border: 1px solid var(--accent); }
         .status-disabled { color: var(--danger); border: 1px solid var(--danger); }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .stat-tile {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            padding: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-tile.accent { border-color: var(--accent); }
+        .stat-tile.warning { border-color: var(--warning); }
+        .stat-tile.danger { border-color: var(--danger); }
+
+        .stat-tile .stat-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+
+        .stat-tile .stat-value {
+            font-size: 22px;
+            color: var(--accent);
+            font-weight: bold;
+            font-family: 'Share Tech Mono', monospace;
+        }
+
+        .stat-tile.danger .stat-value { color: var(--danger); }
+        .stat-tile.warning .stat-value { color: var(--warning); }
+
+        .stat-tile .stat-sub {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .stats-row-divider {
+            border: 0;
+            border-top: 1px solid var(--border);
+            margin: 18px 0 12px 0;
+        }
+
+        .stats-section-title {
+            font-family: 'Share Tech Mono', monospace;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-size: 12px;
+            margin: 6px 0 10px 0;
+        }
+
+        .stats-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 6px;
+        }
+        .stats-table th, .stats-table td {
+            padding: 8px;
+            border: 1px solid var(--border);
+            font-size: 11px;
+            text-align: left;
+        }
+        .stats-table th {
+            background: var(--bg-elevated);
+            color: var(--accent);
+            text-transform: uppercase;
+            font-size: 10px;
+        }
+        .stats-table td.hits-cell { color: var(--accent); font-weight: bold; }
+
+        .stats-empty {
+            color: var(--text-muted);
+            font-style: italic;
+            padding: 6px 0;
+        }
+
+        #statsContent .pulse-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            margin-right: 6px;
+            animation: stats-pulse 1.5s infinite;
+        }
+
+        @keyframes stats-pulse {
+            0% { opacity: 1; box-shadow: 0 0 4px var(--accent); }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; box-shadow: 0 0 4px var(--accent); }
+        }
     </style>
 </head>
 <body>
@@ -181,7 +280,15 @@
         <h1>ADMIN_NODE_MGR</h1>
         <div class="header-actions">
             <div style="font-size: 12px; color: var(--text-muted);">SYSTEM_LEVEL_0 :: TOTAL_NODES_ACTIVE</div>
-            <button onclick="logout()" class="btn btn-status" style="font-size: 12px;">[ TERMINATE_SESSION ]</button>
+            <div style="display:flex; gap:8px;">
+                <button onclick="loadStats()" class="btn" style="font-size: 12px;">[ REFRESH_STATS ]</button>
+                <button onclick="logout()" class="btn btn-status" style="font-size: 12px;">[ TERMINATE_SESSION ]</button>
+            </div>
+        </div>
+
+        <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">SITE_STATISTICS &amp; INFLOW</h2>
+        <div id="statsContent" style="font-size: 12px;">
+            <div id="statsLoading" style="color: var(--text-muted);">Loading telemetry from all nodes...</div>
         </div>
 
         <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">USDT_TRC20_PAYMENT_QUEUE</h2>
@@ -271,10 +378,203 @@
                 });
 
                 await loadPayments();
+                loadStats();
             } else {
                 alert('!! ERROR: ACCESS_DENIED_INVALID_SECRET');
                 localStorage.removeItem('adminToken');
             }
+        }
+
+        async function loadStats() {
+            const container = document.getElementById('statsContent');
+            if (!container) return;
+            container.innerHTML = '<div style="color: var(--text-muted);">Loading telemetry from all nodes...</div>';
+
+            try {
+                const res = await fetch('/api/admin/stats', {
+                    headers: { 'x-admin-token': currentToken }
+                });
+                if (!res.ok) {
+                    container.innerHTML = '<div style="color:var(--danger);">!! ERROR_FETCHING_STATS</div>';
+                    return;
+                }
+                const s = await res.json();
+                renderStats(s);
+            } catch (e) {
+                container.innerHTML = '<div style="color:var(--danger);">!! ERROR: ' + e.message + '</div>';
+            }
+        }
+
+        function fmtNum(n, decimals = 2) {
+            if (typeof n !== 'number' || !isFinite(n)) return '0';
+            return n.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+        }
+
+        function fmtMsToLocal(ts) {
+            if (!ts) return 'N/A';
+            const d = new Date(typeof ts === 'number' && ts < 2e12 ? ts : ts);
+            return d.toLocaleString();
+        }
+
+        function tile(label, value, sub, cls) {
+            return `<div class="stat-tile ${cls || ''}">
+                <div class="stat-label">${label}</div>
+                <div class="stat-value">${value}</div>
+                <div class="stat-sub">${sub || ''}</div>
+            </div>`;
+        }
+
+        function renderStats(s) {
+            const container = document.getElementById('statsContent');
+
+            const inflowTiles = `
+                ${tile('TOTAL_INFLOW_USDT', '$' + fmtNum(s.inflow.confirmedTotal), 'confirmed deposit volume', 'accent')}
+                ${tile('AUTO_CREDITED', '$' + fmtNum(s.inflow.autoCreditedTotal), 'via Tron poller', 'accent')}
+                ${tile('MANUAL_CONFIRMED', '$' + fmtNum(s.inflow.manualConfirmedTotal), 'admin approved', 'warning')}
+                ${tile('INFLOW_24H', '$' + fmtNum(s.inflow.confirmed24h), 'last 24 hours', 'accent')}
+                ${tile('INFLOW_7D', '$' + fmtNum(s.inflow.confirmed7d), 'last 7 days', 'accent')}
+                ${tile('PENDING_INFLOW', '$' + fmtNum(s.inflow.pendingTotal), s.inflow.pendingCount + ' unsettled payments', s.inflow.pendingTotal > 0 ? 'warning' : '')}
+                ${tile('REJECTED_INFLOW', '$' + fmtNum(s.inflow.rejectedTotal), 'fraud/abandoned', 'danger')}
+            `;
+
+            const userTiles = `
+                ${tile('TOTAL_USERS', fmtNum(s.users.total, 0), 'all-time registrants', 'accent')}
+                ${tile('ACTIVE_USERS', fmtNum(s.users.active, 0), 'isActive=true', 'accent')}
+                ${tile('DEACTIVATED', fmtNum(s.users.deactivated, 0), 'suspended accounts', s.users.deactivated > 0 ? 'danger' : '')}
+                ${tile('NEW_SIGNUPS_24H', fmtNum(s.users.registeredLast24h, 0), 'last 24h', 'accent')}
+                ${tile('LOGINS_24H', fmtNum(s.users.loggedInLast24h, 0), 'distinct users online', 'accent')}
+                ${tile('TOTAL_CREDITS_OUT', '$' + fmtNum(s.wallet.totalCreditsAcrossUsers), 'sum of all wallets', 'accent')}
+                ${tile('HIGH_WALLET_USERS', fmtNum(s.wallet.highWallets, 0), 'balances >= $100', 'accent')}
+                ${tile('AVG_WALLET', '$' + fmtNum(s.wallet.avgWallet), 'average user balance', '')}
+            `;
+
+            const visitTiles = `
+                ${tile('TOTAL_VISITS', fmtNum(s.visits.total, 0), 'all-time clicks into uplinks', 'accent')}
+                ${tile('VISITS_7D', fmtNum(s.visits.last7d, 0), 'rolling 7-day window', 'accent')}
+                ${tile('REAL_VISITS_24H', fmtNum(s.visits.real24h, 0), 'hybrid bypass 24h', 'accent')}
+                ${tile('SAFE_VISITS_24H', fmtNum(s.visits.safe24h, 0), 'redirected to decoy 24h', 'accent')}
+                ${tile('UNIQUE_IPS_24H', fmtNum(s.visits.uniqueIps24h, 0), 'distinct sources 24h', 'accent')}
+                ${tile('HIGHEST_LOCATION', s.visits.highestLocation || 'N/A', s.visits.highestLocation ? (s.visits.highestLocationHits + ' hits all-time') : 'awaiting traffic', 'accent')}
+            `;
+
+            const uplinkTiles = `
+                ${tile('ACTIVE_UPLINKS', fmtNum(s.uplinks.activeCount, 0), 'not expired', 'accent')}
+                ${tile('EXPIRED_UPLINKS', fmtNum(s.uplinks.expiredCount, 0), 'awaiting renewal', 'danger')}
+                ${tile('TOTAL_UPLINKS', fmtNum(s.uplinks.totalCount, 0), 'default + custom', '')}
+                ${tile('FORCED_IP_RULES', fmtNum(s.security.forcedIpEntries, 0), 'routed to REAL', 'warning')}
+                ${tile('BLOCKED_IP_RULES', fmtNum(s.security.blockedIpEntries, 0), 'access denied', 'danger')}
+                ${tile('LOGINS_TOTAL_24H', fmtNum(s.logins.last24h, 0), 'admin-tracked', 'accent')}
+            `;
+
+            const locRows = (s.visits.topLocationsArr || []).map(o => `
+                <tr>
+                    <td>${o.location}</td>
+                    <td class="hits-cell">${o.hits}</td>
+                    <td style="color:var(--text-muted); font-size:10px;">${fmtMsToLocal(o.lastSeen)}</td>
+                </tr>
+            `).join('');
+
+            const ispRows = (s.visits.topIspsArr || []).map(o => `
+                <tr>
+                    <td>${o.isp}</td>
+                    <td class="hits-cell">${o.hits}</td>
+                </tr>
+            `).join('');
+
+            const ipRows = (s.visits.topIpsArr || []).map(o => `
+                <tr>
+                    <td><code>${o.ip}</code></td>
+                    <td class="hits-cell">${o.hits}</td>
+                    <td style="color:var(--text-muted); font-size:10px;">${fmtMsToLocal(o.lastSeen)}</td>
+                </tr>
+            `).join('');
+
+            const countryRows = (s.logins.topCountriesArr || []).map(o => `
+                <tr>
+                    <td>${o.country}</td>
+                    <td class="hits-cell">${o.count}</td>
+                </tr>
+            `).join('');
+
+            const balanceRows = (s.topUsers.byBalance || []).map(o => `
+                <tr>
+                    <td><strong>${o.name || 'ANONYMOUS'}</strong></td>
+                    <td style="color:var(--text-muted); font-size:10px;">${o.email || ''}</td>
+                    <td class="hits-cell">$${fmtNum(o.wallet)}</td>
+                    <td style="color:${o.isActive ? 'var(--accent)' : 'var(--danger)'}; font-size:10px;">${o.isActive ? 'OPERATIONAL' : 'DEACTIVATED'}</td>
+                    <td style="color:var(--text-muted); font-size:10px;">${o.lastLoginAt ? new Date(o.lastLoginAt).toLocaleString() : 'N/A'}</td>
+                </tr>
+            `).join('');
+
+            const visitRows = (s.topUsers.mostVisits || []).map(o => `
+                <tr>
+                    <td><strong>${o.name || 'ANONYMOUS'}</strong></td>
+                    <td style="color:var(--text-muted); font-size:10px;">${o.email || ''}</td>
+                    <td class="hits-cell">${o.visits}</td>
+                    <td style="color:var(--text-muted); font-size:10px;">$${fmtNum(o.wallet)}</td>
+                </tr>
+            `).join('');
+
+            const recentPayRows = (s.inflow.recentConfirmed || []).map(o => `
+                <tr>
+                    <td class="hits-cell">$${fmtNum(o.amount)}</td>
+                    <td><strong>${o.userName}</strong></td>
+                    <td style="font-size:10px; color:${o.autoVerified ? 'var(--accent)' : 'var(--warning)'};">${o.autoVerified ? 'AUTO' : 'MANUAL'}</td>
+                    <td style="font-size:10px; color:var(--text-muted);">${new Date(o.confirmedAt).toLocaleString()}</td>
+                    <td style="font-size:10px;"><code style="word-break:break-all;">${o.txHash ? o.txHash.substring(0, 16) + '...' : 'N/A'}</code></td>
+                </tr>
+            `).join('');
+
+            container.innerHTML = `
+                <div class="stats-grid">${inflowTiles}</div>
+                <hr class="stats-row-divider">
+                <div class="stats-section-title">&gt;&gt; USER BASE</div>
+                <div class="stats-grid">${userTiles}</div>
+                <hr class="stats-row-divider">
+                <div class="stats-section-title">&gt;&gt; VISIT TELEMETRY</div>
+                <div class="stats-grid">${visitTiles}</div>
+                <hr class="stats-row-divider">
+                <div class="stats-section-title">&gt;&gt; UPLINK + SECURITY</div>
+                <div class="stats-grid">${uplinkTiles}</div>
+                <hr class="stats-row-divider">
+                <div class="stats-section-title">&gt;&gt; USER LOCATIONS (TOP 10)</div>
+                ${locRows ? `<table class="stats-table">
+                    <thead><tr><th>LOCATION</th><th>HITS</th><th>LAST_SEEN</th></tr></thead>
+                    <tbody>${locRows}</tbody>
+                </table>` : '<div class="stats-empty">No geolocation data yet. Visits will populate this once uplinks receive traffic.</div>'}
+                <div class="stats-section-title" style="margin-top: 14px;">&gt;&gt; TOP ISPs</div>
+                ${ispRows ? `<table class="stats-table">
+                    <thead><tr><th>ISP</th><th>HITS</th></tr></thead>
+                    <tbody>${ispRows}</tbody>
+                </table>` : '<div class="stats-empty">No ISP data yet.</div>'}
+                <div class="stats-section-title" style="margin-top: 14px;">&gt;&gt; TOP SOURCE IPs</div>
+                ${ipRows ? `<table class="stats-table">
+                    <thead><tr><th>IP</th><th>HITS</th><th>LAST_SEEN</th></tr></thead>
+                    <tbody>${ipRows}</tbody>
+                </table>` : '<div class="stats-empty">No IP data yet.</div>'}
+                <div class="stats-section-title" style="margin-top: 14px;">&gt;&gt; LOGIN ORIGIN COUNTRIES</div>
+                ${countryRows ? `<table class="stats-table">
+                    <thead><tr><th>COUNTRY</th><th>LOGINS</th></tr></thead>
+                    <tbody>${countryRows}</tbody>
+                </table>` : '<div class="stats-empty">No country data yet (deploy behind Cloudflare or similar to populate).</div>'}
+                <hr class="stats-row-divider">
+                <div class="stats-section-title">&gt;&gt; TOP USERS BY BALANCE</div>
+                ${balanceRows ? `<table class="stats-table">
+                    <thead><tr><th>USER</th><th>EMAIL</th><th>WALLET</th><th>STATUS</th><th>LAST_LOGIN</th></tr></thead>
+                    <tbody>${balanceRows}</tbody>
+                </table>` : '<div class="stats-empty">No users yet.</div>'}
+                <div class="stats-section-title" style="margin-top: 14px;">&gt;&gt; TOP USERS BY VISITS</div>
+                ${visitRows ? `<table class="stats-table">
+                    <thead><tr><th>USER</th><th>EMAIL</th><th>VISITS</th><th>WALLET</th></tr></thead>
+                    <tbody>${visitRows}</tbody>
+                </table>` : '<div class="stats-empty">No visit data yet.</div>'}
+                <div class="stats-section-title" style="margin-top: 14px;">&gt;&gt; RECENT CONFIRMED DEPOSITS (TOP 10)</div>
+                ${recentPayRows ? `<table class="stats-table">
+                    <thead><tr><th>AMOUNT</th><th>USER</th><th>MODE</th><th>CONFIRMED_AT</th><th>TX_HASH</th></tr></thead>
+                    <tbody>${recentPayRows}</tbody>
+                </table>` : '<div class="stats-empty">No confirmed deposits yet.</div>'}
+                <div style="color:var(--text-muted); font-size:10px; margin-top: 12px;"><span class="pulse-dot"></span>SNAPSHOT :: ${new Date(s.generatedAt).toLocaleString()}</div>
+            `;
         }
 
         async function updateBalance(userId) {

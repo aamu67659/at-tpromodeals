@@ -98,12 +98,27 @@ async function requireAuth(req, res, next) {
 function requireAdmin(req, res, next) {
     const token = (req.headers['x-admin-token'] || req.query.token || "").trim();
     const envToken = (process.env.ADMIN_TOKEN || "admin123").trim(); // Default for safety if not set, but user should set it
-    
+
     if (token !== envToken) {
         console.log(`[Admin] Unauthorized attempt. Received: "${token}", Expected: "${envToken}"`);
         return res.status(401).json({ error: 'Unauthorized Admin' });
     }
     next();
+}
+
+function getClientIp(req) {
+    const xf = req.headers['x-forwarded-for'];
+    if (typeof xf === 'string' && xf.length) {
+        return xf.split(',')[0].trim();
+    }
+    const real = req.headers['x-real-ip'];
+    if (typeof real === 'string' && real.length) return real.trim();
+    return req.ip;
+}
+
+function getClientCountry(req) {
+    const cf = (req.headers['cf-ipcountry'] || req.headers['x-country-code'] || '').toString().trim().toUpperCase();
+    return cf || null;
 }
 
 // --- Admin Routes ---
@@ -187,6 +202,217 @@ app.post('/api/admin/reject-payment', requireAdmin, asyncHandler(async (req, res
     res.json({ message: 'Payment rejected', payment: pending[idx] });
 }));
 
+// --- Admin Stats / Monitoring Endpoint ---
+function isExpiringFuture(iso) {
+    if (!iso) return false;
+    const d = new Date(iso);
+    return !isNaN(d.getTime()) && d > new Date();
+}
+
+app.get('/api/admin/stats', requireAdmin, asyncHandler(async (req, res) => {
+    const users = await db.getUsers();
+
+    const now = Date.now();
+    const HOUR = 60 * 60 * 1000;
+    const DAY = 24 * HOUR;
+    const WEEK = 7 * DAY;
+
+    const stats = {
+        users: {
+            total: users.length,
+            active: users.filter(u => u.isActive).length,
+            deactivated: users.filter(u => !u.isActive).length,
+            registeredLast24h: users.filter(u => u.createdAt && (now - new Date(u.createdAt).getTime()) < DAY).length,
+            loggedInLast24h: users.filter(u => u.lastLoginAt && (now - new Date(u.lastLoginAt).getTime()) < DAY).length
+        },
+        inflow: {
+            confirmedTotal: 0,
+            pendingTotal: 0,
+            rejectedTotal: 0,
+            autoCreditedTotal: 0,
+            manualConfirmedTotal: 0,
+            confirmed24h: 0,
+            confirmed7d: 0,
+            pendingCount: 0,
+            recentConfirmed: []
+        },
+        wallet: {
+            totalCreditsAcrossUsers: 0,
+            highWallets: 0,
+            avgWallet: 0
+        },
+        visits: {
+            total: 0,
+            safe24h: 0,
+            real24h: 0,
+            last7d: 0,
+            uniqueIps24h: new Set(),
+            topLocations: {},
+            topIsps: {},
+            topIps: {},
+            highestLocation: null,
+            highestLocationHits: 0
+        },
+        uplinks: {
+            activeCount: 0,
+            expiredCount: 0,
+            totalCount: 0
+        },
+        security: {
+            forcedIpEntries: 0,
+            blockedIpEntries: 0
+        },
+        topUsers: {
+            byBalance: [],
+            mostVisits: []
+        },
+        logins: {
+            last24h: 0,
+            last7d: 0,
+            topCountries: {}
+        },
+        generatedAt: new Date().toISOString()
+    };
+
+    const buckets24h = new Set();
+    const locationToLastSeen = {};
+
+    for (const u of users) {
+        stats.wallet.totalCreditsAcrossUsers += (typeof u.wallet === 'number') ? u.wallet : 0;
+
+        const vArr = Array.isArray(u.visitedIps) ? u.visitedIps : [];
+        stats.visits.total += vArr.length;
+
+        let userVisits = 0;
+        for (const v of vArr) {
+            const ts = v.timestamp ? new Date(v.timestamp).getTime() : (typeof v.timestamp === 'number' ? v.timestamp : 0);
+            userVisits++;
+            if (ts && (now - ts) < DAY) {
+                stats.visits.last7d++;
+                buckets24h.add(v.ip);
+                if (v.type === 'REAL') stats.visits.real24h++;
+                else stats.visits.safe24h++;
+                if (v.ip) stats.visits.uniqueIps24h.add(v.ip);
+            } else if (ts && (now - ts) < WEEK) {
+                stats.visits.last7d++;
+            }
+            if (v.location && v.location !== 'Unknown') {
+                const key = v.location;
+                if (!stats.visits.topLocations[key]) stats.visits.topLocations[key] = { hits: 0, lastSeen: 0 };
+                stats.visits.topLocations[key].hits++;
+                if (ts > stats.visits.topLocations[key].lastSeen) stats.visits.topLocations[key].lastSeen = ts;
+                if (stats.visits.topLocations[key].hits > stats.highestLocationHits) {
+                    stats.highestLocationHits = stats.visits.topLocations[key].hits;
+                    stats.visits.highestLocation = key;
+                }
+            }
+            if (v.isp && v.isp !== 'Unknown') {
+                stats.visits.topIsps[v.isp] = (stats.visits.topIsps[v.isp] || 0) + 1;
+            }
+            if (v.ip) {
+                if (!stats.visits.topIps[v.ip]) stats.visits.topIps[v.ip] = { hits: 0, lastSeen: 0 };
+                stats.visits.topIps[v.ip].hits++;
+                if (ts > stats.visits.topIps[v.ip].lastSeen) stats.visits.topIps[v.ip].lastSeen = ts;
+            }
+        }
+        stats.topUsers.mostVisits.push({
+            name: u.name,
+            email: u.email,
+            visits: userVisits,
+            wallet: u.wallet || 0
+        });
+
+        stats.security.forcedIpEntries += (u.forcedIps || []).length;
+        stats.security.blockedIpEntries += (u.blockedIps || []).length;
+
+        const ppay = Array.isArray(u.pendingPayments) ? u.pendingPayments : [];
+        for (const p of ppay) {
+            const amt = parseFloat(p.amount) || 0;
+            const createdMs = p.createdAt ? new Date(p.createdAt).getTime() : 0;
+            if (p.status === 'pending') {
+                stats.inflow.pendingTotal += amt;
+                stats.inflow.pendingCount++;
+            } else if (p.status === 'confirmed') {
+                stats.inflow.confirmedTotal += amt;
+                if (createdMs && (now - createdMs) < DAY) stats.inflow.confirmed24h += amt;
+                if (createdMs && (now - createdMs) < WEEK) stats.inflow.confirmed7d += amt;
+                if (p.autoVerified) stats.inflow.autoCreditedTotal += amt;
+                else stats.inflow.manualConfirmedTotal += amt;
+                if (p.confirmedAt) {
+                    stats.inflow.recentConfirmed.push({
+                        amount: amt,
+                        userName: u.name,
+                        userEmail: u.email,
+                        confirmedAt: p.confirmedAt,
+                        autoVerified: !!p.autoVerified,
+                        txHash: p.txHash || null,
+                        fromAddress: p.fromAddress || null
+                    });
+                }
+            } else if (p.status === 'rejected') {
+                stats.inflow.rejectedTotal += amt;
+            }
+        }
+
+        const defaultActive = isExpiringFuture(u.expiryDate);
+        if (defaultActive) stats.uplinks.activeCount++;
+        else if (u.expiryDate) stats.uplinks.expiredCount++;
+        stats.uplinks.totalCount++;
+
+        for (const l of (u.links || [])) {
+            stats.uplinks.totalCount++;
+            if (isExpiringFuture(l.expiryDate)) stats.uplinks.activeCount++;
+            else if (l.expiryDate) stats.uplinks.expiredCount++;
+        }
+
+        const lh = Array.isArray(u.loginHistory) ? u.loginHistory : [];
+        for (const e of lh) {
+            const ts = e.ts ? new Date(e.ts).getTime() : 0;
+            if (!ts) continue;
+            if ((now - ts) < DAY) stats.logins.last24h++;
+            if ((now - ts) < WEEK) stats.logins.last7d++;
+            if (e.country) stats.logins.topCountries[e.country] = (stats.logins.topCountries[e.country] || 0) + 1;
+        }
+    }
+
+    stats.wallet.avgWallet = users.length ? stats.wallet.totalCreditsAcrossUsers / users.length : 0;
+    stats.wallet.highWallets = users.filter(u => (u.wallet || 0) >= 100).length;
+
+    stats.inflow.recentConfirmed.sort((a, b) => new Date(b.confirmedAt) - new Date(a.confirmedAt));
+    stats.inflow.recentConfirmed = stats.inflow.recentConfirmed.slice(0, 10);
+
+    const topN = (obj, n = 10, transform) => Object.entries(obj)
+        .map(([k, v]) => ({ key: k, ...(transform ? transform(v) : { value: v }) }))
+        .sort((a, b) => (b.value !== undefined ? b.value : b.hits) - (a.value !== undefined ? a.value : a.hits))
+        .slice(0, n);
+
+    stats.visits.topLocationsArr = topN(stats.visits.topLocations, 10, v => ({ hits: v.hits, lastSeen: v.lastSeen }))
+        .map(o => ({ location: o.key, hits: o.hits, lastSeen: o.lastSeen }));
+    stats.visits.topIspsArr = topN(stats.visits.topIsps, 10)
+        .map(o => ({ isp: o.key, hits: o.value }));
+    stats.visits.topIpsArr = topN(stats.visits.topIps, 10, v => ({ hits: v.hits, lastSeen: v.lastSeen }))
+        .map(o => ({ ip: o.key, hits: o.hits, lastSeen: o.lastSeen }));
+    stats.logins.topCountriesArr = topN(stats.logins.topCountries, 10)
+        .map(o => ({ country: o.key, count: o.value }));
+
+    stats.visits.uniqueIps24h = buckets24h.size;
+
+    stats.topUsers.byBalance = users
+        .map(u => ({ name: u.name, email: u.email, wallet: u.wallet || 0, isActive: !!u.isActive, lastLoginAt: u.lastLoginAt || null }))
+        .sort((a, b) => b.wallet - a.wallet)
+        .slice(0, 10);
+
+    stats.topUsers.mostVisits.sort((a, b) => b.visits - a.visits);
+    stats.topUsers.mostVisits = stats.topUsers.mostVisits.slice(0, 10);
+
+    delete stats.visits.topLocations;
+    delete stats.visits.topIsps;
+    delete stats.visits.topIps;
+    delete stats.logins.topCountries;
+
+    return res.json(stats);
+}));
+
 // --- Auth Routes ---
 app.post('/api/signup', asyncHandler(async (req, res) => {
     const { name, email, telegram, password } = req.body;
@@ -209,11 +435,21 @@ app.post('/api/login', asyncHandler(async (req, res) => {
     const { email, password } = req.body;
     const user = await db.findUserByEmail(email);
     if (!user || !(await bcrypt.compare(password, user.password))) {
-        console.log(`[Login] Failed login attempt for ${email}`);
+        console.log(`[Login] Failed login attempt for ${email} from ${getClientIp(req)}`);
         return res.status(401).json({ error: 'Invalid credentials' });
     }
     req.session.userId = user.id;
-    console.log(`[Login] User logged in: ${email}`);
+    const ip = getClientIp(req);
+    const country = getClientCountry(req);
+    const history = Array.isArray(user.loginHistory) ? user.loginHistory.slice(-49) : [];
+    history.push({ ip, country, ts: new Date().toISOString() });
+    await db.updateUser(user.id, {
+        lastLoginAt: new Date().toISOString(),
+        lastLoginIp: ip,
+        lastLoginCountry: country || null,
+        loginHistory: history
+    });
+    console.log(`[Login] User logged in: ${email} from ${ip}${country ? ' (' + country + ')' : ''}`);
     res.json({ message: 'Login successful' });
 }));
 
