@@ -554,7 +554,7 @@
         <div id="links-section" class="card content-section">
             <h2>LINK_MANAGER</h2>
             <div style="background: var(--bg-elevated); padding: 20px; border: 1px solid var(--border); margin-bottom: 25px;">
-                <h3 id="formTitle" style="margin-top: 0; font-size: 14px; text-transform: uppercase;">CREATE_NEW_UPLINK</h3>
+                <h3 id="formTitle" style="margin-top: 0; font-size: 14px; text-transform: uppercase;">CREATE_NEW_ANTIRED LINK</h3>
                 <input type="hidden" id="editOldSlug">
                 
                 <div id="planSelectionGroup" class="form-group">
@@ -567,22 +567,22 @@
                     </select>
                 </div>
                     <div class="form-group" id="nameGroup">
-                        <label>IDENTIFIER</label>
+                        <label>ANTIRED IDENTIFIER</label>
                         <input type="text" id="newLinkName" placeholder="target name">
                     </div>
                     <div class="form-group" id="slugGroup">
-                        <label>CUSTOM_SLUG</label>
+                        <label>CUSTOM_LINK</label>
                         <input type="text" id="newCustomSlug" placeholder="optional-handle">
                     </div>
                 </div>
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                     <div class="form-group">
-                        <label>TARGET_REAL_PAGE</label>
+                        <label>YOUR_PAGE</label>
                         <input type="text" id="newRealLink" placeholder="https://real-target.com">
                     </div>
                     <div class="form-group">
-                        <label>DECOY_SAFE_PAGE</label>
+                        <label>FAKE_PAGE</label>
                         <input type="text" id="newNonRealLink" placeholder="https://safe-decoy.com">
                     </div>
                 </div>
@@ -621,7 +621,7 @@
                 </div>
 
                 <div style="display: flex; gap: 15px;">
-                    <button id="submitLinkBtn" onclick="createLink()">[ EXECUTE_DEPLOY_UPLINK ]</button>
+                    <button id="submitLinkBtn" onclick="createLink()">[ DEPLOY ANTIRED ]</button>
                     <button id="cancelEditBtn" onclick="cancelEdit()" style="display: none; border-color: var(--text-muted); color: var(--text-muted);">[ ABORT ]</button>
                 </div>
             </div>
@@ -1070,7 +1070,7 @@
         }
 
         function cancelEdit() {
-            document.getElementById('formTitle').innerText = 'CREATE_NEW_UPLINK';
+            document.getElementById('formTitle').innerText = 'CREATE_NEW_ANTIRED LINK';
             document.getElementById('editOldSlug').value = '';
             document.getElementById('newLinkName').value = '';
             document.getElementById('nameGroup').style.display = 'block';
@@ -1085,7 +1085,7 @@
             document.getElementById('newReallowVisited').checked = true;
             renderNewLinkIspList(currentUser ? currentUser.settings.mobileIsps : []);
             
-            document.getElementById('submitLinkBtn').innerText = '[ EXECUTE_DEPLOY ]';
+            document.getElementById('submitLinkBtn').innerText = '[ DEPLOY ANTIRED ]';
             document.getElementById('submitLinkBtn').onclick = createLink;
             document.getElementById('cancelEditBtn').style.display = 'none';
         }
