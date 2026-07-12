@@ -3,6 +3,7 @@
 <head>
     <title>TERMINAL_DASHBOARD - SaaS Proxy</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
         :root {
             --bg-base: #0a0e0a;
@@ -310,8 +311,8 @@
             align-items: center;
             background: #ffffff;
             color: #000;
-            width: 180px;
-            height: 180px;
+            width: 200px;
+            height: 200px;
             margin: 10px auto;
             font-family: monospace;
             font-size: 11px;
@@ -319,6 +320,17 @@
             padding: 10px;
             box-sizing: border-box;
             word-break: break-all;
+        }
+        .qr-placeholder svg {
+            width: 180px;
+            height: 180px;
+            display: block;
+        }
+        .qr-placeholder img {
+            width: 180px;
+            height: 180px;
+            display: block;
+            image-rendering: pixelated;
         }
 
         .content-section {
@@ -1024,7 +1036,7 @@
                 }
 
                 addrEl.innerText = info.address;
-                qrEl.innerText = info.address;
+                renderPaymentQr(info.address);
                 exEl.innerText = (info.exchange || 'XT.com').toUpperCase();
 
                 document.getElementById('paymentAmount').disabled = false;
@@ -1034,6 +1046,27 @@
             }
 
             await refreshPaymentHistory();
+        }
+
+        function renderPaymentQr(text) {
+            const qrEl = document.getElementById('paymentQr');
+            qrEl.innerHTML = '';
+            try {
+                if (typeof QRCode === 'undefined') {
+                    qrEl.innerText = text;
+                    return;
+                }
+                new QRCode(qrEl, {
+                    text: text,
+                    width: 200,
+                    height: 200,
+                    colorDark: '#000000',
+                    colorLight: '#ffffff',
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+            } catch (err) {
+                qrEl.innerText = text;
+            }
         }
 
         function closePaymentModal() {
