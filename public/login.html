@@ -232,6 +232,16 @@
             from, to { opacity: 1; }
             50% { opacity: 0; }
         }
+
+        .recover-msg {
+            margin-top: 12px;
+            padding: 8px 10px;
+            font-size: 11px;
+            border: 1px solid var(--border);
+            display: none;
+        }
+        .recover-msg.error { display: block; color: var(--danger); border-color: var(--danger); }
+        .recover-msg.success { display: block; color: var(--accent); border-color: var(--accent); }
     </style>
 </head>
 <body>
@@ -267,6 +277,42 @@
                 </div>
                 <button type="submit">[ AUTHENTICATE ]</button>
             </form>
+            <div class="footer recover-footer">
+                FORGOT PASSWORD?<a href="#" id="forgotLink">RESET_WITH_PIN</a>
+            </div>
+
+            <form id="forgotForm" style="display: none;">
+                <div class="form-group">
+                    <label>REGISTERED_EMAIL</label>
+                    <div class="input-wrapper">
+                        <input type="email" id="forgotEmail" required spellcheck="false" autocomplete="off">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>RECOVERY_PIN (4 DIGITS)</label>
+                    <div class="input-wrapper">
+                        <input type="password" id="forgotPin" inputmode="numeric" pattern="\d{4}" maxlength="4" required autocomplete="off">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>NEW_PASSWORD</label>
+                    <div class="input-wrapper">
+                        <input type="password" id="forgotNewPassword" required minlength="6" autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>CONFIRM_NEW_PASSWORD</label>
+                    <div class="input-wrapper">
+                        <input type="password" id="forgotConfirmPassword" required minlength="6" autocomplete="new-password">
+                    </div>
+                </div>
+                <button type="submit">[ RESET_PASSWORD ]</button>
+                <div class="footer recover-footer">
+                    <a href="#" id="forgotBack">&lt;&lt; BACK_TO_LOGIN</a>
+                </div>
+                <div id="forgotMsg" class="recover-msg"></div>
+            </form>
+
             <div class="footer">
                 NEW OPERATIVE?<a href="/signup">REGISTER_IDENTITY</a>
             </div>
@@ -290,7 +336,7 @@
             const overlay = document.getElementById('loading-overlay');
             const progress = document.getElementById('progress-fill');
             overlay.style.display = 'flex';
-            
+
             let width = 0;
             const interval = setInterval(() => {
                 width += Math.random() * 10;
@@ -309,7 +355,7 @@
                 });
 
                 const data = await res.json();
-                
+
                 // Add a small delay for dramatic effect
                 setTimeout(() => {
                     if (res.ok) {
@@ -322,6 +368,66 @@
             } catch (err) {
                 overlay.style.display = 'none';
                 alert("!! ERROR: CONNECTION_LOST");
+            }
+        });
+
+        document.getElementById('forgotLink').addEventListener('click', (e) => {
+            e.preventDefault();
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('forgotForm').style.display = '';
+            document.querySelector('.recover-footer').style.display = 'none';
+            document.getElementById('forgotMsg').innerText = '';
+        });
+
+        document.getElementById('forgotBack').addEventListener('click', (e) => {
+            e.preventDefault();
+            document.getElementById('loginForm').style.display = '';
+            document.getElementById('forgotForm').style.display = 'none';
+            document.querySelector('.recover-footer').style.display = '';
+            document.getElementById('forgotMsg').innerText = '';
+        });
+
+        document.getElementById('forgotForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('forgotEmail').value.trim();
+            const pin = document.getElementById('forgotPin').value.trim();
+            const newPassword = document.getElementById('forgotNewPassword').value;
+            const confirmPassword = document.getElementById('forgotConfirmPassword').value;
+            const msgEl = document.getElementById('forgotMsg');
+
+            msgEl.className = 'recover-msg';
+            msgEl.innerText = '';
+
+            if (newPassword !== confirmPassword) {
+                msgEl.classList.add('error');
+                msgEl.innerText = '!! Passwords do not match.';
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/forgot/reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, pin, newPassword })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    msgEl.classList.add('success');
+                    msgEl.innerText = '> ' + (data.message || 'Password reset.') + ' Returning to login...';
+                    setTimeout(() => {
+                        document.getElementById('forgotForm').style.display = 'none';
+                        document.getElementById('loginForm').style.display = '';
+                        document.querySelector('.recover-footer').style.display = '';
+                        document.getElementById('forgotForm').reset();
+                        msgEl.innerText = '';
+                    }, 1800);
+                } else {
+                    msgEl.classList.add('error');
+                    msgEl.innerText = '!! ERROR: ' + (data.error || 'RESET_FAILED');
+                }
+            } catch (err) {
+                msgEl.classList.add('error');
+                msgEl.innerText = '!! CONNECTION_LOST: ' + err.message;
             }
         });
 

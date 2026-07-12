@@ -242,6 +242,66 @@
             opacity: 1;
         }
 
+        .profile-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .profile-card-title {
+            font-family: 'Share Tech Mono', monospace;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-size: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 4px;
+        }
+
+        .profile-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 0;
+            border-bottom: 1px dashed var(--border);
+            font-size: 12px;
+        }
+
+        .profile-label {
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 11px;
+        }
+
+        .profile-value {
+            color: var(--text-primary);
+            word-break: break-all;
+            text-align: right;
+        }
+
+        .profile-banner {
+            display: none;
+            font-size: 11px;
+            margin-bottom: 6px;
+            padding: 6px 8px;
+            border: 1px solid var(--border);
+        }
+        .profile-banner.success { display: block; color: var(--accent); border-color: var(--accent); }
+        .profile-banner.error { display: block; color: var(--danger); border-color: var(--danger); }
+
+        .nav-profile {
+            border-left: 2px solid var(--warning);
+            padding-left: 10px;
+            color: var(--warning);
+        }
+        .nav-profile.active, .nav-profile:hover { color: var(--accent); border-left-color: var(--accent); }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -426,7 +486,7 @@
     <div class="sidebar">
         <div class="logo">DARKNET_NODE</div>
         <div class="metric-label">OPERATIVE</div>
-        <div id="userName" style="margin-bottom: 20px; color: var(--accent);">LOADING...</div>
+        <div id="userName" style="margin-bottom: 20px; color: var(--accent); cursor: pointer;" onclick="showSection('profile')" title="Click to open your profile">LOADING...</div>
         
         <div class="nav-item active" onclick="showSection('dashboard')">01_OVERVIEW_DASH</div>
         <div class="nav-item" onclick="showSection('links')">02_LINK_CONTROL_CTR</div>
@@ -435,6 +495,7 @@
         <div class="nav-item" onclick="showSection('telegram')">05_TELEGRAM_UPLINK</div>
         <div class="nav-item" onclick="showSection('forced-ip')">06_FORCED_IP_CONTROL</div>
         <div class="nav-item" onclick="showSection('block-ip')">07_BLOCK_IP_CONTROL</div>
+        <div class="nav-item nav-profile" onclick="showSection('profile')" id="navProfileItem">08_USER_PROFILE</div>
         
         <div style="margin-top: auto;">
             <div class="metric-label">CREDITS</div>
@@ -678,6 +739,72 @@
                     </thead>
                     <tbody id="realVisitsTable"></tbody>
                 </table>
+            </div>
+        </div>
+
+        <div id="profile-section" class="content-section">
+            <div class="grid-cell">
+                <h2>USER_PROFILE</h2>
+                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Update your comms address, rotate your access cipher, or set/replace your 4-digit recovery PIN. PIN is used only via Forgot Password to reset access if you forget your password.</p>
+
+                <div style="display: grid; grid-template-columns: 1fr; gap: 25px; max-width: 600px;">
+                    <div id="profileIdentity" class="profile-card">
+                        <div class="profile-card-title">IDENTITY :: <span id="profileName">--</span></div>
+                        <div class="profile-row">
+                            <span class="profile-label">NAME</span>
+                            <span class="profile-value" id="profileNameVal">--</span>
+                        </div>
+                        <div class="profile-row">
+                            <span class="profile-label">EMAIL</span>
+                            <span class="profile-value" id="profileEmailVal">--</span>
+                        </div>
+                        <div class="profile-row">
+                            <span class="profile-label">TELEGRAM</span>
+                            <span class="profile-value" id="profileTelegramVal">--</span>
+                        </div>
+                        <div class="profile-row">
+                            <span class="profile-label">PIN_STATUS</span>
+                            <span class="profile-value" id="profilePinStatus" style="color: var(--warning);">CHECKING...</span>
+                        </div>
+                    </div>
+
+                    <div class="profile-card">
+                        <div class="profile-card-title">EDIT_EMAIL_AND_PASSWORD</div>
+                        <div id="profileEditBanner" class="profile-banner"></div>
+                        <div class="form-group">
+                            <label>NEW_EMAIL (LEAVE_BLANK_TO_KEEP)</label>
+                            <input type="email" id="profileNewEmail" placeholder="you@example.com" spellcheck="false" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label>NEW_PASSWORD (LEAVE_BLANK_TO_KEEP)</label>
+                            <input type="password" id="profileNewPassword" placeholder="min 6 chars" autocomplete="new-password">
+                        </div>
+                        <div class="form-group">
+                            <label>CURRENT_PASSWORD (REQUIRED_TO_SAVE)</label>
+                            <input type="password" id="profileCurrentPassword" placeholder="confirm with current password" autocomplete="current-password">
+                        </div>
+                        <button onclick="saveProfile()">[ COMMIT_PROFILE_CHANGES ]</button>
+                    </div>
+
+                    <div class="profile-card">
+                        <div class="profile-card-title">RESET_PIN (4_DIGIT_NUMERIC)</div>
+                        <div id="profilePinBanner" class="profile-banner"></div>
+                        <div class="form-group">
+                            <label>NEW_PIN (EXACTLY 4 DIGITS)</label>
+                            <input type="password" id="profileNewPin" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="e.g. 0420" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label>CONFIRM_PIN</label>
+                            <input type="password" id="profileConfirmPin" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="repeat 4 digits" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label>CURRENT_PASSWORD (REQUIRED)</label>
+                            <input type="password" id="profilePinCurrentPassword" placeholder="confirm with current password" autocomplete="current-password">
+                        </div>
+                        <button onclick="saveProfilePin()">[ SET / REPLACE_PIN ]</button>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 8px;">!! The PIN is required to use the Forgot Password flow on the login page. Store it in a safe offline location. It cannot be retrieved once lost.</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1096,6 +1223,131 @@
             }
         }
 
+        function setProfileBanner(id, type, msg) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.classList.remove('success', 'error');
+            if (!msg) {
+                el.style.display = 'none';
+                el.innerText = '';
+                return;
+            }
+            el.style.display = 'block';
+            el.classList.add(type);
+            el.innerText = msg;
+        }
+
+        function refreshProfileSection() {
+            if (!currentUser) {
+                setProfileBanner('profileEditBanner', 'error', '!! Profile data unavailable');
+                return;
+            }
+            document.getElementById('profileName').innerText = (currentUser.name || 'ANONYMOUS');
+            document.getElementById('profileNameVal').innerText = (currentUser.name || 'N/A');
+            document.getElementById('profileEmailVal').innerText = (currentUser.email || 'N/A');
+            document.getElementById('profileTelegramVal').innerText = (currentUser.telegram || 'N/A');
+            const pinEl = document.getElementById('profilePinStatus');
+            if (currentUser.hasPin) {
+                pinEl.innerText = 'CONFIGURED';
+                pinEl.style.color = 'var(--accent)';
+            } else {
+                pinEl.innerText = 'NOT_SET :: Required for Forgot Password';
+                pinEl.style.color = 'var(--warning)';
+            }
+            document.getElementById('profileNewEmail').value = '';
+            document.getElementById('profileNewPassword').value = '';
+            document.getElementById('profileCurrentPassword').value = '';
+            document.getElementById('profileNewPin').value = '';
+            document.getElementById('profileConfirmPin').value = '';
+            document.getElementById('profilePinCurrentPassword').value = '';
+            setProfileBanner('profileEditBanner', '', '');
+            setProfileBanner('profilePinBanner', '', '');
+        }
+
+        async function saveProfile() {
+            const currentPassword = document.getElementById('profileCurrentPassword').value;
+            const newEmail = document.getElementById('profileNewEmail').value.trim();
+            const newPassword = document.getElementById('profileNewPassword').value;
+
+            if (!currentPassword) {
+                setProfileBanner('profileEditBanner', 'error', '!! Current password is required');
+                return;
+            }
+            if (!newEmail && !newPassword) {
+                setProfileBanner('profileEditBanner', 'error', '!! Provide a new email or a new password to update');
+                return;
+            }
+            if (newPassword && newPassword.length < 6) {
+                setProfileBanner('profileEditBanner', 'error', '!! New password must be at least 6 characters');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/profile/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ currentPassword, newEmail, newPassword })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    setProfileBanner('profileEditBanner', 'success', '> PROFILE_COMMIT_OK :: ' + (data.message || 'Saved'));
+                    if (newEmail && currentUser) currentUser.email = newEmail;
+                    if (data.user) {
+                        document.getElementById('profileEmailVal').innerText = data.user.email || 'N/A';
+                    }
+                    document.getElementById('profileCurrentPassword').value = '';
+                    document.getElementById('profileNewEmail').value = '';
+                    document.getElementById('profileNewPassword').value = '';
+                } else {
+                    setProfileBanner('profileEditBanner', 'error', '!! ERROR: ' + (data.error || 'SAVE_FAILED'));
+                }
+            } catch (err) {
+                setProfileBanner('profileEditBanner', 'error', '!! CONNECTION_LOST: ' + err.message);
+            }
+        }
+
+        async function saveProfilePin() {
+            const currentPassword = document.getElementById('profilePinCurrentPassword').value;
+            const pin = document.getElementById('profileNewPin').value.trim();
+            const pinConfirm = document.getElementById('profileConfirmPin').value.trim();
+
+            if (!currentPassword) {
+                setProfileBanner('profilePinBanner', 'error', '!! Current password is required');
+                return;
+            }
+            if (!/^\d{4}$/.test(pin)) {
+                setProfileBanner('profilePinBanner', 'error', '!! PIN must be exactly 4 digits (0-9)');
+                return;
+            }
+            if (pin !== pinConfirm) {
+                setProfileBanner('profilePinBanner', 'error', '!! PIN and confirm do not match');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/profile/pin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ currentPassword, pin })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    setProfileBanner('profilePinBanner', 'success', '> PIN_COMMIT_OK :: ' + (data.message || 'Saved'));
+                    if (currentUser) currentUser.hasPin = !!data.hasPin;
+                    const pinEl = document.getElementById('profilePinStatus');
+                    pinEl.innerText = currentUser && currentUser.hasPin ? 'CONFIGURED' : 'NOT_SET';
+                    pinEl.style.color = (currentUser && currentUser.hasPin) ? 'var(--accent)' : 'var(--warning)';
+                    document.getElementById('profilePinCurrentPassword').value = '';
+                    document.getElementById('profileNewPin').value = '';
+                    document.getElementById('profileConfirmPin').value = '';
+                } else {
+                    setProfileBanner('profilePinBanner', 'error', '!! ERROR: ' + (data.error || 'SAVE_FAILED'));
+                }
+            } catch (err) {
+                setProfileBanner('profilePinBanner', 'error', '!! CONNECTION_LOST: ' + err.message);
+            }
+        }
+
         async function topUp() {
             await openPaymentModal();
         }
@@ -1469,7 +1721,7 @@
 
         function showSection(id) {
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-            
+
             // Highlight the correct nav item
             const items = document.querySelectorAll('.nav-item');
             if (id === 'dashboard') items[0].classList.add('active');
@@ -1479,7 +1731,8 @@
             else if (id === 'telegram') items[4].classList.add('active');
             else if (id === 'forced-ip') items[5].classList.add('active');
             else if (id === 'block-ip') items[6].classList.add('active');
-            
+            else if (id === 'profile') items[7].classList.add('active');
+
             // Glitch effect on transition
             const main = document.querySelector('.main');
             main.style.filter = 'invert(1) hue-rotate(90deg)';
@@ -1487,6 +1740,7 @@
                 main.style.filter = 'none';
                 document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
                 document.getElementById(id + '-section').classList.add('active');
+                if (id === 'profile') refreshProfileSection();
             }, 50);
         }
 

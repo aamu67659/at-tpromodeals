@@ -44,6 +44,7 @@ async function createUser(userData) {
         email: userData.email,
         telegram: userData.telegram,
         password: userData.password, // hashed
+        pinHash: userData.pinHash || null, // 4-digit security PIN (bcrypt hash); null until set
         wallet: 0.0,
         isActive: true,
         expiryDate: null, // ISO string for link expiration

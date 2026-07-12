@@ -465,8 +465,8 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/user', requireAuth, asyncHandler(async (req, res) => {
-    const { password, ...userWithoutPassword } = req.user;
-    res.json(userWithoutPassword);
+    const { password, pinHash, ...rest } = req.user;
+    res.json({ ...rest, hasPin: !!pinHash });
 }));
 
 // --- Settings & Wallet Routes ---
@@ -491,6 +491,92 @@ app.post('/api/topup', requireAuth, asyncHandler(async (req, res) => {
         wallet: req.user.wallet + amount
     });
     res.json({ balance: updatedUser.wallet });
+}));
+
+// --- Profile / Password / PIN Routes ---
+app.post('/api/profile/update', requireAuth, asyncHandler(async (req, res) => {
+    const { currentPassword, newEmail, newPassword } = req.body || {};
+    if (!currentPassword || !(await bcrypt.compare(currentPassword, req.user.password))) {
+        return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const updates = {};
+
+    if (newEmail && typeof newEmail === 'string') {
+        const trimmed = newEmail.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+            return res.status(400).json({ error: 'Invalid email format' });
+        }
+        if (trimmed !== (req.user.email || '').toLowerCase()) {
+            const existing = await db.findUserByEmail(trimmed);
+            if (existing && existing.id !== req.user.id) {
+                return res.status(400).json({ error: 'Email already registered to another account' });
+            }
+            updates.email = trimmed;
+        }
+    }
+
+    if (newPassword && typeof newPassword === 'string') {
+        if (newPassword.length < 6) {
+            return res.status(400).json({ error: 'New password must be at least 6 characters' });
+        }
+        if (newPassword === currentPassword) {
+            return res.status(400).json({ error: 'New password must differ from current password' });
+        }
+        updates.password = await bcrypt.hash(newPassword, 10);
+    }
+
+    if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'No changes requested' });
+    }
+
+    const updatedUser = await db.updateUser(req.user.id, updates);
+    const { password, pinHash, ...safe } = updatedUser;
+    res.json({ message: 'Profile updated', user: { ...safe, hasPin: !!pinHash } });
+}));
+
+app.post('/api/profile/pin', requireAuth, asyncHandler(async (req, res) => {
+    const { currentPassword, pin } = req.body || {};
+    if (!currentPassword || !(await bcrypt.compare(currentPassword, req.user.password))) {
+        return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+    if (!/^\d{4}$/.test(pin || '')) {
+        return res.status(400).json({ error: 'PIN must be exactly 4 digits (0-9)' });
+    }
+    const pinHash = await bcrypt.hash(pin, 10);
+    const updatedUser = await db.updateUser(req.user.id, { pinHash });
+    res.json({ message: 'Security PIN updated', hasPin: !!updatedUser.pinHash });
+}));
+
+app.post('/api/forgot/reset', asyncHandler(async (req, res) => {
+    const { email, pin, newPassword } = req.body || {};
+    if (!email || !pin || !newPassword) {
+        return res.status(400).json({ error: 'Email, PIN and new password are all required' });
+    }
+    if (!/^\d{4}$/.test(String(pin))) {
+        return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
+    }
+    if (newPassword.length < 6) {
+        return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    const user = await db.findUserByEmail(String(email).trim().toLowerCase());
+    if (!user || !user.pinHash) {
+        console.log(`[Forgot] Reset attempt failed for ${email} from ${getClientIp(req)}: no PIN registered`);
+        return res.status(401).json({ error: 'Invalid email or PIN' });
+    }
+
+    const pinMatches = await bcrypt.compare(String(pin), user.pinHash);
+    if (!pinMatches) {
+        console.log(`[Forgot] Reset attempt failed for ${email} from ${getClientIp(req)}: wrong PIN`);
+        return res.status(401).json({ error: 'Invalid email or PIN' });
+    }
+
+    const hashedNew = await bcrypt.hash(newPassword, 10);
+    await db.updateUser(user.id, { password: hashedNew });
+
+    console.log(`[Forgot] Password reset successful for ${email} from ${getClientIp(req)}`);
+    res.json({ message: 'Password reset. You can now log in with the new password.' });
 }));
 
 // --- Payment Routes (USDT TRC20 via XT.com) ---
