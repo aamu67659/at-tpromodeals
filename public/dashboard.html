@@ -368,6 +368,12 @@
             100% { opacity: 1; transform: translateY(0); filter: brightness(1) contrast(1); }
         }
 
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
+
         .nav-item:hover {
             text-shadow: 0 0 5px var(--accent);
             letter-spacing: 2px;
@@ -1030,6 +1036,12 @@
             await openPaymentModal();
         }
 
+        let paymentModalInfo = null;
+        let paymentPendingAmount = 0;
+        let paymentPollingStartedAt = 0;
+        let paymentPollHandle = null;
+        let paymentPollDeadline = 0;
+
         async function openPaymentModal() {
             const modal = document.getElementById('paymentModal');
             modal.classList.add('open');
@@ -1038,45 +1050,182 @@
             banner.style.display = 'none';
             banner.innerText = '';
 
+            paymentStopPolling();
+            paymentShowStage(1);
+
             try {
                 const res = await fetch('/api/payments/info');
                 const info = await res.json();
                 const addrEl = document.getElementById('paymentAddress');
                 const qrEl = document.getElementById('paymentQr');
                 const exEl = document.getElementById('paymentExchange');
+                const minEl = document.getElementById('payMinDeposit');
 
                 if (!info.address) {
                     addrEl.innerText = 'NOT_CONFIGURED';
-                    qrEl.innerText = 'Server has not configured USDT_TRC20_ADDRESS';
                     banner.style.display = 'block';
                     banner.innerText = '!! Receiving address is not configured on the server. Set USDT_TRC20_ADDRESS in the server environment.';
-                    document.getElementById('paymentSenderWallet').disabled = true;
                     return;
                 }
 
                 addrEl.innerText = info.address;
-                renderPaymentQr(info.address);
                 exEl.innerText = (info.exchange || 'XT.com').toUpperCase();
+                if (info.minAmount) minEl.innerText = info.minAmount + ' USDT';
 
-                document.getElementById('paymentSenderWallet').disabled = false;
+                paymentModalInfo = info;
 
-                const senderField = document.getElementById('paymentSenderWallet');
-                const senderNote = document.getElementById('paymentSenderWalletNote');
-                const existing = currentUser && currentUser.settings && currentUser.settings.depositSendAddress;
-                if (existing) {
-                    senderField.value = existing;
-                    senderNote.style.color = 'var(--accent)';
-                    senderNote.innerText = '> REGISTERED :: All USDT sent FROM this wallet to the receive address will auto-credit your account.';
-                } else {
-                    senderField.value = '';
-                    senderNote.style.color = 'var(--warning)';
-                    senderNote.innerText = '!! NOT_REGISTERED :: Save your personal TRC20 sender wallet before depositing, so the system can attribute inbound USDT to your account.';
+                if (currentUser) {
+                    document.getElementById('payCurrentBalance').innerText = '$' + (currentUser.wallet || 0).toFixed(2);
                 }
+                paymentRefreshSenderWalletStatus();
             } catch (err) {
                 document.getElementById('paymentAddress').innerText = 'ERROR_FETCHING_INFO';
+                banner.style.display = 'block';
+                banner.innerText = '!! Failed to load pay info: ' + err.message;
             }
 
             await refreshPaymentHistory();
+        }
+
+        function paymentShowStage(n) {
+            document.getElementById('paymentStage1').style.display = (n === 1) ? '' : 'none';
+            document.getElementById('paymentStage2').style.display = (n === 2) ? '' : 'none';
+            document.getElementById('paymentStage3').style.display = (n === 3) ? '' : 'none';
+        }
+
+        function paymentRefreshSenderWalletStatus() {
+            const sender = currentUser && currentUser.settings && currentUser.settings.depositSendAddress;
+            const statusEl = document.getElementById('paySenderStatus');
+            const noteEl = document.getElementById('paymentSenderWalletNote');
+            const field = document.getElementById('paymentSenderWallet');
+            const proceedBtn = document.getElementById('payStage1Next');
+            if (sender) {
+                statusEl.style.color = 'var(--accent)';
+                statusEl.innerText = 'REGISTERED :: ' + sender.substring(0, 8) + '...' + sender.substring(26);
+                field.value = sender;
+                noteEl.style.color = 'var(--accent)';
+                noteEl.innerText = '> REGISTERED :: All USDT sent FROM this wallet to the receive address will auto-credit your account.';
+                proceedBtn.disabled = false;
+            } else {
+                statusEl.style.color = 'var(--warning)';
+                statusEl.innerText = 'NOT_REGISTERED';
+                field.value = '';
+                noteEl.style.color = 'var(--warning)';
+                noteEl.innerText = '!! NOT_REGISTERED :: Save your personal TRC20 sender wallet before depositing, so the system can attribute inbound USDT to your account.';
+                proceedBtn.disabled = true;
+                proceedBtn.title = 'Register a sender wallet first';
+            }
+        }
+
+        async function paymentStage1Next() {
+            const sender = currentUser && currentUser.settings && currentUser.settings.depositSendAddress;
+            if (!sender) {
+                alert('!! Register your sender wallet first (TRC20 address that you will send from).');
+                return;
+            }
+            const rawAmt = document.getElementById('paymentAmount').value;
+            const amt = parseFloat(rawAmt);
+            const min = (paymentModalInfo && paymentModalInfo.minAmount) || 10;
+            if (!amt || !isFinite(amt) || amt <= 0) {
+                alert('!! Enter a valid deposit amount.');
+                return;
+            }
+            if (amt < min) {
+                alert('!! Minimum deposit is ' + min + ' USDT.');
+                return;
+            }
+
+            paymentPendingAmount = amt;
+
+            document.getElementById('payStage2Amount').innerText = '$' + amt.toFixed(2);
+            document.getElementById('payStage2AmountBig').innerText = '$' + amt.toFixed(2);
+            document.getElementById('payStage2From').innerText = sender;
+
+            if (paymentModalInfo && paymentModalInfo.address) {
+                renderPaymentQr(paymentModalInfo.address);
+            }
+
+            paymentShowStage(2);
+            document.getElementById('payStage2Acknowledged').style.display = 'none';
+            document.getElementById('payStage2PollingStop').style.display = 'none';
+            document.getElementById('payStage2SentBtn').disabled = false;
+        }
+
+        async function paymentStage2Sent() {
+            paymentStopPolling();
+            paymentPollingStartedAt = Date.now();
+            paymentPollDeadline = Date.now() + 10 * 60 * 1000;
+
+            document.getElementById('payStage2Acknowledged').style.display = '';
+            document.getElementById('payStage2PollingStop').style.display = '';
+            document.getElementById('payStage2SentBtn').disabled = true;
+
+            paymentSchedulePoll(0);
+        }
+
+        function paymentStopPolling() {
+            if (paymentPollHandle) {
+                clearTimeout(paymentPollHandle);
+                paymentPollHandle = null;
+            }
+        }
+
+        function paymentSchedulePoll(delayMs) {
+            paymentStopPolling();
+            const nextEl = document.getElementById('payNextPollIn');
+            if (nextEl && delayMs > 0) nextEl.innerText = Math.max(1, Math.ceil(delayMs / 1000));
+            paymentPollHandle = setTimeout(paymentPollStatus, delayMs);
+        }
+
+        async function paymentPollStatus() {
+            if (Date.now() > paymentPollDeadline) {
+                document.getElementById('payPollIndicator').innerHTML = '<span style="color: var(--danger);">POLLING_TIMEOUT :: No transfer detected after 10 minutes. If you sent the funds, please contact support with your TX hash.</span>';
+                return;
+            }
+
+            const last = document.getElementById('payLastPollTime');
+            if (last) last.innerText = new Date().toLocaleTimeString();
+
+            try {
+                const listRes = await fetch('/api/payments/my');
+                const list = await listRes.json();
+                refreshPaymentHistory();
+
+                const target = paymentPendingAmount;
+                const confirmed = (list || []).find(p => {
+                    if (p.status !== 'confirmed') return false;
+                    const a = parseFloat(p.amount);
+                    if (!isFinite(a) || Math.abs(a - target) > 0.01) return false;
+                    const ts = p.confirmedAt ? new Date(p.confirmedAt).getTime() : 0;
+                    return ts >= paymentPollingStartedAt - 5000;
+                });
+
+                let newBalance = null;
+                try {
+                    const balanceRes = await fetch('/api/user');
+                    if (balanceRes.ok) {
+                        const u = await balanceRes.json();
+                        newBalance = u.wallet;
+                        if (currentUser) currentUser.wallet = u.wallet;
+                    }
+                } catch (e) { }
+
+                if (confirmed) {
+                    const credited = parseFloat(confirmed.amount);
+                    document.getElementById('payCreditedAmount').innerText = '$' + credited.toFixed(2);
+                    document.getElementById('payNewBalance').innerText = newBalance != null ? '$' + newBalance.toFixed(2) : '$--';
+                    if (confirmed.txHash) {
+                        document.getElementById('payOnChainTx').innerText = 'HASH :: ' + confirmed.txHash;
+                    } else {
+                        document.getElementById('payOnChainTx').innerText = '';
+                    }
+                    paymentStopPolling();
+                    paymentShowStage(3);
+                    return;
+                }
+            } catch (err) { }
+
+            paymentSchedulePoll(5000);
         }
 
         function renderPaymentQr(text) {
@@ -1101,6 +1250,7 @@
         }
 
         function closePaymentModal() {
+            paymentStopPolling();
             document.getElementById('paymentModal').classList.remove('open');
         }
 
@@ -1325,43 +1475,111 @@
         <div class="modal-box">
             <span class="modal-close" onclick="closePaymentModal()">[X]</span>
             <h2>USDT_TRC20_RECHARGE</h2>
-            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
-                Send USDT (TRC20) from your registered wallet to the address below. Your wallet is auto-credited within ~30s once the on-chain transfer confirms. Minimum 10 USDT per deposit.
-            </div>
 
             <div id="paymentInfoBanner" style="font-size: 11px; color: var(--danger); margin-bottom: 12px; display: none;"></div>
 
-            <label>RECEIVE_ADDRESS</label>
-            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 15px;">
-                <code id="paymentAddress" style="flex: 1; font-size: 12px;">LOADING...</code>
-                <button onclick="copyPaymentAddress()" style="font-size: 10px; padding: 6px 10px;">[ COPY ]</button>
-            </div>
-
-            <div id="paymentQrWrap" style="text-align: center; margin-bottom: 15px;">
-                <div class="qr-placeholder" id="paymentQr">Address will load here</div>
-            </div>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 11px; color: var(--text-muted); margin-bottom: 18px;">
-                <div>NETWORK :: <span style="color: var(--accent);">TRC20</span></div>
-                <div>ASSET :: <span style="color: var(--accent);">USDT</span></div>
-                <div>EXCHANGE :: <span style="color: var(--accent);" id="paymentExchange">XT.com</span></div>
-                <div>RATE :: <span style="color: var(--accent);">1 USDT = 1 CREDIT</span></div>
-                <div>MIN_DEPOSIT :: <span style="color: var(--accent);">10 USDT</span></div>
-            </div>
-
-            <div class="form-group">
-                <label>YOUR_SENDER_WALLET (TRC20)</label>
-                <div style="display: flex; gap: 8px; align-items: center;">
-                    <input type="text" id="paymentSenderWallet" placeholder="T...your_wallet_address" style="font-size: 11px; flex: 1;">
-                    <button onclick="saveSenderWallet()" style="font-size: 10px; padding: 6px 10px;">[ SAVE ]</button>
+            <div id="paymentStage1">
+                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
+                    STEP_1_OF_3 :: Enter the amount of USDT you are depositing. Minimum is 10 USDT. Your sender wallet must be registered first so the system can attribute your on-chain transfer back to your account.
                 </div>
-                <div id="paymentSenderWalletNote" style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">
-                    Deposits are credited to the user whose sender wallet matches the TX on-chain. Save once, then send from this wallet only.
+
+                <div style="background: var(--bg); border: 1px solid var(--border); padding: 10px; margin-bottom: 15px; font-size: 11px;">
+                    <div>CURRENT_BALANCE :: <span id="payCurrentBalance" style="color: var(--accent);">--</span></div>
+                    <div style="margin-top: 4px;">SENDER_WALLET :: <span id="paySenderStatus" style="color: var(--warning);">CHECKING...</span></div>
+                </div>
+
+                <div class="form-group">
+                    <label>AMOUNT_TO_DEPOSIT (USDT)</label>
+                    <input type="number" id="paymentAmount" min="10" step="any" placeholder="e.g. 25" style="font-size: 14px; padding: 10px;">
+                    <div style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">
+                        You will be charged a flat minimum of 10 USDT. Larger deposits are credited at 1 USDT = 1 credit.
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>YOUR_SENDER_WALLET (TRC20)</label>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="text" id="paymentSenderWallet" placeholder="T...your_wallet_address" style="font-size: 11px; flex: 1;">
+                        <button onclick="saveSenderWallet()" style="font-size: 10px; padding: 6px 10px;">[ SAVE ]</button>
+                    </div>
+                    <div id="paymentSenderWalletNote" style="font-size: 10px; color: var(--text-muted); margin-top: 6px;"></div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 11px; color: var(--text-muted); margin-bottom: 18px;">
+                    <div>NETWORK :: <span style="color: var(--accent);">TRC20</span></div>
+                    <div>ASSET :: <span style="color: var(--accent);">USDT</span></div>
+                    <div>EXCHANGE :: <span style="color: var(--accent);" id="paymentExchange">XT.com</span></div>
+                    <div>RATE :: <span style="color: var(--accent);">1 USDT = 1 CREDIT</span></div>
+                    <div>MIN_DEPOSIT :: <span style="color: var(--accent);" id="payMinDeposit">10 USDT</span></div>
+                </div>
+
+                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+                    <button id="payStage1Next" onclick="paymentStage1Next()" style="background: var(--accent); color: black; border-color: var(--accent); width: 100%; font-size: 12px;">[ PROCEED_TO_PAYMENT &gt;&gt; ]</button>
                 </div>
             </div>
 
-            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
-                <button onclick="closePaymentModal()" style="border-color: var(--text-muted); color: var(--text-muted); width: 100%;">[ CLOSE ]</button>
+            <div id="paymentStage2" style="display: none;">
+                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
+                    STEP_2_OF_3 :: Send <span id="payStage2Amount" style="color: var(--accent); font-weight: bold;">--</span> USDT (TRC20) from your registered sender wallet to the address below using any TRON-compatible wallet (XT.com, TronLink, Trust, Bybit, etc.). Then click <strong>I HAVE SENT</strong> so the system can poll the blockchain for your transaction.
+                </div>
+
+                <div style="background: var(--bg); border: 1px solid var(--accent); padding: 10px; margin-bottom: 12px; text-align: center;">
+                    <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 4px;">SEND_EXACTLY</div>
+                    <div style="font-size: 22px; color: var(--accent); font-weight: bold;" id="payStage2AmountBig">--</div>
+                    <div style="font-size: 10px; color: var(--text-muted);">USDT (TRC20)</div>
+                </div>
+
+                <label>RECEIVE_ADDRESS</label>
+                <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 15px;">
+                    <code id="paymentAddress" style="flex: 1; font-size: 12px;">LOADING...</code>
+                    <button onclick="copyPaymentAddress()" style="font-size: 10px; padding: 6px 10px;">[ COPY ]</button>
+                </div>
+
+                <div id="paymentQrWrap" style="text-align: center; margin-bottom: 15px;">
+                    <div class="qr-placeholder" id="paymentQr">Address will load here</div>
+                </div>
+
+                <div style="background: var(--bg); border: 1px solid var(--border); padding: 10px; margin-bottom: 15px; font-size: 11px;">
+                    <div>FROM :: <code id="payStage2From" style="color: var(--accent); word-break: break-all;">--</code></div>
+                    <div style="margin-top: 4px;">NETWORK :: <span style="color: var(--accent);">TRC20</span> &nbsp;|&nbsp; ASSET :: <span style="color: var(--accent);">USDT</span></div>
+                    <div style="margin-top: 4px;">!! IMPORTANT :: Send ONLY from the registered wallet above or the auto-credit will NOT match your account. Send the EXACT amount shown.</div>
+                </div>
+
+                <div id="payStage2Acknowledged" style="display: none; text-align: center; padding: 15px; background: var(--bg); border: 1px solid var(--warning); margin-bottom: 15px;">
+                    <div id="payPollIndicator" style="color: var(--warning); font-size: 12px; margin-bottom: 6px;">
+                        <span style="display: inline-block; animation: pulse 1.5s infinite;">WAITING_FOR_BLOCKCHAIN_CONFIRMATION...</span>
+                    </div>
+                    <div style="font-size: 10px; color: var(--text-muted);">Polling the TRON mainnet until your transfer is detected. Auto-credits typically within 30&ndash;60 seconds.</div>
+                </div>
+
+                <div id="payStage2PollingStop" style="display: none; font-size: 10px; color: var(--text-muted); margin-top: 4px;">
+                    Last poll: <span id="payLastPollTime">--</span> &middot; next check in <span id="payNextPollIn">5</span>s
+                </div>
+
+                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <button id="payStage2SentBtn" onclick="paymentStage2Sent()" style="background: var(--accent); color: black; border-color: var(--accent); font-size: 12px;">[ I HAVE SENT ]</button>
+                    <button onclick="closePaymentModal()" style="border-color: var(--text-muted); color: var(--text-muted); font-size: 12px;">[ CLOSE ]</button>
+                </div>
+            </div>
+
+            <div id="paymentStage3" style="display: none;">
+                <div style="text-align: center; padding: 25px 10px;">
+                    <div style="font-size: 48px; color: var(--accent); margin-bottom: 10px;">&#10003;</div>
+                    <div style="font-size: 18px; color: var(--accent); font-weight: bold; margin-bottom: 6px;">AUTO_CREDIT_SUCCESSFUL</div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 20px;">Your on-chain transfer was detected and verified on the TRON mainnet.</div>
+
+                    <div style="background: var(--bg); border: 1px solid var(--accent); padding: 15px; margin-bottom: 15px;">
+                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">CREDITED_TO_WALLET</div>
+                        <div style="font-size: 24px; color: var(--accent); font-weight: bold;" id="payCreditedAmount">$0.00</div>
+                    </div>
+
+                    <div style="font-size: 12px; color: var(--text-muted);">NEW_BALANCE :: <span id="payNewBalance" style="color: var(--accent); font-weight: bold;">--</span></div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;" id="payOnChainTx"></div>
+                </div>
+
+                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+                    <button onclick="closePaymentModal(); loadData();" style="background: var(--accent); color: black; border-color: var(--accent); width: 100%; font-size: 12px;">[ CLOSE ]</button>
+                </div>
             </div>
 
             <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
@@ -1369,6 +1587,7 @@
                 <div id="paymentHistoryList" style="font-size: 11px; max-height: 140px; overflow-y: auto;">
                     NO_RECHARGES_YET
                 </div>
+                <div id="pendingPaymentsMini" style="font-size: 10px; color: var(--warning); margin-top: 6px;"></div>
             </div>
         </div>
     </div>
