@@ -591,6 +591,20 @@
             </div>
         </div>
 
+        <div id="block-ip-section" class="content-section">
+            <div class="grid-cell">
+                <h2>BLOCKED_IP_DENYLIST</h2>
+                <div style="max-width: 600px;">
+                    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Block specific IP addresses from reaching any of your uplinks. Blocked visitors are routed to the SAFE_PAGE.</p>
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <input type="text" id="newBlockedIp" placeholder="0.0.0.0">
+                        <button onclick="addBlockedIp()" class="btn-danger">[ BLOCK_IP ]</button>
+                    </div>
+                    <div id="blockedIpList" style="max-height: 300px; overflow-y: auto; background: var(--bg-elevated); padding: 10px; border: 1px solid var(--border); font-family: monospace;"></div>
+                </div>
+            </div>
+        </div>
+
         <div id="telegram-section" class="card content-section">
             <h2>TELEGRAM_UPLINK_CONFIGURATION</h2>
             <div style="max-width: 600px;">
@@ -1030,8 +1044,7 @@
                     qrEl.innerText = 'Server has not configured USDT_TRC20_ADDRESS';
                     banner.style.display = 'block';
                     banner.innerText = '!! Receiving address is not configured on the server. Set USDT_TRC20_ADDRESS in the server environment.';
-                    document.getElementById('paymentAmount').disabled = true;
-                    document.getElementById('paymentTxHash').disabled = true;
+                    document.getElementById('paymentSenderWallet').disabled = true;
                     return;
                 }
 
@@ -1039,8 +1052,20 @@
                 renderPaymentQr(info.address);
                 exEl.innerText = (info.exchange || 'XT.com').toUpperCase();
 
-                document.getElementById('paymentAmount').disabled = false;
-                document.getElementById('paymentTxHash').disabled = false;
+                document.getElementById('paymentSenderWallet').disabled = false;
+
+                const senderField = document.getElementById('paymentSenderWallet');
+                const senderNote = document.getElementById('paymentSenderWalletNote');
+                const existing = currentUser && currentUser.settings && currentUser.settings.depositSendAddress;
+                if (existing) {
+                    senderField.value = existing;
+                    senderNote.style.color = 'var(--accent)';
+                    senderNote.innerText = '> REGISTERED :: All USDT sent FROM this wallet to the receive address will auto-credit your account.';
+                } else {
+                    senderField.value = '';
+                    senderNote.style.color = 'var(--warning)';
+                    senderNote.innerText = '!! NOT_REGISTERED :: Save your personal TRC20 sender wallet before depositing, so the system can attribute inbound USDT to your account.';
+                }
             } catch (err) {
                 document.getElementById('paymentAddress').innerText = 'ERROR_FETCHING_INFO';
             }
@@ -1080,34 +1105,32 @@
             alert('ADDRESS_COPIED');
         }
 
-        async function submitPayment() {
-            const amount = parseFloat(document.getElementById('paymentAmount').value);
-            const txHash = document.getElementById('paymentTxHash').value.trim();
-
-            if (!amount || amount <= 0) {
-                alert('!! ERROR: ENTER_VALID_AMOUNT');
-                return;
-            }
-            if (!/^[a-fA-F0-9]{64}$/.test(txHash)) {
-                alert('!! ERROR: INVALID_TX_HASH (must be 64 hex chars)');
+        async function saveSenderWallet() {
+            const wallet = document.getElementById('paymentSenderWallet').value.trim();
+            if (!/^T[A-Za-z1-9]{33}$/.test(wallet)) {
+                alert('!! ERROR: INVALID_TRC20_ADDRESS (must start with T and be 34 chars)');
                 return;
             }
 
-            const res = await fetch('/api/payments/submit', {
+            const res = await fetch('/api/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ amount, txHash })
+                body: JSON.stringify({ depositSendAddress: wallet })
             });
 
             if (res.ok) {
-                alert('PAYMENT_SUBMITTED_PENDING_CONFIRMATION');
-                document.getElementById('paymentAmount').value = '';
-                document.getElementById('paymentTxHash').value = '';
-                await refreshPaymentHistory();
+                alert('SENDER_WALLET_REGISTERED');
+                if (currentUser) {
+                    if (!currentUser.settings) currentUser.settings = {};
+                    currentUser.settings.depositSendAddress = wallet;
+                }
+                const note = document.getElementById('paymentSenderWalletNote');
+                note.style.color = 'var(--accent)';
+                note.innerText = '> REGISTERED :: All USDT sent FROM this wallet to the receive address will auto-credit your account.';
                 loadData();
             } else {
                 const data = await res.json().catch(() => ({}));
-                alert('!! ERROR: ' + (data.error || 'SUBMIT_FAILED'));
+                alert('!! ERROR: ' + (data.error || 'SAVE_FAILED'));
             }
         }
 
@@ -1120,7 +1143,7 @@
                 const payments = await res.json();
 
                 if (!payments || payments.length === 0) {
-                    list.innerText = 'NO_PENDING_PAYMENTS';
+                    list.innerText = 'NO_RECHARGES_YET';
                     if (mini) mini.innerText = '';
                     return;
                 }
@@ -1136,7 +1159,7 @@
                     let statusLabel = '[PENDING]';
                     if (p.status === 'confirmed') {
                         statusColor = 'var(--accent)';
-                        statusLabel = p.autoVerified ? '[CONFIRMED·AUTO]' : '[CONFIRMED]';
+                        statusLabel = p.autoVerified ? '[AUTO-CREDITED]' : '[CONFIRMED]';
                     } else if (p.status === 'rejected') {
                         statusColor = 'var(--danger)';
                         statusLabel = '[REJECTED]';
@@ -1147,7 +1170,7 @@
                     div.innerHTML = `
                         <span style="color:${statusColor};">${statusLabel}</span>
                         <span style="color:var(--accent);">$${p.amount.toFixed(2)}</span>
-                        <span style="color:var(--text-muted); font-size:10px; word-break:break-all;">${p.txHash.substring(0,16)}...${p.txHash.substring(48)}</span>
+                        <span style="color:var(--text-muted); font-size:10px; word-break:break-all;">from ${(p.fromAddress || '').substring(0,8)}...${(p.fromAddress || '').substring(28)}</span>
                         <span style="color:var(--text-muted); font-size:10px;">${new Date(p.createdAt).toLocaleString()}</span>
                     `;
                     list.appendChild(div);
@@ -1297,7 +1320,7 @@
             <span class="modal-close" onclick="closePaymentModal()">[X]</span>
             <h2>USDT_TRC20_RECHARGE</h2>
             <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
-                Send USDT via the TRC20 network to the address below, then submit your TX hash for confirmation.
+                Send USDT (TRC20) from your registered wallet to the address below. Your wallet is auto-credited within ~30s once the on-chain transfer confirms. Minimum 10 USDT per deposit.
             </div>
 
             <div id="paymentInfoBanner" style="font-size: 11px; color: var(--danger); margin-bottom: 12px; display: none;"></div>
@@ -1317,26 +1340,28 @@
                 <div>ASSET :: <span style="color: var(--accent);">USDT</span></div>
                 <div>EXCHANGE :: <span style="color: var(--accent);" id="paymentExchange">XT.com</span></div>
                 <div>RATE :: <span style="color: var(--accent);">1 USDT = 1 CREDIT</span></div>
+                <div>MIN_DEPOSIT :: <span style="color: var(--accent);">10 USDT</span></div>
             </div>
 
             <div class="form-group">
-                <label>AMOUNT_SENT (USDT)</label>
-                <input type="number" id="paymentAmount" min="1" step="0.01" placeholder="50.00">
-            </div>
-            <div class="form-group">
-                <label>TRC20_TX_HASH (64 HEX CHARS)</label>
-                <input type="text" id="paymentTxHash" placeholder="e.g. a1b2c3..." style="font-size: 11px;">
+                <label>YOUR_SENDER_WALLET (TRC20)</label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input type="text" id="paymentSenderWallet" placeholder="T...your_wallet_address" style="font-size: 11px; flex: 1;">
+                    <button onclick="saveSenderWallet()" style="font-size: 10px; padding: 6px 10px;">[ SAVE ]</button>
+                </div>
+                <div id="paymentSenderWalletNote" style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">
+                    Deposits are credited to the user whose sender wallet matches the TX on-chain. Save once, then send from this wallet only.
+                </div>
             </div>
 
-            <div style="display: flex; gap: 10px;">
-                <button onclick="submitPayment()">[ SUBMIT_PAYMENT ]</button>
-                <button onclick="closePaymentModal()" style="border-color: var(--text-muted); color: var(--text-muted);">[ CANCEL ]</button>
+            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+                <button onclick="closePaymentModal()" style="border-color: var(--text-muted); color: var(--text-muted); width: 100%;">[ CLOSE ]</button>
             </div>
 
             <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
-                <label style="margin-bottom: 8px;">YOUR_PENDING_PAYMENTS</label>
+                <label style="margin-bottom: 8px;">YOUR_RECHARGE_HISTORY</label>
                 <div id="paymentHistoryList" style="font-size: 11px; max-height: 140px; overflow-y: auto;">
-                    NO_PENDING_PAYMENTS
+                    NO_RECHARGES_YET
                 </div>
             </div>
         </div>
