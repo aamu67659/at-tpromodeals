@@ -8,52 +8,120 @@ const rateLimit = require('express-rate-limit');
 const session = require('express-session');
 const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
-const net = require('net');
+const compression = require('compression');
 const db = require('./db');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Error handling wrapper for async routes
+// ---------------------------------------------------------------------------
+// Boot-time configuration gating. Refuse to start if required secrets are
+// missing or look like placeholder defaults.
+// ---------------------------------------------------------------------------
+const SESSION_SECRET = process.env.SESSION_SECRET || '';
+const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || '').trim();
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const IS_PROD = NODE_ENV === 'production';
+
+function isWeakSecret(s) {
+    if (!s || s.length < 24) return true;
+    return /^(admin|secret|password|saas-proxy|placeholder|changeme|example)/i.test(s);
+}
+
+if (IS_PROD && (!SESSION_SECRET || isWeakSecret(SESSION_SECRET))) {
+    console.error('[FATAL] SESSION_SECRET is missing or weak. Set a 32+ char random value on the host.');
+    process.exit(1);
+}
+if (!SESSION_SECRET) {
+    console.warn('[Boot] SESSION_SECRET is unset. A random ephemeral secret is being used (sessions invalidated on restart).');
+}
+if (!ADMIN_TOKEN) {
+    console.error('[FATAL] ADMIN_TOKEN is not set. Admin endpoints will be disabled.');
+}
+if (ADMIN_TOKEN && ADMIN_TOKEN.length < 8) {
+    console.warn('[Boot] ADMIN_TOKEN is shorter than 8 characters — consider a longer token.');
+}
+
+const EFFECTIVE_SESSION_SECRET = SESSION_SECRET
+    || require('crypto').randomBytes(48).toString('hex');
+
+// Error handling wrapper for async routes. Hides internals in production.
 const asyncHandler = fn => (req, res, next) => {
     return Promise.resolve(fn(req, res, next)).catch((err) => {
-        console.error(`[Error] ${req.method} ${req.url}:`, err);
-        res.status(500).json({ error: 'Internal Server Error', details: err.message });
+        console.error(`[Error] ${req.method} ${req.url}:`, err.message);
+        const body = { error: 'Internal Server Error' };
+        if (!IS_PROD) body.details = err.message;
+        res.status(500).json(body);
     });
 };
 
-app.set('trust proxy', true);
+// Trust only ONE proxy hop (Render / Cloudflare) so a client can't spoof
+// x-forwarded-for and bypass IP/ISP/country admin blocks.
+app.set('trust proxy', 1);
 
+// Strict HTTPS-aware helmet defaults. CSP stays off because the app uses
+// inline <script> blocks; instead we depend on input validation + cookie
+// hardening on the server side.
 app.use(helmet({
-    contentSecurityPolicy: false, // Temporarily disable CSP to ensure pages load on all browsers/environments
-    referrerPolicy: { policy: 'no-referrer' }
+    contentSecurityPolicy: false,
+    referrerPolicy: { policy: 'no-referrer' },
+    crossOriginOpenerPolicy: { policy: 'same-origin' },
+    crossOriginResourcePolicy: { policy: 'same-origin' },
+    frameguard: { action: 'deny' }
 }));
-
 app.disable('x-powered-by');
 
-app.use(express.json());
+// Limit request body size — the largest expected payload is the blocklist
+// bulk import (1000 rows). Anything bigger is an attack.
+app.use(express.json({ limit: '64kb' }));
 app.use(cookieParser());
 
-// Request logging for debugging
+// Tiny allowlist of static asset paths to log; everything else is silenced
+// so the per-request console.log can't be used as a log-flood DoS vector.
 app.use((req, res, next) => {
-    console.log(`[Request] ${req.method} ${req.url}`);
+    if (!req.url.startsWith('/l/') && !req.url.startsWith('/api/')) {
+        console.log(`[Request] ${req.method} ${req.url}`);
+    }
     next();
 });
 
+app.use(compression());
+
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'saas-proxy-secret',
+    name: 'sp.sid',
+    secret: EFFECTIVE_SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === 'production', maxAge: 24 * 60 * 60 * 1000 }
+    rolling: true,
+    cookie: {
+        httpOnly: true,
+        secure: IS_PROD,
+        sameSite: 'lax',
+        maxAge: 8 * 60 * 60 * 1000,    // 8h instead of 24h
+        path: '/'
+    }
 }));
 
+// Allow only same-origin clients to call our JSON API by default. The app
+// serves its own front-end from /public, so cross-origin is unnecessary.
 app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'DELETE'],
-    allowedHeaders: ['Content-Type']
+    origin: IS_PROD ? false : true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type'],
+    maxAge: 86400
 }));
 
-app.use(express.static('public'));
+// Long-lived static asset cache plus short-lived html cache to balance
+// freshness with bandwidth.
+app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.path.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+    else if (/\.(css|js|png|jpg|jpeg|svg|woff2?|ico)$/i.test(req.path))
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+    next();
+});
+
+app.use(express.static('public', { etag: true, lastModified: true, fallthrough: true }));
 
 app.get('/', (req, res) => {
     if (req.session.userId) {
@@ -96,11 +164,18 @@ async function requireAuth(req, res, next) {
 }
 
 function requireAdmin(req, res, next) {
-    const token = (req.headers['x-admin-token'] || req.query.token || "").trim();
-    const envToken = (process.env.ADMIN_TOKEN || "admin123").trim(); // Default for safety if not set, but user should set it
-
-    if (token !== envToken) {
-        console.log(`[Admin] Unauthorized attempt. Received: "${token}", Expected: "${envToken}"`);
+    const submitted = (req.headers['x-admin-token'] || req.query.token || '').trim();
+    if (!ADMIN_TOKEN) {
+        return res.status(503).json({ error: 'Admin disabled: ADMIN_TOKEN not configured' });
+    }
+    if (!submitted) return res.status(401).json({ error: 'Unauthorized Admin' });
+    try {
+        const a = Buffer.from(submitted, 'utf8');
+        const b = Buffer.from(ADMIN_TOKEN, 'utf8');
+        if (a.length !== b.length || !require('crypto').timingSafeEqual(a, b)) {
+            return res.status(401).json({ error: 'Unauthorized Admin' });
+        }
+    } catch {
         return res.status(401).json({ error: 'Unauthorized Admin' });
     }
     next();
@@ -121,10 +196,80 @@ function getClientCountry(req) {
     return cf || null;
 }
 
+// ---------------------------------------------------------------------------
+// Rate limiting + brute-force guards.
+// express-rate-limit handles per-IP windows; per-account lockouts hash out the
+// remaining threats (online spraying of credentials / PINs).
+// ---------------------------------------------------------------------------
+const LOGIN_LOCKOUTS = new Map();              // email -> { attempts, lockedUntil }
+const PIN_LOCKOUTS = new Map();                // email -> { attempts, lockedUntil }
+const LOGIN_LOCKOUT_THRESHOLD = 8;             // 8 fails per account locks for 15 min
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+const PIN_LOCKOUT_THRESHOLD = 5;               // 5 PIN attempts locks for 10 min (PIN space is 10k)
+const PIN_LOCKOUT_MS = 10 * 60 * 1000;
+
+function ipKey(req) {
+    return getClientIp(req) || '0.0.0.0';
+}
+
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: ipKey,
+    message: { error: 'Too many login attempts. Slow down.' }
+});
+const forgotLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: ipKey,
+    message: { error: 'Too many reset attempts. Slow down.' }
+});
+const adminLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 50,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: ipKey,
+    message: { error: 'Admin throttle exceeded. Slow down.' }
+});
+const redirectLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: ipKey,
+    message: { error: 'Quota exceeded for redirects.' }
+});
+
+// Wrap requireAdmin to also apply adminLimiter (per-IP throttle for /api/admin/*).
+function requireAdminThrottled(req, res, next) {
+    adminLimiter(req, res, () => requireAdmin(req, res, next));
+}
+
 // --- Admin Routes ---
+// Strip both passwords AND pin hashes before sending to the admin UI so a
+// compromised admin token doesn't leak credential material. (The admin
+// UI only ever shows metadata about users.)
+const SAFE_USER_KEYS = new Set(['password', 'pinHash']);
+function stripSecrets(u) {
+    if (!u || typeof u !== 'object') return u;
+    const out = Array.isArray(u) ? [] : {};
+    for (const k of Object.keys(u)) {
+        if (SAFE_USER_KEYS.has(k)) continue;
+        const v = u[k];
+        out[k] = (v && typeof v === 'object' && !(v instanceof Date) && !Buffer.isBuffer(v))
+            ? stripSecrets(v) : v;
+    }
+    return out;
+}
+
 app.get('/api/admin/users', requireAdmin, asyncHandler(async (req, res) => {
     const users = await db.getUsers();
-    res.json(users.map(({ password, ...u }) => u));
+    res.json(users.map(u => stripSecrets(u)));
 }));
 
 app.post('/api/admin/update-balance', requireAdmin, asyncHandler(async (req, res) => {
@@ -425,21 +570,38 @@ app.post('/api/signup', asyncHandler(async (req, res) => {
         return res.status(400).json({ error: 'Email already registered' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 12);
     const user = await db.createUser({ name, email, telegram, password: hashedPassword });
     console.log(`[Signup] New user registered: ${email}`);
     res.json({ message: 'Signup successful' });
 }));
 
-app.post('/api/login', asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
-    const user = await db.findUserByEmail(email);
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-        console.log(`[Login] Failed login attempt for ${email} from ${getClientIp(req)}`);
+app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
+    const submitted = (req.body && req.body.email) ? String(req.body.email).trim().toLowerCase() : '';
+    const password = (req.body && req.body.password) ? String(req.body.password) : '';
+    if (!submitted || !password) {
+        return res.status(400).json({ error: 'Invalid credentials' });
+    }
+    const ip = getClientIp(req);
+    const lock = LOGIN_LOCKOUTS.get(submitted);
+    if (lock && lock.lockedUntil > Date.now()) {
+        return res.status(429).json({ error: 'Too many failed attempts. Try again later.', retryAfterMs: lock.lockedUntil - Date.now() });
+    }
+    const user = await db.findUserByEmail(submitted);
+    const ok = user && (await bcrypt.compare(password, user.password || ''));
+    if (!ok) {
+        const entry = LOGIN_LOCKOUTS.get(submitted) || { attempts: 0, lockedUntil: 0 };
+        entry.attempts++;
+        if (entry.attempts >= LOGIN_LOCKOUT_THRESHOLD) {
+            entry.attempts = 0;
+            entry.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
+        }
+        LOGIN_LOCKOUTS.set(submitted, entry);
+        console.log(`[Login] Failed login attempt for ${submitted} from ${ip}`);
         return res.status(401).json({ error: 'Invalid credentials' });
     }
+    LOGIN_LOCKOUTS.delete(submitted);
     req.session.userId = user.id;
-    const ip = getClientIp(req);
     const country = getClientCountry(req);
     const history = Array.isArray(user.loginHistory) ? user.loginHistory.slice(-49) : [];
     history.push({ ip, country, ts: new Date().toISOString() });
@@ -449,7 +611,7 @@ app.post('/api/login', asyncHandler(async (req, res) => {
         lastLoginCountry: country || null,
         loginHistory: history
     });
-    console.log(`[Login] User logged in: ${email} from ${ip}${country ? ' (' + country + ')' : ''}`);
+    console.log(`[Login] User logged in: ${submitted} from ${ip}${country ? ' (' + country + ')' : ''}`);
     res.json({ message: 'Login successful' });
 }));
 
@@ -485,14 +647,6 @@ app.post('/api/settings', requireAuth, asyncHandler(async (req, res) => {
     res.json(updatedUser.settings);
 }));
 
-app.post('/api/topup', requireAuth, asyncHandler(async (req, res) => {
-    const { amount } = req.body;
-    const updatedUser = await db.updateUser(req.user.id, {
-        wallet: req.user.wallet + amount
-    });
-    res.json({ balance: updatedUser.wallet });
-}));
-
 // --- Profile / Password / PIN Routes ---
 app.post('/api/profile/update', requireAuth, asyncHandler(async (req, res) => {
     const { currentPassword, newEmail, newPassword } = req.body || {};
@@ -523,7 +677,7 @@ app.post('/api/profile/update', requireAuth, asyncHandler(async (req, res) => {
         if (newPassword === currentPassword) {
             return res.status(400).json({ error: 'New password must differ from current password' });
         }
-        updates.password = await bcrypt.hash(newPassword, 10);
+        updates.password = await bcrypt.hash(newPassword, 12);
     }
 
     if (Object.keys(updates).length === 0) {
@@ -543,36 +697,51 @@ app.post('/api/profile/pin', requireAuth, asyncHandler(async (req, res) => {
     if (!/^\d{4}$/.test(pin || '')) {
         return res.status(400).json({ error: 'PIN must be exactly 4 digits (0-9)' });
     }
-    const pinHash = await bcrypt.hash(pin, 10);
+    const pinHash = await bcrypt.hash(pin, 12);
     const updatedUser = await db.updateUser(req.user.id, { pinHash });
     res.json({ message: 'Security PIN updated', hasPin: !!updatedUser.pinHash });
 }));
 
-app.post('/api/forgot/reset', asyncHandler(async (req, res) => {
-    const { email, pin, newPassword } = req.body || {};
+app.post('/api/forgot/reset', forgotLimiter, asyncHandler(async (req, res) => {
+    const email = (req.body && req.body.email) ? String(req.body.email).trim().toLowerCase() : '';
+    const pin = (req.body && req.body.pin) ? String(req.body.pin) : '';
+    const newPassword = (req.body && req.body.newPassword) ? String(req.body.newPassword) : '';
     if (!email || !pin || !newPassword) {
         return res.status(400).json({ error: 'Email, PIN and new password are all required' });
     }
-    if (!/^\d{4}$/.test(String(pin))) {
+    if (!/^\d{4}$/.test(pin)) {
         return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
     }
     if (newPassword.length < 6) {
         return res.status(400).json({ error: 'New password must be at least 6 characters' });
     }
 
-    const user = await db.findUserByEmail(String(email).trim().toLowerCase());
-    if (!user || !user.pinHash) {
-        console.log(`[Forgot] Reset attempt failed for ${email} from ${getClientIp(req)}: no PIN registered`);
+    const pinLock = PIN_LOCKOUTS.get(email);
+    if (pinLock && pinLock.lockedUntil > Date.now()) {
+        return res.status(429).json({ error: 'Too many PIN attempts. Try again in a few minutes.', retryAfterMs: pinLock.lockedUntil - Date.now() });
+    }
+
+    const user = await db.findUserByEmail(email);
+    // Always run bcrypt.compare so timing is identical regardless of whether
+    // the account / PIN exists, defending against user-enumeration side
+    // channels.
+    const dummyHash = '$2b$12$0000000000000000000000000000000000000000000000000000';
+    const candidate = (user && user.pinHash) ? user.pinHash : dummyHash;
+    const ok = await bcrypt.compare(pin, candidate);
+    if (!user || !user.pinHash || !ok) {
+        const entry = PIN_LOCKOUTS.get(email) || { attempts: 0, lockedUntil: 0 };
+        entry.attempts++;
+        if (entry.attempts >= PIN_LOCKOUT_THRESHOLD) {
+            entry.attempts = 0;
+            entry.lockedUntil = Date.now() + PIN_LOCKOUT_MS;
+        }
+        PIN_LOCKOUTS.set(email, entry);
+        console.log(`[Forgot] Reset attempt failed for ${email} from ${getClientIp(req)}`);
         return res.status(401).json({ error: 'Invalid email or PIN' });
     }
 
-    const pinMatches = await bcrypt.compare(String(pin), user.pinHash);
-    if (!pinMatches) {
-        console.log(`[Forgot] Reset attempt failed for ${email} from ${getClientIp(req)}: wrong PIN`);
-        return res.status(401).json({ error: 'Invalid email or PIN' });
-    }
-
-    const hashedNew = await bcrypt.hash(newPassword, 10);
+    PIN_LOCKOUTS.delete(email);
+    const hashedNew = await bcrypt.hash(newPassword, 12);
     await db.updateUser(user.id, { password: hashedNew });
 
     console.log(`[Forgot] Password reset successful for ${email} from ${getClientIp(req)}`);
@@ -591,7 +760,25 @@ const TRON_API_BASE = (process.env.TRON_API_BASE || 'https://api.trongrid.io').t
 const TRONGRID_API_KEY = (process.env.TRONGRID_API_KEY || '').trim();
 const AUTO_PAY_POLL_MS = parseInt(process.env.AUTO_PAY_POLL_MS || '30000', 10);
 const AUTO_PAY_LOOKBACK_LIMIT = parseInt(process.env.AUTO_PAY_LOOKBACK_LIMIT || '20', 10);
+// processedTxHashes dedup set is bounded so it can't grow without bound across
+// months of polling. When the cap is reached we evict the oldest entries by
+// re-inserting from current pending hashes.
+const PROCESSED_TX_HASH_MAX = 50000;
 const processedTxHashes = new Set();
+function trackProcessedHash(hash) {
+    if (processedTxHashes.has(hash)) return;
+    if (processedTxHashes.size >= PROCESSED_TX_HASH_MAX) {
+        // Evict roughly 25% of the oldest entries. Since Set preserves
+        // insertion order we can pop the head.
+        const evict = Math.floor(PROCESSED_TX_HASH_MAX * 0.25);
+        const it = processedTxHashes.values();
+        for (let i = 0; i < evict; i++) {
+            const { value } = it.next();
+            if (value !== undefined) processedTxHashes.delete(value);
+        }
+    }
+    trackProcessedHash(hash);
+}
 
 app.get('/api/payments/info', (req, res) => {
     res.json({
@@ -674,7 +861,7 @@ async function pollTronPayments() {
 
             const receiver = (tx.to || '').trim();
             if (receiver !== PAYMENT_RECEIVE_ADDRESS) {
-                processedTxHashes.add(hash);
+                trackProcessedHash(hash);
                 continue;
             }
 
@@ -682,11 +869,11 @@ async function pollTronPayments() {
             const decimals = (tx.token_info && parseInt(tx.token_info.decimals, 10)) || 6;
             const valueNum = parseFloat(valueRaw) / Math.pow(10, decimals);
             if (!isFinite(valueNum) || valueNum <= 0) {
-                processedTxHashes.add(hash);
+                trackProcessedHash(hash);
                 continue;
             }
             if (valueNum < MIN_DEPOSIT_USDT) {
-                processedTxHashes.add(hash);
+                trackProcessedHash(hash);
                 console.log(`[AutoPay] Skipping ${hash}: amount ${valueNum} USDT below minimum ${MIN_DEPOSIT_USDT}`);
                 continue;
             }
@@ -722,7 +909,7 @@ async function pollTronPayments() {
             }
 
             if (!matchedUser) {
-                processedTxHashes.add(hash);
+                trackProcessedHash(hash);
                 console.log(`[AutoPay] Unmatched inbound TX ${hash} (${valueNum} USDT) from ${tx.from} — no registered sender wallet or pending hash`);
                 continue;
             }
@@ -733,14 +920,14 @@ async function pollTronPayments() {
                 if (matchedPayment) {
                     const idx = pending.findIndex(p => p.id === matchedPayment.id);
                     if (idx === -1) {
-                        processedTxHashes.add(hash);
+                        trackProcessedHash(hash);
                         continue;
                     }
                     const tolerance = 0.01;
                     const declaredAmount = parseFloat(matchedPayment.amount);
                     if (Math.abs(declaredAmount - valueNum) > tolerance) {
                         console.log(`[AutoPay] Amount mismatch for ${hash}: declared=${declaredAmount} on-chain=${valueNum} — holding for manual review`);
-                        processedTxHashes.add(hash);
+                        trackProcessedHash(hash);
                         continue;
                     }
                     pending[idx].status = 'confirmed';
@@ -773,7 +960,7 @@ async function pollTronPayments() {
                 wallet: matchedUser.wallet
             });
 
-            processedTxHashes.add(hash);
+            trackProcessedHash(hash);
             console.log(`[AutoPay] AUTO-CREDITED ${valueNum} USDT to ${matchedUser.email} via ${matchedMode} (tx ${hash})`);
         }
     } catch (err) {
@@ -788,7 +975,7 @@ async function bootstrapProcessedHashes() {
         users.forEach(u => {
             (u.pendingPayments || []).forEach(p => {
                 if (p.status === 'confirmed' && p.txHash) {
-                    processedTxHashes.add(p.txHash.toLowerCase());
+                    trackProcessedHash(p.txHash.toLowerCase());
                 }
             });
         });
@@ -1038,15 +1225,78 @@ function isBot(req) {
     return !ua || BOT_UA_REGEX.test(ua);
 }
 
-app.get('/l/:slug', async (req, res) => {
-    const slug = req.params.slug;
+// Defensive slug format guard: 4-64 chars from a safe alphabet.
+const SLUG_REGEX = /^[A-Za-z0-9._-]{4,64}$/;
+const MAX_VISITED_IPS_PER_USER = 5000;
+
+// LRU cache on top of ip-api so repeated visitors don't double-charge /
+// burn latency. We re-insert on hit to evict least-recently-used.
+const IP_GEO_CACHE_MAX = 5000;
+const IP_GEO_CACHE_TTL_MS = 60 * 60 * 1000;
+const ipGeoCache = new Map();
+async function lookupIpGeo(ip) {
+    const cached = ipGeoCache.get(ip);
+    const now = Date.now();
+    if (cached && cached.expiresAt > now) {
+        ipGeoCache.delete(ip);
+        ipGeoCache.set(ip, cached);
+        return cached.data;
+    }
+    try {
+        const response = await axios.get(
+            `https://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query,continentCode`,
+            { timeout: 5000 }
+        );
+        ipGeoCache.set(ip, { data: response.data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
+    } catch {
+        // Cache negative result for 60 s so a flaky upstream doesn't burn CPU.
+        ipGeoCache.set(ip, { data: null, expiresAt: now + 60 * 1000 });
+        return null;
+    }
+    while (ipGeoCache.size > IP_GEO_CACHE_MAX) {
+        const oldest = ipGeoCache.keys().next().value;
+        ipGeoCache.delete(oldest);
+    }
+    return ipGeoCache.get(ip).data;
+}
+
+// Per-user mutation queue — two concurrent /l/:slug hits on the same
+// uplink cannot trample the visitedIps append.
+const USER_MUTEX = new Map();
+async function withUserMutex(userId, fn) {
+    const prev = USER_MUTEX.get(userId) || Promise.resolve();
+    let release;
+    const next = new Promise(resolve => { release = resolve; });
+    USER_MUTEX.set(userId, prev.then(() => next));
+    try {
+        await prev;
+        return await fn();
+    } finally {
+        release();
+        if (USER_MUTEX.get(userId) === next) USER_MUTEX.delete(userId);
+    }
+}
+
+// Escape for Telegram parse_mode=HTML to defeat Markdown/HTML injection
+// from untrusted user agent / city / ISP / UA strings.
+function telegramEscape(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+app.get('/l/:slug', redirectLimiter, async (req, res) => {
+    const slug = String(req.params.slug || '');
+    if (!SLUG_REGEX.test(slug)) {
+        return res.status(404).send('Uplink Not Found.');
+    }
     const result = await db.findUserBySlug(slug);
     if (!result || !result.user) {
-        console.warn(`[Proxy] Slug not found: ${slug} (Full URL: ${req.originalUrl})`);
         return res.status(404).send('Uplink Not Found. Please check your link or renew it in the dashboard.');
     }
     if (result.user.wallet <= 0) {
-        console.warn(`[Proxy] Inactive account for slug: ${slug}`);
         return res.status(404).send('Account Inactive due to insufficient credits.');
     }
     return handleRedirection(result.user, req, res, result.link);
@@ -1072,14 +1322,12 @@ async function handleRedirection(user, req, res, linkData) {
     const adminBlocks = await getAdminBlocksSnapshot();
 
     // 0a. Admin IP block (site-wide, highest priority - deny before any other logic).
-    if ((adminBlocks.ips || []).some(b => b.value === clientIp)) {
-        console.warn(`[AdminBlock] IP blocked: ${clientIp} (user=${user.id})`);
+    if (db.ipMatchesAdminBlock && db.ipMatchesAdminBlock(clientIp, adminBlocks.ips)) {
         return res.status(403).send('Access denied by administrator.');
     }
 
     // 0b. Admin Country block (header-driven, cheap; applies before paid lookups).
     if (countryHeader && (adminBlocks.countries || []).some(b => b.value === countryHeader)) {
-        console.warn(`[AdminBlock] Country blocked: ${countryHeader} (ip=${clientIp}, user=${user.id})`);
         return res.status(403).send('Access denied by administrator.');
     }
 
@@ -1105,26 +1353,18 @@ async function handleRedirection(user, req, res, linkData) {
     }
 
     // 2. Visited IP Check
-    const isVisited = visitedIps.some(v => v.ip === clientIp);
+    const isVisited = (visitedIps || []).some(v => v.ip === clientIp);
     if (isVisited && !useReallowVisited) {
         return res.redirect(nonRealLink);
     }
 
-    // 3. IP Analysis
-    let data = null;
-    try {
-        const response = await axios.get(`http://ip-api.com/json/${clientIp}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query,continentCode`, { timeout: 5000 });
-        data = response.data;
-    } catch (error) {
-        console.error('ISP lookup failed:', error.message);
-    }
+    // 3. IP Analysis (cached)
+    const data = await lookupIpGeo(clientIp);
 
     // 3a. Admin ISP block (matches against ISP/org names from geo response).
     if (data && (adminBlocks.isps || []).length) {
         const candidates = [data.isp, data.org].filter(Boolean);
         if (candidates.some(c => ispMatchesAnyBlock(c, adminBlocks.isps))) {
-            const matched = candidates.find(c => ispMatchesAnyBlock(c, adminBlocks.isps));
-            console.warn(`[AdminBlock] ISP blocked: ${matched} (ip=${clientIp}, user=${user.id})`);
             return res.status(403).send('Access denied by administrator.');
         }
     }
@@ -1146,31 +1386,46 @@ async function handleRedirection(user, req, res, linkData) {
         }
     }
 
-    // 5. Update Visited IPs
+    // 5. Update Visited IPs — serially under the user's mutex so two
+    // concurrent visits can't trample. Drop oldest entries past the FIFO cap.
     if (!isVisited) {
         const redirectType = targetUrl === realLink ? 'REAL' : 'SAFE';
-        const newVisited = [...visitedIps, { 
-            ip: clientIp, 
-            timestamp: Date.now(), 
+        const newEntry = {
+            ip: clientIp,
+            timestamp: Date.now(),
             type: redirectType,
             isp: data ? data.isp : 'Unknown',
             location: data ? `${data.city}, ${data.country}` : 'Unknown'
-        }];
-        await db.updateUser(user.id, { visitedIps: newVisited });
+        };
+        withUserMutex(user.id, async () => {
+            const liveUser = await db.findUserById(user.id);
+            const liveVisited = Array.isArray(liveUser ? liveUser.visitedIps : []) ? liveUser.visitedIps : [];
+            let merged = liveVisited.concat([newEntry]);
+            if (merged.length > MAX_VISITED_IPS_PER_USER) {
+                merged = merged.slice(-MAX_VISITED_IPS_PER_USER);
+            }
+            await db.updateUser(user.id, { visitedIps: merged });
+        }).catch(err => console.error('[Proxy] visitedIps write failed', err.message));
     }
 
-    // 6. Telegram Notification
+    // 6. Telegram notification (HTML mode + escape). Fire-and-forget.
     const botToken = settings.botToken || process.env.TELEGRAM_BOT_TOKEN;
     const chatId = settings.chatId || process.env.TELEGRAM_CHAT_ID;
 
     if (botToken && chatId) {
-        let message = `🚀 *New Visit!* (User: ${user.name})\n\n`;
-        message += `📍 *IP:* ${clientIp}\n🏢 *ISP:* ${data ? data.isp : 'Unknown'}\n🌍 *Location:* ${data ? `${data.city}, ${data.country}` : 'Unknown'}\n💻 *UA:* ${userAgent}\n🎯 *Target:* ${targetUrl === realLink ? 'REAL' : 'SAFE'}`;
-        
+        const message =
+            `🚀 <b>New Visit!</b> (User: ${telegramEscape(user.name || '')})\n\n` +
+            `📍 <b>IP:</b> ${telegramEscape(clientIp)}\n` +
+            `🏢 <b>ISP:</b> ${telegramEscape(data ? data.isp : 'Unknown')}\n` +
+            `🌍 <b>Location:</b> ${telegramEscape(data ? `${data.city}, ${data.country}` : 'Unknown')}\n` +
+            `💻 <b>UA:</b> ${telegramEscape(userAgent.slice(0, 240))}\n` +
+            `🎯 <b>Target:</b> <code>${targetUrl === realLink ? 'REAL' : 'SAFE'}</code>`;
+
         axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             chat_id: chatId,
             text: message,
-            parse_mode: 'Markdown'
+            parse_mode: 'HTML',
+            disable_web_page_preview: true
         }).catch(() => {});
     }
 

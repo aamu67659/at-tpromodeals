@@ -761,9 +761,9 @@
                     const tr = document.createElement('tr');
                     const wallet = typeof user.wallet === 'number' ? user.wallet : 0;
                     tr.innerHTML = `
-                        <td><strong>${user.name || 'ANONYMOUS'}</strong></td>
-                        <td>${user.email || 'N/A'}</td>
-                        <td style="color: var(--accent);">$${wallet.toFixed(2)}</td>
+                        <td><strong>${escapeHtml(user.name || 'ANONYMOUS')}</strong></td>
+                        <td>${escapeHtml(user.email || 'N/A')}</td>
+                        <td style="color: var(--accent);">$${Number(wallet).toFixed(2)}</td>
                         <td>
                             <span class="status-tag ${user.isActive ? 'status-active' : 'status-disabled'}">
                                 ${user.isActive ? 'OPERATIONAL' : 'DEACTIVATED'}
@@ -771,8 +771,8 @@
                         </td>
                         <td>
                             <div style="display: flex; gap: 10px;">
-                                <button class="btn" style="font-size: 10px; padding: 5px 10px;" onclick="updateBalance('${user.id}')">[ SET_CREDITS ]</button>
-                                <button class="btn btn-status ${user.isActive ? 'active' : ''}" style="font-size: 10px; padding: 5px 10px;" onclick="toggleStatus('${user.id}')">
+                                <button class="btn" style="font-size: 10px; padding: 5px 10px;" onclick="updateBalance('${escapeHtml(user.id)}')">[ SET_CREDITS ]</button>
+                                <button class="btn btn-status ${user.isActive ? 'active' : ''}" style="font-size: 10px; padding: 5px 10px;" onclick="toggleStatus('${escapeHtml(user.id)}')">
                                     [ ${user.isActive ? 'DEACTIVATE' : 'ACTIVATE'} ]
                                 </button>
                             </div>
@@ -810,7 +810,7 @@
                 const s = await res.json();
                 renderStats(s);
             } catch (e) {
-                container.innerHTML = '<div style="color:var(--danger);">!! ERROR: ' + e.message + '</div>';
+                container.innerHTML = '<div style="color:var(--danger);">!! ERROR: ' + escapeHtml(e.message) + '</div>';
             }
         }
 
@@ -827,9 +827,9 @@
 
         function tile(label, value, sub, cls) {
             return `<div class="stat-tile ${cls || ''}">
-                <div class="stat-label">${label}</div>
-                <div class="stat-value">${value}</div>
-                <div class="stat-sub">${sub || ''}</div>
+                <div class="stat-label">${escapeHtml(label)}</div>
+                <div class="stat-value">${escapeHtml(value)}</div>
+                <div class="stat-sub">${escapeHtml(sub || '')}</div>
             </div>`;
         }
 
@@ -863,7 +863,7 @@
                 ${tile('REAL_VISITS_24H', fmtNum(s.visits.real24h, 0), 'hybrid bypass 24h', 'accent')}
                 ${tile('SAFE_VISITS_24H', fmtNum(s.visits.safe24h, 0), 'redirected to decoy 24h', 'accent')}
                 ${tile('UNIQUE_IPS_24H', fmtNum(s.visits.uniqueIps24h, 0), 'distinct sources 24h', 'accent')}
-                ${tile('HIGHEST_LOCATION', s.visits.highestLocation || 'N/A', s.visits.highestLocation ? (s.visits.highestLocationHits + ' hits all-time') : 'awaiting traffic', 'accent')}
+                ${tile('HIGHEST_LOCATION', escapeHtml(s.visits.highestLocation || 'N/A'), s.visits.highestLocation ? (s.visits.highestLocationHits + ' hits all-time') : 'awaiting traffic', 'accent')}
             `;
 
             const uplinkTiles = `
@@ -877,49 +877,49 @@
 
             const locRows = (s.visits.topLocationsArr || []).map(o => `
                 <tr>
-                    <td>${o.location}</td>
-                    <td class="hits-cell">${o.hits}</td>
-                    <td style="color:var(--text-muted); font-size:10px;">${fmtMsToLocal(o.lastSeen)}</td>
+                    <td>${escapeHtml(o.location)}</td>
+                    <td class="hits-cell">${Number(o.hits) || 0}</td>
+                    <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(fmtMsToLocal(o.lastSeen))}</td>
                 </tr>
             `).join('');
 
             const ispRows = (s.visits.topIspsArr || []).map(o => `
                 <tr>
-                    <td>${o.isp}</td>
-                    <td class="hits-cell">${o.hits}</td>
+                    <td>${escapeHtml(o.isp)}</td>
+                    <td class="hits-cell">${Number(o.hits) || 0}</td>
                 </tr>
             `).join('');
 
             const ipRows = (s.visits.topIpsArr || []).map(o => `
                 <tr>
-                    <td><code>${o.ip}</code></td>
-                    <td class="hits-cell">${o.hits}</td>
-                    <td style="color:var(--text-muted); font-size:10px;">${fmtMsToLocal(o.lastSeen)}</td>
+                    <td><code>${escapeHtml(o.ip)}</code></td>
+                    <td class="hits-cell">${Number(o.hits) || 0}</td>
+                    <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(fmtMsToLocal(o.lastSeen))}</td>
                 </tr>
             `).join('');
 
             const countryRows = (s.logins.topCountriesArr || []).map(o => `
                 <tr>
-                    <td>${o.country}</td>
-                    <td class="hits-cell">${o.count}</td>
+                    <td>${escapeHtml(o.country)}</td>
+                    <td class="hits-cell">${Number(o.count) || 0}</td>
                 </tr>
             `).join('');
 
             const balanceRows = (s.topUsers.byBalance || []).map(o => `
                 <tr>
-                    <td><strong>${o.name || 'ANONYMOUS'}</strong></td>
-                    <td style="color:var(--text-muted); font-size:10px;">${o.email || ''}</td>
+                    <td><strong>${escapeHtml(o.name || 'ANONYMOUS')}</strong></td>
+                    <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(o.email || '')}</td>
                     <td class="hits-cell">$${fmtNum(o.wallet)}</td>
                     <td style="color:${o.isActive ? 'var(--accent)' : 'var(--danger)'}; font-size:10px;">${o.isActive ? 'OPERATIONAL' : 'DEACTIVATED'}</td>
-                    <td style="color:var(--text-muted); font-size:10px;">${o.lastLoginAt ? new Date(o.lastLoginAt).toLocaleString() : 'N/A'}</td>
+                    <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(o.lastLoginAt ? new Date(o.lastLoginAt).toLocaleString() : 'N/A')}</td>
                 </tr>
             `).join('');
 
             const visitRows = (s.topUsers.mostVisits || []).map(o => `
                 <tr>
-                    <td><strong>${o.name || 'ANONYMOUS'}</strong></td>
-                    <td style="color:var(--text-muted); font-size:10px;">${o.email || ''}</td>
-                    <td class="hits-cell">${o.visits}</td>
+                    <td><strong>${escapeHtml(o.name || 'ANONYMOUS')}</strong></td>
+                    <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(o.email || '')}</td>
+                    <td class="hits-cell">${Number(o.visits) || 0}</td>
                     <td style="color:var(--text-muted); font-size:10px;">$${fmtNum(o.wallet)}</td>
                 </tr>
             `).join('');
@@ -927,10 +927,10 @@
             const recentPayRows = (s.inflow.recentConfirmed || []).map(o => `
                 <tr>
                     <td class="hits-cell">$${fmtNum(o.amount)}</td>
-                    <td><strong>${o.userName}</strong></td>
+                    <td><strong>${escapeHtml(o.userName)}</strong></td>
                     <td style="font-size:10px; color:${o.autoVerified ? 'var(--accent)' : 'var(--warning)'};">${o.autoVerified ? 'AUTO' : 'MANUAL'}</td>
-                    <td style="font-size:10px; color:var(--text-muted);">${new Date(o.confirmedAt).toLocaleString()}</td>
-                    <td style="font-size:10px;"><code style="word-break:break-all;">${o.txHash ? o.txHash.substring(0, 16) + '...' : 'N/A'}</code></td>
+                    <td style="font-size:10px; color:var(--text-muted);">${escapeHtml(new Date(o.confirmedAt).toLocaleString())}</td>
+                    <td style="font-size:10px;"><code style="word-break:break-all;">${escapeHtml(o.txHash ? o.txHash.substring(0, 16) + '...' : 'N/A')}</code></td>
                 </tr>
             `).join('');
 
@@ -982,7 +982,7 @@
                     <thead><tr><th>AMOUNT</th><th>USER</th><th>MODE</th><th>CONFIRMED_AT</th><th>TX_HASH</th></tr></thead>
                     <tbody>${recentPayRows}</tbody>
                 </table>` : '<div class="stats-empty">No confirmed deposits yet.</div>'}
-                <div style="color:var(--text-muted); font-size:10px; margin-top: 12px;"><span class="pulse-dot"></span>SNAPSHOT :: ${new Date(s.generatedAt).toLocaleString()}</div>
+                <div style="color:var(--text-muted); font-size:10px; margin-top: 12px;"><span class="pulse-dot"></span>SNAPSHOT :: ${escapeHtml(new Date(s.generatedAt).toLocaleString())}</div>
             `;
         }
 
@@ -1048,22 +1048,22 @@
 
                 const actions = p.status === 'pending' ? `
                     <div style="display: flex; gap: 5px;">
-                        <button class="btn" style="font-size: 10px; padding: 5px 10px; border-color: var(--accent);" onclick="confirmPayment('${p.userId}', '${p.id}')">[ CONFIRM ]</button>
-                        <button class="btn btn-status" style="font-size: 10px; padding: 5px 10px;" onclick="rejectPayment('${p.userId}', '${p.id}')">[ REJECT ]</button>
+                        <button class="btn" style="font-size: 10px; padding: 5px 10px; border-color: var(--accent);" onclick="confirmPayment('${escapeHtml(p.userId)}', '${escapeHtml(p.id)}')">[ CONFIRM ]</button>
+                        <button class="btn btn-status" style="font-size: 10px; padding: 5px 10px;" onclick="rejectPayment('${escapeHtml(p.userId)}', '${escapeHtml(p.id)}')">[ REJECT ]</button>
                     </div>
                 ` : '<span style="color:var(--text-muted); font-size:10px;">PROCESSED</span>';
 
                 const txCell = p.txHash
-                    ? `<code style="font-size:10px; word-break:break-all;">${p.txHash}</code>`
+                    ? `<code style="font-size:10px; word-break:break-all;">${escapeHtml(p.txHash)}</code>`
                     : 'N/A';
 
                 tr.innerHTML = `
                     <td><span class="status-tag" style="color:${statusColor}; border:1px solid ${statusColor};">${statusLabel}</span></td>
-                    <td style="color: var(--accent);">$${(p.amount || 0).toFixed(2)}</td>
-                    <td>${p.network || 'USDT-TRC20'}</td>
+                    <td style="color: var(--accent);">$${Number(p.amount || 0).toFixed(2)}</td>
+                    <td>${escapeHtml(p.network || 'USDT-TRC20')}</td>
                     <td>${txCell}</td>
-                    <td><strong>${p.userName}</strong><br><span style="color:var(--text-muted); font-size:11px;">${p.userEmail}</span></td>
-                    <td style="font-size:11px;">${new Date(p.createdAt).toLocaleString()}</td>
+                    <td><strong>${escapeHtml(p.userName)}</strong><br><span style="color:var(--text-muted); font-size:11px;">${escapeHtml(p.userEmail)}</span></td>
+                    <td style="font-size:11px;">${escapeHtml(new Date(p.createdAt).toLocaleString())}</td>
                     <td>${actions}</td>
                 `;
                 tbody.appendChild(tr);
@@ -1123,10 +1123,22 @@
             row.style.display = 'flex';
             row.style.gap = '8px';
             row.style.alignItems = 'center';
-            row.innerHTML = `
-                <input type="text" class="antiredDomainInput" placeholder="https://rotator-1.example.com" value="${(value || '').replace(/"/g, '&quot;')}" style="flex: 1; padding: 8px 10px; background: var(--bg-base); border: 1px solid var(--border); color: var(--text-primary); font-family: inherit; font-size: 12px;">
-                <button onclick="this.parentNode.remove();" class="btn btn-status" style="font-size: 11px;">[ REMOVE ]</button>
-            `;
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'antiredDomainInput';
+            input.placeholder = 'https://rotator-1.example.com';
+            input.value = value || '';
+            input.style.cssText = 'flex: 1; padding: 8px 10px; background: var(--bg-base); border: 1px solid var(--border); color: var(--text-primary); font-family: inherit; font-size: 12px;';
+
+            const remove = document.createElement('button');
+            remove.className = 'btn btn-status';
+            remove.style.fontSize = '11px';
+            remove.textContent = '[ REMOVE ]';
+            remove.onclick = () => row.remove();
+
+            row.appendChild(input);
+            row.appendChild(remove);
             list.appendChild(row);
         }
 

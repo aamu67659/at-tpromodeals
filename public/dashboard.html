@@ -1139,6 +1139,13 @@
     </div>
 
     <script>
+        // XSS escape. ALWAYS wrap user-controlled values that get rendered
+        // into innerHTML — name, email, telegram, slug, IPs, URLs, etc.
+        // (Admin session is at risk if any of these come back attacker-controlled.)
+        const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+
         let userSlug = '';
         let allIsps = [];
         let currentUser = null;
@@ -1186,7 +1193,7 @@
                 if (activeLink) {
                     const expiry = new Date(activeLink.expiryDate);
                     expiryMetric.innerText = expiry.toLocaleDateString();
-                    expiryStatus.innerHTML = `SOONEST_ACTIVE :: <span style="color:var(--accent);">${activeLink.name}</span> // EXPIRES: ${expiry.toLocaleString()}`;
+                    expiryStatus.innerHTML = `SOONEST_ACTIVE :: <span style="color:var(--accent);">${esc(activeLink.name)}</span> // EXPIRES: ${expiry.toLocaleString()}`;
                     expiryAlert.style.display = 'none';
                     uplinkStatus.innerText = 'ONLINE';
                     uplinkStatus.style.color = 'var(--accent)';
@@ -1211,7 +1218,7 @@
                     div.style.display = 'flex';
                     div.style.justifyContent = 'space-between';
                     div.style.padding = '5px 0';
-                    div.innerHTML = `<span>${ip}</span> <span style="color:var(--danger); cursor:pointer;" onclick="removeForcedIp('${ip}')">[RM]</span>`;
+                    div.innerHTML = `<span>${esc(ip)}</span> <span style="color:var(--danger); cursor:pointer;" onclick="removeForcedIp('${esc(ip)}')">[RM]</span>`;
                     forcedIpList.appendChild(div);
                 });
 
@@ -1223,7 +1230,7 @@
                     div.style.display = 'flex';
                     div.style.justifyContent = 'space-between';
                     div.style.padding = '5px 0';
-                    div.innerHTML = `<span style="color: var(--danger);">${ip}</span> <span style="color:var(--accent); cursor:pointer;" onclick="removeBlockedIp('${ip}')">[UNBLOCK]</span>`;
+                    div.innerHTML = `<span style="color: var(--danger);">${esc(ip)}</span> <span style="color:var(--accent); cursor:pointer;" onclick="removeBlockedIp('${esc(ip)}')">[UNBLOCK]</span>`;
                     blockedIpList.appendChild(div);
                 });
 
@@ -1238,10 +1245,10 @@
                     realVisits.forEach(v => {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
-                            <td>${new Date(v.timestamp).toLocaleString()}</td>
-                            <td>${v.ip}</td>
-                            <td>${v.isp || 'UNKNOWN'}</td>
-                            <td>${v.location || 'UNKNOWN'}</td>
+                            <td>${esc(new Date(v.timestamp).toLocaleString())}</td>
+                            <td>${esc(v.ip)}</td>
+                            <td>${esc(v.isp || 'UNKNOWN')}</td>
+                            <td>${esc(v.location || 'UNKNOWN')}</td>
                         `;
                         realVisitsTable.appendChild(tr);
                     });
@@ -1271,31 +1278,31 @@
                 const isExpired = expiry ? expiry < new Date() : true;
                 const expiryColor = isExpired ? 'var(--danger)' : 'var(--accent)';
                 const renewCell = isExpired
-                    ? `<button onclick="showRenewal('${link.slug}', '${link.name}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>`
+                    ? `<button onclick="showRenewal('${esc(link.slug)}', '${esc(link.name)}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>`
                     : `<button disabled title="Uplink is still active. Renew once it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ ACTIVE ]</button>`;
                 const purgeCell = isExpired
-                    ? `<button onclick="deleteLink('${link.slug}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`
+                    ? `<button onclick="deleteLink('${esc(link.slug)}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`
                     : `<button disabled title="Cannot delete an active uplink. Wait until it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ LOCKED ]</button>`;
 
                 tr.innerHTML = `
-                    <td><strong>${link.name}</strong></td>
+                    <td><strong>${esc(link.name)}</strong></td>
                     <td>
                         <div class="link-box">
-                            <span class="link-url">${fullUrl}</span>
-                            <button onclick="copyToClipboard('${fullUrl}')" class="link-copy">[ COPY ]</button>
+                            <span class="link-url">${esc(fullUrl)}</span>
+                            <button onclick="copyToClipboard('${esc(fullUrl)}')" class="link-copy">[ COPY ]</button>
                         </div>
                     </td>
                     <td style="font-size: 11px;">
-                        <div style="color: var(--accent); word-break: break-all;">TARGET: ${link.realLink}</div>
-                        <div style="color: var(--text-muted); word-break: break-all;">DECOY: ${link.nonRealLink}</div>
+                        <div style="color: var(--accent); word-break: break-all;">TARGET: ${esc(link.realLink)}</div>
+                        <div style="color: var(--text-muted); word-break: break-all;">DECOY: ${esc(link.nonRealLink)}</div>
                     </td>
                     <td style="color: ${expiryColor}; font-size: 11px;">
-                        ${expiry ? expiry.toLocaleString() : 'UNINITIALIZED'}
+                        ${expiry ? esc(expiry.toLocaleString()) : 'UNINITIALIZED'}
                     </td>
                     <td>
                         <div style="display: flex; gap: 5px; flex-wrap: wrap;">
                             ${renewCell}
-                            <button onclick="editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})"
+                            <button onclick="editLink('${esc(link.slug)}', '${esc(link.name)}', '${esc(link.realLink)}', '${esc(link.nonRealLink)}', ${!!link.antiRed}, ${!!link.ispFilter}, ${esc(JSON.stringify(link.mobileIsps || []))}, ${!!link.reallowVisited})"
                                 style="background: var(--warning); color: black; border-color: var(--warning); font-size: 10px;">[ EDIT ]</button>
                             ${purgeCell}
                         </div>
@@ -1320,31 +1327,31 @@
                     const isExpired = expiry ? expiry < new Date() : true;
                     const expiryColor = isExpired ? 'var(--danger)' : 'var(--accent)';
                     const renewCell = isExpired
-                        ? `<button onclick="showRenewal('${link.slug}', '${link.name}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>`
+                        ? `<button onclick="showRenewal('${esc(link.slug)}', '${esc(link.name)}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>`
                         : `<button disabled title="Uplink is still active. Renew once it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ ACTIVE ]</button>`;
                     const purgeCell = isExpired
-                        ? `<button onclick="deleteLink('${link.slug}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`
+                        ? `<button onclick="deleteLink('${esc(link.slug)}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`
                         : `<button disabled title="Cannot delete an active uplink. Wait until it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ LOCKED ]</button>`;
 
                     tr.innerHTML = `
-                        <td><strong>${link.name}</strong></td>
+                        <td><strong>${esc(link.name)}</strong></td>
                         <td>
                             <div class="link-box">
-                                <span class="link-url">${fullUrl}</span>
-                                <button onclick="copyToClipboard('${fullUrl}')" class="link-copy">[ COPY ]</button>
+                                <span class="link-url">${esc(fullUrl)}</span>
+                                <button onclick="copyToClipboard('${esc(fullUrl)}')" class="link-copy">[ COPY ]</button>
                             </div>
                         </td>
                         <td style="font-size: 11px;">
-                            <div style="color: var(--accent); word-break: break-all;">TARGET: ${link.realLink}</div>
-                            <div style="color: var(--text-muted); word-break: break-all;">DECOY: ${link.nonRealLink}</div>
+                            <div style="color: var(--accent); word-break: break-all;">TARGET: ${esc(link.realLink)}</div>
+                            <div style="color: var(--text-muted); word-break: break-all;">DECOY: ${esc(link.nonRealLink)}</div>
                         </td>
                         <td style="color: ${expiryColor}; font-size: 11px;">
-                            ${expiry ? expiry.toLocaleString() : 'UNINITIALIZED'}
+                            ${expiry ? esc(expiry.toLocaleString()) : 'UNINITIALIZED'}
                         </td>
                         <td>
                             <div style="display: flex; gap: 5px; flex-wrap: wrap;">
                                 ${renewCell}
-                                <button onclick="editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})"
+                                <button onclick="editLink('${esc(link.slug)}', '${esc(link.name)}', '${esc(link.realLink)}', '${esc(link.nonRealLink)}', ${!!link.antiRed}, ${!!link.ispFilter}, ${esc(JSON.stringify(link.mobileIsps || []))}, ${!!link.reallowVisited})"
                                     style="background: var(--warning); color: black; border-color: var(--warning); font-size: 10px;">[ EDIT ]</button>
                                 ${purgeCell}
                             </div>
@@ -1367,8 +1374,8 @@
                 
                 const isChecked = selectedIsps.includes(isp);
                 div.innerHTML = `
-                    <input type="checkbox" name="newLinkIspCheck" value="${isp}" ${isChecked ? 'checked' : ''}>
-                    <span>${isp}</span>
+                    <input type="checkbox" name="newLinkIspCheck" value="${esc(isp)}" ${isChecked ? 'checked' : ''}>
+                    <span>${esc(isp)}</span>
                 `;
                 container.appendChild(div);
             });

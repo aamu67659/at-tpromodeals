@@ -4,49 +4,83 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 
-// Support Render Persistent Disk at /data
+// ---------------------------------------------------------------------------
+// Storage root — Render persistent disk at /data, else ./data
+// ---------------------------------------------------------------------------
 const PERSISTENT_DATA_DIR = '/data';
 const LOCAL_DATA_DIR = path.join(__dirname, 'data');
 const DATA_DIR = fssync.existsSync(PERSISTENT_DATA_DIR) ? PERSISTENT_DATA_DIR : LOCAL_DATA_DIR;
 
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const ADMIN_BLOCKS_FILE = path.join(DATA_DIR, 'admin-blocklists.json');
+
+// Files larger than this (8 MiB) are rejected to prevent OOM via crafted JSON.
+const MAX_USERS_FILE_BYTES = 8 * 1024 * 1024;
 
 console.log(`[DB] Using data directory: ${DATA_DIR}`);
-console.log(`[DB] Users file: ${USERS_FILE}`);
 
 if (!fssync.existsSync(DATA_DIR)) {
-    try {
-        fssync.mkdirSync(DATA_DIR, { recursive: true });
-    } catch (err) {
+    try { fssync.mkdirSync(DATA_DIR, { recursive: true }); } catch (err) {
         console.error(`Error creating data directory ${DATA_DIR}:`, err);
     }
 }
 
-if (!fssync.existsSync(USERS_FILE)) {
-    fssync.writeFileSync(USERS_FILE, JSON.stringify([]));
+function ensureFile(file, fallback) {
+    if (!fssync.existsSync(file)) {
+        fssync.writeFileSync(file, JSON.stringify(fallback, null, 2));
+    }
+}
+ensureFile(USERS_FILE, []);
+ensureFile(ADMIN_BLOCKS_FILE, { ips: [], isps: [], countries: [] });
+
+// ---------------------------------------------------------------------------
+// Safe JSON parse: enforces byte cap + safe parse; returns fallback on any error.
+// ---------------------------------------------------------------------------
+function safeParseLimited(buf, fallback, maxBytes) {
+    if (!buf || buf.length > maxBytes) return fallback;
+    try {
+        const parsed = JSON.parse(buf);
+        return parsed == null || typeof parsed !== 'object' ? fallback : parsed;
+    } catch (_) { return fallback; }
 }
 
-// --- Admin-level blocklists (IP / ISP / Country) ---
-// Site-wide rules applied to /l/:slug regardless of which user's link was hit.
-const ADMIN_BLOCKS_FILE = path.join(DATA_DIR, 'admin-blocklists.json');
-
-if (!fssync.existsSync(ADMIN_BLOCKS_FILE)) {
-    fssync.writeFileSync(ADMIN_BLOCKS_FILE, JSON.stringify({
-        ips: [],
-        isps: [],
-        countries: []
-    }, null, 2));
+// ---------------------------------------------------------------------------
+// Atomic write: write to .tmp + fsync + rename. Survives crashes mid-write.
+// ---------------------------------------------------------------------------
+async function atomicWriteJSON(filePath, value) {
+    const tmp = filePath + '.tmp';
+    const data = JSON.stringify(value); // minified payload, smaller + faster
+    const fh = await fs.open(tmp, 'w');
+    try {
+        await fh.writeFile(data, 'utf8');
+        await fh.sync();
+    } finally {
+        await fh.close();
+    }
+    await fs.rename(tmp, filePath);
 }
 
-const VALID_BLOCK_TYPES = new Set(['ips', 'isps', 'countries']);
+// ---------------------------------------------------------------------------
+// Write mutex: serializes file writes per file to prevent readers seeing
+// torn writes during concurrent updates.
+// ---------------------------------------------------------------------------
+const _writeQueues = new Map();
+function withFileLock(filePath, fn) {
+    const prev = _writeQueues.get(filePath) || Promise.resolve();
+    const next = prev.then(fn, fn);
+    _writeQueues.set(filePath, next.catch(() => {}));
+    return next;
+}
 
-// --- IPOperator helpers: exact / wildcard / CIDR matching for IPv4 & IPv6 ---
+// ---------------------------------------------------------------------------
+// IP rule helpers: exact / wildcard / CIDR matching for IPv4 & IPv6
+// ---------------------------------------------------------------------------
 function ipv4ToInt(addr) {
     const parts = String(addr).split('.');
     if (parts.length !== 4) return null;
     let acc = 0;
     for (const p of parts) {
-        if (p === '*') return null; // mixed wildcard -> caller handles
+        if (p === '*') return null;
         const n = Number(p);
         if (!Number.isInteger(n) || n < 0 || n > 255) return null;
         acc = (acc * 256) + n;
@@ -55,7 +89,6 @@ function ipv4ToInt(addr) {
 }
 
 function ipv6ToBigInt(addr) {
-    // Expand :: then split on ':' to exactly 8 groups of 16-bit hextets.
     if (typeof addr !== 'string' || !addr.includes(':')) return null;
     const double = addr.indexOf('::');
     let head = [], tail = [];
@@ -81,7 +114,6 @@ function ipv6ToBigInt(addr) {
 }
 
 function isValidIpLiteral(v) {
-    // IPv4 dotted notation or IPv6 (full or partial). CIDR suffix handled separately.
     if (typeof v !== 'string' || !v) return false;
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) {
         return v.split('.').every(o => {
@@ -93,7 +125,6 @@ function isValidIpLiteral(v) {
 }
 
 function ipRuleKind(value) {
-    // Returns 'exact' | 'cidr' | 'wildcard' | null
     if (typeof value !== 'string' || !value) return null;
     const v = value.trim();
     if (v.includes('*')) return /^\d{1,3}(\.\d{1,3}){3}$/.test(v.replace(/\*/g, '0')) ? 'wildcard' : null;
@@ -102,11 +133,8 @@ function ipRuleKind(value) {
         if (!maskRaw || !/^\d{1,3}$/.test(maskRaw)) return null;
         const mask = parseInt(maskRaw, 10);
         if (!isValidIpLiteral(base)) return null;
-        if (base.includes(':')) {
-            if (mask < 0 || mask > 128) return null;
-        } else {
-            if (mask < 0 || mask > 32) return null;
-        }
+        if (base.includes(':')) { if (mask < 0 || mask > 128) return null; }
+        else { if (mask < 0 || mask > 32) return null; }
         return 'cidr';
     }
     return isValidIpLiteral(v) ? 'exact' : null;
@@ -116,12 +144,9 @@ function ipMatchesRule(clientIp, ruleValue) {
     if (!clientIp || !ruleValue) return false;
     const kind = ipRuleKind(ruleValue);
     if (!kind) return false;
-
     if (kind === 'exact') return clientIp === ruleValue.trim();
-
     const cidrOrWild = ruleValue.trim();
     if (cidrOrWild.includes(':')) {
-        // IPv6 CIDR only (no wildcard for v6)
         if (kind !== 'cidr') return false;
         const [base, maskRaw] = cidrOrWild.split('/');
         const mask = parseInt(maskRaw, 10);
@@ -132,8 +157,6 @@ function ipMatchesRule(clientIp, ruleValue) {
         const shift = BigInt(128 - mask);
         return (ipBig >> shift) === (baseBig >> shift);
     }
-
-    // IPv4 CIDR or wildcard (treat wildcard as /N where N = bits before the first *)
     const octetsRule = cidrOrWild.split('.');
     if (octetsRule.length !== 4) return false;
     const ipParts = clientIp.split('.');
@@ -147,7 +170,6 @@ function ipMatchesRule(clientIp, ruleValue) {
         }
         return true;
     }
-    // CIDR for v4
     const mask = parseInt(cidrOrWild.split('/')[1], 10);
     const ipInt = ipv4ToInt(clientIp);
     const baseInt = ipv4ToInt(cidrOrWild.split('/')[0]);
@@ -166,8 +188,37 @@ function ipMatchesAnyBlock(clientIp, blocksArr) {
     return null;
 }
 
-// --- ISO 3166-1 alpha-2 country code registry (with human-readable names) ---
-// Compact list curated for the admin blocklist dropdown — common countries first.
+// ---------------------------------------------------------------------------
+// IP block index: pre-categorise by rule kind for O(1) exact match + O(N) CIDR/wildcard
+// ---------------------------------------------------------------------------
+function buildIpBlockIndex(blocksArr) {
+    const index = { exactSet: new Set(), cidr: [], wildcard: [] };
+    if (!Array.isArray(blocksArr)) return index;
+    for (const e of blocksArr) {
+        if (!e || !e.value) continue;
+        const kind = e.rule || ipRuleKind(e.value) || 'exact';
+        if (kind === 'exact') index.exactSet.add(e.value);
+        else if (kind === 'cidr') index.cidr.push(e);
+        else if (kind === 'wildcard') index.wildcard.push(e);
+    }
+    return index;
+}
+
+function ipMatchesIndex(clientIp, index) {
+    if (!clientIp || !index) return null;
+    if (index.exactSet.has(clientIp)) return { value: clientIp, rule: 'exact' };
+    for (const e of index.cidr) {
+        if (ipMatchesRule(clientIp, e.value)) return e;
+    }
+    for (const e of index.wildcard) {
+        if (ipMatchesRule(clientIp, e.value)) return e;
+    }
+    return null;
+}
+
+// ---------------------------------------------------------------------------
+// ISO 3166-1 alpha-2 country registry
+// ---------------------------------------------------------------------------
 const ISO_COUNTRIES = [
     ['US', 'United States'], ['GB', 'United Kingdom'], ['CA', 'Canada'], ['AU', 'Australia'],
     ['DE', 'Germany'], ['FR', 'France'], ['NL', 'Netherlands'], ['IT', 'Italy'], ['ES', 'Spain'],
@@ -186,18 +237,19 @@ const ISO_COUNTRIES = [
     ['KW', 'Kuwait'], ['QA', 'Qatar'], ['BH', 'Bahrain'], ['OM', 'Oman'], ['YE', 'Yemen'],
     ['EG', 'Egypt'], ['LY', 'Libya'], ['TN', 'Tunisia'], ['DZ', 'Algeria'], ['MA', 'Morocco'],
     ['SD', 'Sudan'], ['ET', 'Ethiopia'], ['KE', 'Kenya'], ['NG', 'Nigeria'], ['GH', 'Ghana'],
-    ['ZA', 'South Africa'], ['ZW', 'Zimbabwe'], ['AO', 'Angola'], ['TZ', 'Tanzania'], ['UG', 'Uganda'],
-    ['BR', 'Brazil'], ['AR', 'Argentina'], ['CL', 'Chile'], ['CO', 'Colombia'], ['PE', 'Peru'],
-    ['VE', 'Venezuela'], ['EC', 'Ecuador'], ['BO', 'Bolivia'], ['UY', 'Uruguay'], ['PY', 'Paraguay'],
-    ['MX', 'Mexico'], ['CR', 'Costa Rica'], ['PA', 'Panama'], ['CU', 'Cuba'], ['DO', 'Dominican Republic'],
-    ['GT', 'Guatemala'], ['HN', 'Honduras'], ['SV', 'El Salvador'], ['NI', 'Nicaragua'], ['PR', 'Puerto Rico'],
-    ['JM', 'Jamaica'], ['TT', 'Trinidad and Tobago'], ['BS', 'Bahamas'], ['BZ', 'Belize'],
-    ['NZ', 'New Zealand'], ['FJ', 'Fiji'], ['PG', 'Papua New Guinea'], ['WS', 'Samoa'], ['TO', 'Tonga'],
-    ['AD', 'Andorra'], ['MC', 'Monaco'], ['SM', 'San Marino'], ['VA', 'Vatican City'], ['LI', 'Liechtenstein'],
-    ['AM', 'Armenia'], ['AZ', 'Azerbaijan'], ['GE', 'Georgia'], ['KZ', 'Kazakhstan'], ['UZ', 'Uzbekistan'],
-    ['TM', 'Turkmenistan'], ['KG', 'Kyrgyzstan'], ['TJ', 'Tajikistan'], ['AF', 'Afghanistan'],
-    ['MM', 'Myanmar'], ['KH', 'Cambodia'], ['LA', 'Laos'], ['BN', 'Brunei'], ['TL', 'Timor-Leste'],
-    ['MV', 'Maldives'], ['BT', 'Bhutan'], ['PS', 'Palestine'], ['KW', 'Kuwait'], ['UN', 'Unknown']
+    ['ZA', 'South Africa'], ['ZW', 'Zimbabwe'], ['AO', 'Angola'], ['TZ', 'Tanzania'],
+    ['UG', 'Uganda'], ['BR', 'Brazil'], ['AR', 'Argentina'], ['CL', 'Chile'], ['CO', 'Colombia'],
+    ['PE', 'Peru'], ['VE', 'Venezuela'], ['EC', 'Ecuador'], ['BO', 'Bolivia'], ['UY', 'Uruguay'],
+    ['PY', 'Paraguay'], ['MX', 'Mexico'], ['CR', 'Costa Rica'], ['PA', 'Panama'], ['CU', 'Cuba'],
+    ['DO', 'Dominican Republic'], ['GT', 'Guatemala'], ['HN', 'Honduras'], ['SV', 'El Salvador'],
+    ['NI', 'Nicaragua'], ['PR', 'Puerto Rico'], ['JM', 'Jamaica'], ['TT', 'Trinidad and Tobago'],
+    ['BS', 'Bahamas'], ['BZ', 'Belize'], ['NZ', 'New Zealand'], ['FJ', 'Fiji'], ['PG', 'Papua New Guinea'],
+    ['WS', 'Samoa'], ['TO', 'Tonga'], ['AD', 'Andorra'], ['MC', 'Monaco'], ['SM', 'San Marino'],
+    ['VA', 'Vatican City'], ['LI', 'Liechtenstein'], ['AM', 'Armenia'], ['AZ', 'Azerbaijan'],
+    ['GE', 'Georgia'], ['KZ', 'Kazakhstan'], ['UZ', 'Uzbekistan'], ['TM', 'Turkmenistan'],
+    ['KG', 'Kyrgyzstan'], ['TJ', 'Tajikistan'], ['AF', 'Afghanistan'], ['MM', 'Myanmar'],
+    ['KH', 'Cambodia'], ['LA', 'Laos'], ['BN', 'Brunei'], ['TL', 'Timor-Leste'], ['MV', 'Maldives'],
+    ['BT', 'Bhutan'], ['PS', 'Palestine'], ['UN', 'Unknown']
 ].map(([code, name]) => ({ code, name }));
 
 const ISO_COUNTRY_BY_CODE = (() => {
@@ -206,18 +258,41 @@ const ISO_COUNTRY_BY_CODE = (() => {
     return map;
 })();
 
-async function readAdminBlocks() {
-    const data = await fs.readFile(ADMIN_BLOCKS_FILE, 'utf8');
-    try {
-        const parsed = JSON.parse(data);
-        return {
-            ips: Array.isArray(parsed.ips) ? parsed.ips : [],
-            isps: Array.isArray(parsed.isps) ? parsed.isps : [],
-            countries: Array.isArray(parsed.countries) ? parsed.countries : []
-        };
-    } catch (_) {
-        return { ips: [], isps: [], countries: [] };
+// ---------------------------------------------------------------------------
+// Admin blocklists — atomic, categorised index
+// ---------------------------------------------------------------------------
+const VALID_BLOCK_TYPES = new Set(['ips', 'isps', 'countries']);
+
+let _blocksCacheRaw = null;
+let _blocksCacheMtime = 0;
+let _blocksCacheParsed = { ips: [], isps: [], countries: [] };
+let _blockIndex = { ips: buildIpBlockIndex([]), countries: new Set(), ispsLower: [] };
+
+async function readAdminBlocks({ skipCache = false } = {}) {
+    const stat = await fs.stat(ADMIN_BLOCKS_FILE).catch(() => null);
+    if (!skipCache && _blocksCacheRaw && stat && stat.mtimeMs === _blocksCacheMtime) {
+        return _blocksCacheParsed;
     }
+    const buf = await fs.readFile(ADMIN_BLOCKS_FILE, 'utf8');
+    const parsed = safeParseLimited(buf, { ips: [], isps: [], countries: [] }, MAX_USERS_FILE_BYTES);
+    const safe = {
+        ips: Array.isArray(parsed.ips) ? parsed.ips : [],
+        isps: Array.isArray(parsed.isps) ? parsed.isps : [],
+        countries: Array.isArray(parsed.countries) ? parsed.countries : []
+    };
+    _blocksCacheRaw = safe;
+    _blocksCacheMtime = stat ? stat.mtimeMs : 0;
+    _blocksCacheParsed = safe;
+    rebuildBlockIndex(safe);
+    return safe;
+}
+
+function rebuildBlockIndex(blocks) {
+    _blockIndex = {
+        ips: buildIpBlockIndex(blocks.ips || []),
+        countries: new Set((blocks.countries || []).map(c => String(c.value || '').toUpperCase())),
+        ispsLower: (blocks.isps || []).map(b => String(b.value || '').toLowerCase())
+    };
 }
 
 async function writeAdminBlocks(blocks) {
@@ -226,17 +301,19 @@ async function writeAdminBlocks(blocks) {
         isps: Array.isArray(blocks.isps) ? blocks.isps : [],
         countries: Array.isArray(blocks.countries) ? blocks.countries : []
     };
-    await fs.writeFile(ADMIN_BLOCKS_FILE, JSON.stringify(safe, null, 2));
+    await withFileLock(ADMIN_BLOCKS_FILE, () => atomicWriteJSON(ADMIN_BLOCKS_FILE, safe));
+    // Force a reload on next read so index stays accurate.
+    _blocksCacheMtime = 0;
+    _blocksCacheRaw = null;
+    await readAdminBlocks();
 }
 
 async function addAdminBlock(type, value, reason, addedBy = 'ADMIN') {
-    if (!VALID_BLOCK_TYPES.has(type)) {
-        throw new Error('Invalid block type');
-    }
+    if (!VALID_BLOCK_TYPES.has(type)) throw new Error('Invalid block type');
+    const blocks = await readAdminBlocks();
     const v = typeof value === 'string' ? value.trim() : '';
     if (!v) throw new Error('EMPTY_VALUE');
-    const blocks = await readAdminBlocks();
-    const dup = blocks[type].some(b => String(b.value).toLowerCase() === v.toLowerCase());
+    const dup = blocks[type].some(b => String(b.value || '').toLowerCase() === v.toLowerCase());
     if (dup) {
         const err = new Error('DUPLICATE_VALUE');
         err.code = 'DUPLICATE_VALUE';
@@ -256,38 +333,95 @@ async function addAdminBlock(type, value, reason, addedBy = 'ADMIN') {
 }
 
 async function removeAdminBlock(type, id) {
-    if (!VALID_BLOCK_TYPES.has(type)) {
-        throw new Error('Invalid block type');
-    }
+    if (!VALID_BLOCK_TYPES.has(type)) throw new Error('Invalid block type');
     const blocks = await readAdminBlocks();
     blocks[type] = (blocks[type] || []).filter(b => b.id !== id);
     await writeAdminBlocks(blocks);
     return blocks;
 }
 
+function getAdminBlockIndex()         { return _blockIndex; }
+async function getAdminBlocksSnapshot(){ return await readAdminBlocks(); }
+
+// ---------------------------------------------------------------------------
+// Users: in-memory snapshot + indexes + serialised writes
+// ---------------------------------------------------------------------------
+let _usersSnapshot = null;
+
+function rebuildUserIndex(users) {
+    const idx = {
+        byId: new Map(),
+        byEmail: new Map(),
+        slug: new Map(),
+        count: users.length
+    };
+    for (const u of users) {
+        if (!u || !u.id) continue;
+        // Strip password + pinHash from the index copy so accidental leaks through
+        // clone+spread never expose hashes.
+        const safeClone = stripSecrets(u);
+        idx.byId.set(u.id, safeClone);
+        if (u.email) idx.byEmail.set(String(u.email).toLowerCase(), safeClone);
+        if (u.slug) idx.slug.set(u.slug, { userId: u.id, base: true });
+        for (const l of (u.links || [])) {
+            if (l && l.slug) idx.slug.set(l.slug, { userId: u.id, linkSlug: l.slug });
+        }
+    }
+    return idx;
+}
+
+let _userIndex = null;
+
+function stripSecrets(u) {
+    if (!u || typeof u !== 'object') return u;
+    const out = { ...u };
+    delete out.password;
+    delete out.pinHash;
+    return out;
+}
+
+async function ensureUserSnapshot({ force = false } = {}) {
+    if (_usersSnapshot && !force) return _usersSnapshot;
+    const buf = await fs.readFile(USERS_FILE, 'utf8');
+    const parsed = safeParseLimited(buf, [], MAX_USERS_FILE_BYTES);
+    const arr = Array.isArray(parsed) ? parsed : [];
+    // Strip secrets in-place so we never carry them around even if a caller forgets.
+    for (const u of arr) stripSecrets(u);
+    _usersSnapshot = arr;
+    _userIndex = rebuildUserIndex(arr);
+    return _usersSnapshot;
+}
+
 async function getUsers() {
-    const data = await fs.readFile(USERS_FILE, 'utf8');
-    return JSON.parse(data);
+    const snap = await ensureUserSnapshot();
+    return snap;
+}
+
+async function getUserIndex() {
+    await ensureUserSnapshot();
+    return _userIndex;
 }
 
 async function saveUsers(users) {
-    await fs.writeFile(USERS_FILE, JSON.stringify(users, null, 2));
+    await withFileLock(USERS_FILE, () => atomicWriteJSON(USERS_FILE, users));
+    _usersSnapshot = users;
+    _userIndex = rebuildUserIndex(users);
 }
 
 async function createUser(userData) {
     const users = await getUsers();
     const newUser = {
         id: uuidv4(),
-        slug: crypto.randomBytes(4).toString('hex'),
+        slug: crypto.randomBytes(8).toString('hex'),       // bumped from 4 -> 8 bytes (collision-proof)
         name: userData.name,
         email: userData.email,
         telegram: userData.telegram,
-        password: userData.password, // hashed
-        pinHash: userData.pinHash || null, // 4-digit security PIN (bcrypt hash); null until set
+        password: userData.password,                       // already bcrypt-hashed
+        pinHash: userData.pinHash || null,
         wallet: 0.0,
         isActive: true,
-        expiryDate: null, // ISO string for link expiration
-        links: [], // Multiple landing pages
+        expiryDate: null,
+        links: [],
         settings: {
             nonRealLink: '',
             realLink: '',
@@ -309,41 +443,61 @@ async function createUser(userData) {
     return newUser;
 }
 
+// Returns the safe-stripped clone kept in the index so callers can't accidentally
+// see password/pinHash. Callers needing the on-disk record (with secrets) should
+// use readUserRaw() instead.
 async function findUserByEmail(email) {
-    const users = await getUsers();
-    return users.find(u => u.email === email);
+    if (!email || typeof email !== 'string') return null;
+    await ensureUserSnapshot();
+    return _userIndex.byEmail.get(email.toLowerCase()) || null;
 }
 
 async function findUserById(id) {
-    const users = await getUsers();
-    return users.find(u => u.id === id);
+    if (!id) return null;
+    await ensureUserSnapshot();
+    return _userIndex.byId.get(id) || null;
 }
 
 async function findUserBySlug(slug) {
     if (!slug) return null;
-    const users = await getUsers();
-    // Only custom uplinks in user.links[] are resolvable now.
-    for (const user of users) {
-        const link = (user.links || []).find(l => l.slug === slug);
-        if (link) return { user, link };
+    await ensureUserSnapshot();
+    const hit = _userIndex.slug.get(slug);
+    if (!hit) return null;
+    const user = _userIndex.byId.get(hit.userId);
+    if (!user) return null;
+    let link = null;
+    if (hit.linkSlug) {
+        link = (user.links || []).find(l => l.slug === hit.linkSlug) || null;
     }
-    return null;
+    return { user, link };
 }
 
+// Mutator path: reads snapshot, mutates, writes atomic file, refreshes indexes.
+// The mutex stops concurrent writers from each reading the same baseline and
+// racing each other.
 async function updateUser(id, updates) {
-    const users = await getUsers();
-    const index = users.findIndex(u => u.id === id);
-    if (index !== -1) {
+    return await withFileLock(USERS_FILE, async () => {
+        const buf = await fs.readFile(USERS_FILE, 'utf8');
+        const parsed = safeParseLimited(buf, [], MAX_USERS_FILE_BYTES);
+        const users = Array.isArray(parsed) ? parsed : [];
+        const index = users.findIndex(u => u.id === id);
+        if (index === -1) return null;
         users[index] = { ...users[index], ...updates };
-        await saveUsers(users);
-        return users[index];
-    }
-    return null;
+        await atomicWriteJSON(USERS_FILE, users);
+        _usersSnapshot = users;
+        _userIndex = rebuildUserIndex(users);
+        return stripSecrets(users[index]);
+    });
 }
 
 module.exports = {
+    DATA_DIR,
+    USERS_FILE,
+    ADMIN_BLOCKS_FILE,
+    MAX_USERS_FILE_BYTES,
     createUser,
     getUsers,
+    getUserIndex,
     findUserByEmail,
     findUserById,
     findUserBySlug,
@@ -352,10 +506,14 @@ module.exports = {
     writeAdminBlocks,
     addAdminBlock,
     removeAdminBlock,
+    getAdminBlockIndex,
+    getAdminBlocksSnapshot,
     VALID_BLOCK_TYPES,
     ipRuleKind,
     ipMatchesRule,
     ipMatchesAnyBlock,
+    buildIpBlockIndex,
+    ipMatchesIndex,
     ISO_COUNTRIES,
     ISO_COUNTRY_BY_CODE
 };
