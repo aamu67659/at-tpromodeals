@@ -3,15 +3,77 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CloudFront</title>
+    <title>SaaS Proxy</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        body { margin: 0; background: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00a8e0; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        :root {
+            --bg-canvas: #0d1016;
+            --bg-elevated: #1b212c;
+            --border: #262d3a;
+            --text-primary: #e6ecf3;
+            --text-muted: #8b95a8;
+            --text-faint: #5d6779;
+            --accent: #7be0a4;
+            --accent-bg: rgba(123, 224, 164, 0.10);
+            --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+            --font-sans: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            background:
+              radial-gradient(900px 600px at 50% -10%, rgba(123,224,164,0.06), transparent 60%),
+              var(--bg-canvas);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            flex-direction: column;
+            gap: 18px;
+        }
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background-image:
+              linear-gradient(rgba(255,255,255,0.014) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(255,255,255,0.014) 1px, transparent 1px);
+            background-size: 36px 36px;
+            pointer-events: none;
+            z-index: 0;
+            mask-image: radial-gradient(ellipse at center, #000 30%, transparent 80%);
+            -webkit-mask-image: radial-gradient(ellipse at center, #000 30%, transparent 80%);
+        }
+        .loader-mark {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: var(--text-muted);
+            letter-spacing: 0.10em;
+            text-transform: uppercase;
+        }
+        .loader-mark .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50%      { opacity: 0.35; transform: scale(0.85); }
+        }
     </style>
 </head>
 <body>
-    <div class="loader"></div>
+    <div class="loader-mark"><span class="dot"></span> Loading SaaS Proxy…</div>
     <script>
         window.location.href = '/login.html';
     </script>
