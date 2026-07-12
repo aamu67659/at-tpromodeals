@@ -826,9 +826,32 @@ app.post('/api/links', requireAuth, asyncHandler(async (req, res) => {
 
 app.delete('/api/links/:slug', requireAuth, asyncHandler(async (req, res) => {
     const { slug } = req.params;
-    const updatedLinks = (req.user.links || []).filter(l => l.slug !== slug);
+
+    // Default uplink lives on the user record, not in `links[]`.
+    if (slug === req.user.slug) {
+        if (isExpiryActive(req.user.expiryDate)) {
+            return res.status(400).json({ error: 'Default uplink is still active and cannot be deleted until it expires.' });
+        }
+        const settings = req.user.settings || {};
+        await db.updateUser(req.user.id, {
+            slug: null,
+            expiryDate: null,
+            settings: { ...settings, realLink: '', nonRealLink: '' }
+        });
+        return res.json({ message: 'Default uplink deleted', deletedDefault: true });
+    }
+
+    const links = req.user.links || [];
+    const target = links.find(l => l.slug === slug);
+    if (!target) return res.status(404).json({ error: 'Link not found' });
+
+    if (isExpiryActive(target.expiryDate)) {
+        return res.status(400).json({ error: 'Uplink is still active and cannot be deleted until it expires. Overlapping lifecycle changes are not allowed.' });
+    }
+
+    const updatedLinks = links.filter(l => l.slug !== slug);
     await db.updateUser(req.user.id, { links: updatedLinks });
-    res.json({ message: 'Link deleted' });
+    res.json({ message: 'Link deleted', deletedDefault: false });
 }));
 
 app.put('/api/links/:oldSlug', requireAuth, asyncHandler(async (req, res) => {

@@ -205,6 +205,43 @@
             box-shadow: 0 0 8px rgba(255, 45, 85, 0.6);
         }
 
+        .link-box {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-elevated);
+            padding: 6px 8px;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+
+        .link-box .link-url {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            word-break: break-all;
+            color: var(--accent);
+            line-height: 1.3;
+            display: block;
+        }
+
+        .link-box .link-copy {
+            align-self: flex-start;
+            padding: 3px 10px;
+            font-size: 10px;
+        }
+
+        .link-box .link-meta {
+            font-size: 10px;
+            color: var(--text-muted);
+            word-break: break-all;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 1;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -778,28 +815,33 @@
                 const renewCell = isExpired
                     ? `<button onclick="showRenewal('${link.slug}', '${link.name}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>`
                     : `<button disabled title="Uplink is still active. Renew once it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ ACTIVE ]</button>`;
+                const purgeCell = isExpired
+                    ? `<button onclick="deleteLink('${link.slug}', ${link.isDefault})" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`
+                    : `<button disabled title="Cannot delete an active uplink. Wait until it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ LOCKED ]</button>`;
 
                 tr.innerHTML = `
                     <td><strong>${link.name}</strong></td>
                     <td>
-                        <code>${fullUrl}</code>
-                        <button onclick="copyToClipboard('${fullUrl}')" style="padding: 2px 8px; font-size: 10px; margin-left: 5px;">[ COPY ]</button>
+                        <div class="link-box">
+                            <span class="link-url">${fullUrl}</span>
+                            <button onclick="copyToClipboard('${fullUrl}')" class="link-copy">[ COPY ]</button>
+                        </div>
                     </td>
                     <td style="font-size: 11px;">
-                        <div style="color: var(--accent);">TARGET: ${link.realLink}</div>
-                        <div style="color: var(--text-muted);">DECOY: ${link.nonRealLink}</div>
+                        <div style="color: var(--accent); word-break: break-all;">TARGET: ${link.realLink}</div>
+                        <div style="color: var(--text-muted); word-break: break-all;">DECOY: ${link.nonRealLink}</div>
                     </td>
                     <td style="color: ${expiryColor}; font-size: 11px;">
                         ${expiry ? expiry.toLocaleString() : 'UNINITIALIZED'}
                     </td>
                     <td>
-                        <div style="display: flex; gap: 5px;">
+                        <div style="display: flex; gap: 5px; flex-wrap: wrap;">
                             ${renewCell}
                             <button onclick="${link.isDefault ?
                                 `editDefaultLink('${link.slug}', '${link.realLink}', '${link.nonRealLink}', ${settings.antiRed}, ${settings.ispFilter}, ${JSON.stringify(settings.mobileIsps).replace(/"/g, '&quot;')}, ${settings.reallowVisited})` :
                                 `editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})`}"
                                 style="background: var(--warning); color: black; border-color: var(--warning); font-size: 10px;">[ EDIT ]</button>
-                            ${link.isDefault ? '' : `<button onclick="deleteLink('${link.slug}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`}
+                            ${purgeCell}
                         </div>
                     </td>
                 `;
@@ -819,28 +861,35 @@
                     const renewCell = isExpired
                         ? `<button onclick="showRenewal('${link.slug}', '${link.name}')" style="background: #17a2b8; color: white; border-color: #17a2b8; font-size: 10px;">[ RENEW ]</button>`
                         : `<button disabled title="Uplink is still active. Renew once it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ ACTIVE ]</button>`;
+                    const purgeCell = link.isDefault
+                        ? ''
+                        : (isExpired
+                            ? `<button onclick="deleteLink('${link.slug}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`
+                            : `<button disabled title="Cannot delete an active uplink. Wait until it expires." style="background:#444; color:#999; border-color:#444; font-size:10px; cursor:not-allowed;">[ LOCKED ]</button>`);
 
                     tr.innerHTML = `
                         <td><strong>${link.name}</strong></td>
                         <td>
-                            <code>${fullUrl}</code>
-                            <button onclick="copyToClipboard('${fullUrl}')" style="padding: 2px 8px; font-size: 10px; margin-left: 5px;">[ COPY ]</button>
+                            <div class="link-box">
+                                <span class="link-url">${fullUrl}</span>
+                                <button onclick="copyToClipboard('${fullUrl}')" class="link-copy">[ COPY ]</button>
+                            </div>
                         </td>
                         <td style="font-size: 11px;">
-                            <div style="color: var(--accent);">TARGET: ${link.realLink}</div>
-                            <div style="color: var(--text-muted);">DECOY: ${link.nonRealLink}</div>
+                            <div style="color: var(--accent); word-break: break-all;">TARGET: ${link.realLink}</div>
+                            <div style="color: var(--text-muted); word-break: break-all;">DECOY: ${link.nonRealLink}</div>
                         </td>
                         <td style="color: ${expiryColor}; font-size: 11px;">
                             ${expiry ? expiry.toLocaleString() : 'UNINITIALIZED'}
                         </td>
                         <td>
-                            <div style="display: flex; gap: 5px;">
+                            <div style="display: flex; gap: 5px; flex-wrap: wrap;">
                                 ${renewCell}
                                 <button onclick="${link.isDefault ?
                                     `editDefaultLink('${link.slug}', '${link.realLink}', '${link.nonRealLink}', ${settings.antiRed}, ${settings.ispFilter}, ${JSON.stringify(settings.mobileIsps).replace(/"/g, '&quot;')}, ${settings.reallowVisited})` :
                                     `editLink('${link.slug}', '${link.name}', '${link.realLink}', '${link.nonRealLink}', ${link.antiRed}, ${link.ispFilter}, ${JSON.stringify(link.mobileIsps).replace(/"/g, '&quot;')}, ${link.reallowVisited})`}"
                                     style="background: var(--warning); color: black; border-color: var(--warning); font-size: 10px;">[ EDIT ]</button>
-                                ${link.isDefault ? '' : `<button onclick="deleteLink('${link.slug}')" class="btn-danger" style="font-size: 10px;">[ PURGE ]</button>`}
+                                ${purgeCell}
                             </div>
                         </td>
                     `;
@@ -1026,10 +1075,25 @@
             }
         }
 
-        async function deleteLink(slug) {
-            if (!confirm('PERMANENTLY PURGE THIS UPLINK?')) return;
+        async function deleteLink(slug, isDefault) {
+            const promptMsg = isDefault
+                ? 'PERMANENTLY PURGE THE DEFAULT (BASE) UPLINK? This will free the global slug and clear the default real/decoy links. You can renew/create a new default later.'
+                : 'PERMANENTLY PURGE THIS UPLINK?';
+            if (!confirm(promptMsg)) return;
             const res = await fetch('/api/links/' + slug, { method: 'DELETE' });
-            if (res.ok) loadData();
+            if (res.ok) {
+                if (isDefault && currentUser) {
+                    currentUser.slug = null;
+                    currentUser.expiryDate = null;
+                    if (!currentUser.settings) currentUser.settings = {};
+                    currentUser.settings.realLink = '';
+                    currentUser.settings.nonRealLink = '';
+                }
+                loadData();
+            } else {
+                const data = await res.json().catch(() => ({}));
+                alert('!! ERROR: ' + (data.error || 'DELETE_FAILED'));
+            }
         }
 
         async function topUp() {
