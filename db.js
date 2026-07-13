@@ -443,19 +443,21 @@ async function createUser(userData) {
     return newUser;
 }
 
-// Returns the safe-stripped clone kept in the index so callers can't accidentally
-// see password/pinHash. Callers needing the on-disk record (with secrets) should
-// use readUserRaw() instead.
+// Returns the raw on-disk record (with password/pinHash intact) so internal
+// endpoints like /api/login, /api/profile/pin, /api/forgot/reset can verify
+// credentials. Callers that want to send the user to the browser MUST run
+// stripSecrets() first.
 async function findUserByEmail(email) {
     if (!email || typeof email !== 'string') return null;
     await ensureUserSnapshot();
-    return _userIndex.byEmail.get(email.toLowerCase()) || null;
+    const lower = String(email).toLowerCase();
+    return _usersSnapshot.find(u => u && u.email && String(u.email).toLowerCase() === lower) || null;
 }
 
 async function findUserById(id) {
     if (!id) return null;
     await ensureUserSnapshot();
-    return _userIndex.byId.get(id) || null;
+    return _usersSnapshot.find(u => u && u.id === id) || null;
 }
 
 async function findUserBySlug(slug) {
