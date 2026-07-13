@@ -380,15 +380,93 @@ function stripSecrets(u) {
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Username: lower-cased, 3-20 chars, [a-z0-9._-], edge chars must be
+// alphanumeric. Legacy users get a deterministic username derived from
+// their email local-part (with collision suffix) at snapshot load.
+// ---------------------------------------------------------------------------
+const USERNAME_RESERVED = new Set([
+    'admin', 'administrator', 'root', 'system', 'support', 'api',
+    'null', 'undefined', 'signup', 'login', 'dashboard', 'help'
+]);
+
+function normalizeUsername(raw) {
+    if (typeof raw !== 'string') return '';
+    return raw.trim().toLowerCase();
+}
+
+function isValidUsername(s) {
+    if (!s || typeof s !== 'string') return false;
+    if (s.length < 3 || s.length > 20) return false;
+    if (USERNAME_RESERVED.has(s)) return false;
+    return /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/.test(s);
+}
+
+function deriveUsername(user) {
+    let base = '';
+    if (user && user.email && typeof user.email === 'string') {
+        const at = user.email.indexOf('@');
+        base = at > 0 ? user.email.slice(0, at) : user.email;
+    }
+    if (!base && user && user.name && typeof user.name === 'string') {
+        base = user.name;
+    }
+    if (!base || !base.trim()) base = 'user';
+    let slug = String(base).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!slug) slug = 'user';
+    if (!/^[a-z0-9]/.test(slug)) slug = 'u' + slug;
+    if (slug.length < 3) slug = (slug + 'useruseruser').slice(0, 3);
+    if (slug.length > 16) slug = slug.slice(0, 16);
+    return slug;
+}
+
+function backfillUsernames(arr) {
+    const taken = Object.create(null);
+    let mutated = false;
+    for (const u of arr) {
+        if (u && typeof u.username === 'string' && u.username) {
+            taken[u.username.toLowerCase()] = true;
+        }
+    }
+    for (const u of arr) {
+        if (!u || typeof u.username === 'string' && u.username) continue;
+        const seed = deriveUsername(u);
+        let candidate = seed;
+        let attempt = 0;
+        // Keep the suffix short — usernames max 20 chars total.
+        const maxAttempts = 999;
+        while (taken[candidate.toLowerCase()] && attempt < maxAttempts) {
+            attempt++;
+            const room = Math.max(3, 20 - String(attempt).length);
+            candidate = (seed.length > room ? seed.slice(0, room) : seed) + String(attempt);
+        }
+        u.username = candidate;
+        taken[candidate.toLowerCase()] = true;
+        mutated = true;
+    }
+    return mutated;
+}
+
 async function ensureUserSnapshot({ force = false } = {}) {
     if (_usersSnapshot && !force) return _usersSnapshot;
     const buf = await fs.readFile(USERS_FILE, 'utf8');
     const parsed = safeParseLimited(buf, [], MAX_USERS_FILE_BYTES);
     const arr = Array.isArray(parsed) ? parsed : [];
+    // Backfill usernames for legacy records created before username support.
+    const mutated = backfillUsernames(arr);
     // Strip secrets in-place so we never carry them around even if a caller forgets.
     for (const u of arr) stripSecrets(u);
     _usersSnapshot = arr;
     _userIndex = rebuildUserIndex(arr);
+    if (mutated) {
+        // Persist the new usernames so they survive a server restart and the
+        // user can log in via username after deploys.
+        try {
+            await withFileLock(USERS_FILE, () => atomicWriteJSON(USERS_FILE, arr));
+        } catch (err) {
+            console.warn('[db] Could not persist backfilled usernames:', err && err.message);
+        }
+    }
     return _usersSnapshot;
 }
 
@@ -413,6 +491,7 @@ async function createUser(userData) {
     const newUser = {
         id: uuidv4(),
         slug: crypto.randomBytes(8).toString('hex'),       // bumped from 4 -> 8 bytes (collision-proof)
+        username: userData.username,                        // lower-cased, validated
         name: userData.name,
         email: userData.email,
         telegram: userData.telegram,
@@ -458,6 +537,27 @@ async function findUserById(id) {
     if (!id) return null;
     await ensureUserSnapshot();
     return _usersSnapshot.find(u => u && u.id === id) || null;
+}
+
+async function findUserByUsername(username) {
+    if (!username || typeof username !== 'string') return null;
+    await ensureUserSnapshot();
+    const lower = String(username).toLowerCase();
+    return _usersSnapshot.find(u => u && u.username && String(u.username).toLowerCase() === lower) || null;
+}
+
+// Accepts either an email (containing '@') or a username. Used by /api/login
+// so the login form can present a single "email or username" field.
+async function findUserByIdentifier(identifier) {
+    if (!identifier || typeof identifier !== 'string') return null;
+    await ensureUserSnapshot();
+    const trimmed = identifier.trim();
+    if (!trimmed) return null;
+    const lower = trimmed.toLowerCase();
+    if (trimmed.includes('@')) {
+        return _usersSnapshot.find(u => u && u.email && String(u.email).toLowerCase() === lower) || null;
+    }
+    return _usersSnapshot.find(u => u && u.username && String(u.username).toLowerCase() === lower) || null;
 }
 
 async function findUserBySlug(slug) {
@@ -507,16 +607,54 @@ async function deleteUser(id) {
     });
 }
 
+async function isUsernameTaken(username, { excludeUserId } = {}) {
+    if (!username || typeof username !== 'string') return false;
+    await ensureUserSnapshot();
+    const lower = username.toLowerCase();
+    return _usersSnapshot.some(u =>
+        u && u.username && String(u.username).toLowerCase() === lower &&
+        (!excludeUserId || u.id !== excludeUserId)
+    );
+}
+
+// Pick a free username near the seed. Returns the chosen string or null if
+// the search space is exhausted after `maxAttempts` tries.
+async function suggestAvailableUsername(seed, { excludeUserId } = {}) {
+    if (!seed || typeof seed !== 'string') return null;
+    await ensureUserSnapshot();
+    const taken = new Set();
+    for (const u of _usersSnapshot) {
+        if (!u || !u.username) continue;
+        if (excludeUserId && u.id === excludeUserId) continue;
+        taken.add(String(u.username).toLowerCase());
+    }
+    const trimmed = seed.trim().toLowerCase();
+    if (!taken.has(trimmed)) return trimmed;
+    for (let i = 1; i < 1000; i++) {
+        const suffix = String(i);
+        const room = Math.max(3, 20 - suffix.length);
+        const candidate = (trimmed.length > room ? trimmed.slice(0, room) : trimmed) + suffix;
+        if (!taken.has(candidate)) return candidate;
+    }
+    return null;
+}
+
 module.exports = {
     DATA_DIR,
     USERS_FILE,
     ADMIN_BLOCKS_FILE,
     MAX_USERS_FILE_BYTES,
+    normalizeUsername,
+    isValidUsername,
+    isUsernameTaken,
+    suggestAvailableUsername,
     createUser,
     getUsers,
     getUserIndex,
     findUserByEmail,
     findUserById,
+    findUserByUsername,
+    findUserByIdentifier,
     findUserBySlug,
     updateUser,
     deleteUser,

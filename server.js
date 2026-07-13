@@ -571,47 +571,84 @@ app.get('/api/admin/stats', requireAdmin, asyncHandler(async (req, res) => {
 
 // --- Auth Routes ---
 app.post('/api/signup', asyncHandler(async (req, res) => {
-    const { name, email, telegram, password } = req.body;
+    const { name, email, telegram, password } = req.body || {};
     if (!name || !email || !telegram || !password) {
         return res.status(400).json({ error: 'All fields are required' });
     }
 
-    const existingUser = await db.findUserByEmail(email);
-    if (existingUser) {
+    const cleanEmail = String(email).trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    const existingByEmail = await db.findUserByEmail(cleanEmail);
+    if (existingByEmail) {
         return res.status(400).json({ error: 'Email already registered' });
     }
 
+    // Username: optional on signup. Auto-pick from name when omitted.
+    let requestedUsername = db.normalizeUsername(req.body.username);
+    if (requestedUsername) {
+        if (!db.isValidUsername(requestedUsername)) {
+            return res.status(400).json({
+                error: 'Username must be 3-20 chars, lowercase letters / digits / . _ - only, and not reserved'
+            });
+        }
+        if (await db.isUsernameTaken(requestedUsername)) {
+            return res.status(400).json({ error: 'Username already taken' });
+        }
+    } else {
+        requestedUsername = await db.suggestAvailableUsername(String(name).toLowerCase());
+        if (!requestedUsername) {
+            return res.status(500).json({ error: 'Could not derive a free username' });
+        }
+    }
+
     const hashedPassword = await bcrypt.hash(password, 12);
-    const user = await db.createUser({ name, email, telegram, password: hashedPassword });
-    console.log(`[Signup] New user registered: ${email}`);
-    res.json({ message: 'Signup successful' });
+    const user = await db.createUser({
+        name,
+        email: cleanEmail,
+        telegram,
+        password: hashedPassword,
+        username: requestedUsername
+    });
+    console.log(`[Signup] New user registered: ${cleanEmail} (@${requestedUsername})`);
+    res.json({ message: 'Signup successful', username: requestedUsername });
 }));
 
 app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
-    const submitted = (req.body && req.body.email) ? String(req.body.email).trim().toLowerCase() : '';
+    // Accept either { email, password } (legacy) or { identifier, password }.
+    // The identifier may be an email address or a username.
+    const rawIdentifier =
+        (req.body && (req.body.identifier || req.body.email)) ?
+            String(req.body.identifier || req.body.email).trim() : '';
     const password = (req.body && req.body.password) ? String(req.body.password) : '';
-    if (!submitted || !password) {
+    if (!rawIdentifier || !password) {
         return res.status(400).json({ error: 'Invalid credentials' });
     }
+    // For lockout bucketing we keep the lowercase form. Usernames and emails
+    // collide only if they share the same lowercase letters+digits, which is
+    // an acceptable bucket resolution for lockout purposes.
+    const bucketKey = rawIdentifier.toLowerCase();
     const ip = getClientIp(req);
-    const lock = LOGIN_LOCKOUTS.get(submitted);
+    const lock = LOGIN_LOCKOUTS.get(bucketKey);
     if (lock && lock.lockedUntil > Date.now()) {
         return res.status(429).json({ error: 'Too many failed attempts. Try again later.', retryAfterMs: lock.lockedUntil - Date.now() });
     }
-    const user = await db.findUserByEmail(submitted);
+    const user = await db.findUserByIdentifier(rawIdentifier);
     const ok = user && (await bcrypt.compare(password, user.password || ''));
     if (!ok) {
-        const entry = LOGIN_LOCKOUTS.get(submitted) || { attempts: 0, lockedUntil: 0 };
+        const entry = LOGIN_LOCKOUTS.get(bucketKey) || { attempts: 0, lockedUntil: 0 };
         entry.attempts++;
         if (entry.attempts >= LOGIN_LOCKOUT_THRESHOLD) {
             entry.attempts = 0;
             entry.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
         }
-        LOGIN_LOCKOUTS.set(submitted, entry);
-        console.log(`[Login] Failed login attempt for ${submitted} from ${ip}`);
+        LOGIN_LOCKOUTS.set(bucketKey, entry);
+        console.log(`[Login] Failed login attempt for ${bucketKey} from ${ip}`);
         return res.status(401).json({ error: 'Invalid credentials' });
     }
-    LOGIN_LOCKOUTS.delete(submitted);
+    LOGIN_LOCKOUTS.delete(bucketKey);
     req.session.userId = user.id;
     const country = getClientCountry(req);
     const history = Array.isArray(user.loginHistory) ? user.loginHistory.slice(-49) : [];
@@ -622,7 +659,7 @@ app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
         lastLoginCountry: country || null,
         loginHistory: history
     });
-    console.log(`[Login] User logged in: ${submitted} from ${ip}${country ? ' (' + country + ')' : ''}`);
+    console.log(`[Login] User logged in: ${user.username || bucketKey} from ${ip}${country ? ' (' + country + ')' : ''}`);
     res.json({ message: 'Login successful' });
 }));
 

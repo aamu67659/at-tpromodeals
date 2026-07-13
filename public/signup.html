@@ -284,6 +284,12 @@
                     </div>
                 </div>
                 <div class="form-group">
+                    <label>CALLSIGN_USERNAME</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="username" spellcheck="false" autocomplete="off" autocapitalize="off" minlength="3" maxlength="20" pattern="[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?" placeholder="login handle (auto if blank)">
+                    </div>
+                </div>
+                <div class="form-group">
                     <label>COMM_LINK_EMAIL</label>
                     <div class="input-wrapper">
                         <input type="email" id="email" required spellcheck="false" autocomplete="off" placeholder="email@address.net">
@@ -466,6 +472,7 @@
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const name = document.getElementById('name').value;
+            const usernameRaw = document.getElementById('username').value;
             const email = document.getElementById('email').value;
             const telegram = document.getElementById('telegram').value;
             const password = document.getElementById('password').value;
@@ -474,7 +481,7 @@
             const overlay = document.getElementById('deployment-overlay');
             const progress = document.getElementById('progress-fill');
             overlay.style.display = 'flex';
-            
+
             let width = 0;
             const interval = setInterval(() => {
                 width += Math.random() * 8;
@@ -489,14 +496,15 @@
                 const res = await fetch('/api/signup', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, email, telegram, password })
+                    body: JSON.stringify({ name, username: usernameRaw, email, telegram, password })
                 });
 
                 const data = await res.json();
-                
+
                 setTimeout(() => {
                     if (res.ok) {
-                        alert('IDENTITY_DEPLOYED_SUCCESSFULLY. PROCEED_TO_TERMINAL.');
+                        const u = data && data.username ? ('\nCALLSIGN :: @' + data.username) : '';
+                        alert('IDENTITY_DEPLOYED_SUCCESSFULLY. PROCEED_TO_TERMINAL.' + u);
                         window.location.href = '/login';
                     } else {
                         overlay.style.display = 'none';

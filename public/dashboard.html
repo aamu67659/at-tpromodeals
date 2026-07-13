@@ -815,8 +815,9 @@
     <div class="sidebar">
         <div class="logo">SaaS Proxy</div>
         <div class="metric-label">USER</div>
-        <div id="userName" style="margin-bottom: 20px; color: var(--accent); cursor: pointer;" onclick="showSection('profile')" title="Click to open your profile">LOADING...</div>
-        
+        <div id="userName" style="margin-bottom: 4px; color: var(--accent); cursor: pointer;" onclick="showSection('profile')" title="Click to open your profile">LOADING...</div>
+        <div id="userUsername" style="display: none; margin-bottom: 20px; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.05em; cursor: pointer;" onclick="showSection('profile')" title="Your login handle"></div>
+
         <div class="nav-item active" onclick="showSection('dashboard')">Dashboard</div>
         <div class="nav-item" onclick="showSection('links')">AntiRed</div>
         <div class="nav-item" onclick="showSection('security')">AntiRed Settings</div>
@@ -1084,6 +1085,10 @@
                             <span class="profile-value" id="profileNameVal">--</span>
                         </div>
                         <div class="profile-row">
+                            <span class="profile-label">USERNAME</span>
+                            <span class="profile-value" id="profileUsernameVal" style="font-family: var(--font-mono);">--</span>
+                        </div>
+                        <div class="profile-row">
                             <span class="profile-label">EMAIL</span>
                             <span class="profile-value" id="profileEmailVal">--</span>
                         </div>
@@ -1281,6 +1286,13 @@
                 renderLinksTable(user.links || []);
 
                 document.getElementById('userName').innerText = user.name.toUpperCase();
+                if (user.username) {
+                    const tag = document.getElementById('userUsername');
+                    if (tag) {
+                        tag.innerText = '@' + user.username;
+                        tag.style.display = '';
+                    }
+                }
                 document.getElementById('walletBalance').innerText = (user.wallet || 0).toFixed(2);
                 document.getElementById('walletBalanceMetric').innerText = (user.wallet || 0).toFixed(2);
                 
@@ -1629,6 +1641,7 @@
             }
             document.getElementById('profileName').innerText = (currentUser.name || 'ANONYMOUS');
             document.getElementById('profileNameVal').innerText = (currentUser.name || 'N/A');
+            document.getElementById('profileUsernameVal').innerText = currentUser.username ? '@' + currentUser.username : '—';
             document.getElementById('profileEmailVal').innerText = (currentUser.email || 'N/A');
             document.getElementById('profileTelegramVal').innerText = (currentUser.telegram || 'N/A');
             const pinEl = document.getElementById('profilePinStatus');
