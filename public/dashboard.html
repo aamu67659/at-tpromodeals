@@ -1,6 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0d1016">
     <title>Dashboard · SaaS Proxy</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -788,14 +791,57 @@
                 width: 100%;
                 border-right: none;
                 border-bottom: 1px solid var(--border);
-                padding: 16px;
+                padding: 14px 16px;
+                flex-direction: row;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 10px;
+                min-height: auto;
             }
+            .sidebar .logo { margin-bottom: 0; margin-right: 10px; }
+            .sidebar .metric-label { display: none; }
+            .sidebar > #userName,
+            .sidebar > #userUsername { margin-bottom: 0; flex: 1 1 auto; }
+            .nav-item {
+                flex: 1 1 auto;
+                text-align: center;
+                padding: 10px 12px;
+                border-radius: 8px;
+                font-size: 12px;
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .nav-item.active,
+            .nav-item:active { background: var(--accent-bg); }
+            .sidebar > div[style*="margin-top: auto"] {
+                margin-top: 0;
+                margin-left: auto;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+            .sidebar > div[style*="margin-top: auto"] .metric-label { display: none; }
+            .sidebar-credits { margin-bottom: 0; }
+            .sidebar > div[style*="margin-top: auto"] .sidebar-disconnect { margin-left: 6px; }
             .main { padding: 18px 16px 36px 16px; }
-            .metric-grid { grid-template-columns: 1fr 1fr; }
+            .metric-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
             .logo { margin-bottom: 14px; }
             #userName { margin-bottom: 14px; }
             #userName, .nav-item, .sidebar .label-tag { margin-left: 0; margin-right: 0; }
             .nav-profile::after { display: none; }
+            h1 { font-size: 18px; }
+            h2 { font-size: 14px; }
+            .card, .grid-cell { padding: 18px; }
+            button, .btn { min-height: 44px; }
+            .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        }
+
+        @media (max-width: 720px) {
+            /* Hide lower-priority table columns on tablet/mobile to keep them readable. */
+            table.hide-on-mobile thead th:nth-child(n+4),
+            table.hide-on-mobile tbody td:nth-child(n+4) { display: none; }
         }
 
         @media (max-width: 560px) {
@@ -803,7 +849,14 @@
             .card { padding: 18px; }
             .grid-cell { padding: 18px; }
             table, th, td { font-size: 12px; }
-            th, td { padding: 10px; }
+            th, td { padding: 8px 10px; }
+            .nav-item { font-size: 11px; padding: 9px 8px; }
+            .nav-item.nav-profile { display: none; }
+            /* hide the 5th+ columns on very small screens as well */
+            table.hide-on-mobile thead th:nth-child(n+3),
+            table.hide-on-mobile tbody td:nth-child(n+3) { display: none; }
+            /* Stack action button rows vertically */
+            td .btn { width: 100%; margin-bottom: 4px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -957,7 +1010,7 @@
             </div>
 
             <div class="table-container">
-                <table id="linksTable">
+                <table id="linksTable" class="hide-on-mobile">
                     <thead>
                         <tr>
                             <th>NAME</th>
@@ -1009,7 +1062,7 @@
             <div class="grid-cell">
                 <h2>LINK_MANAGER</h2>
                 <div class="table-container">
-                    <table id="forcedIpLinksTable">
+                    <table id="forcedIpLinksTable" class="hide-on-mobile">
                         <thead>
                             <tr>
                                 <th>NAME</th>
@@ -1058,7 +1111,7 @@
         <div id="logs-section" class="card content-section">
             <h2>ACTIVITY_LOG (REAL_VISITS)</h2>
             <div class="table-container">
-                <table>
+                <table class="hide-on-mobile">
                     <thead>
                         <tr>
                             <th>TIMESTAMP</th>

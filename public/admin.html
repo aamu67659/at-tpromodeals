@@ -1,6 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0d1016">
     <title>Admin · SaaS Proxy</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
@@ -529,6 +532,26 @@
             50%      { opacity: 0.35; transform: scale(0.85); }
         }
 
+        @media (max-width: 1100px) {
+            /* Stack the admin two-column layout vertically on narrow viewports */
+            .admin-grid { grid-template-columns: 1fr !important; gap: 14px; }
+        }
+
+        @media (max-width: 900px) {
+            body { padding: 12px; }
+            .container { padding: 18px; }
+            .nav-item { min-height: 44px; }
+            button, .btn, .block-pill, .pill { min-height: 44px; }
+            .metric-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+            h1 { font-size: 18px; }
+            h2 { font-size: 14px; }
+            .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            input[type="text"], input[type="email"], input[type="password"],
+            input[type="number"], input[type="search"], select, textarea {
+                font-size: 16px; /* avoid iOS zoom-on-focus */
+            }
+        }
+
         @media (max-width: 720px) {
             body { padding: 16px; }
             .container { padding: 20px; }
@@ -536,6 +559,20 @@
             thead th, tbody td { padding: 10px; }
             .block-row { grid-template-columns: 1fr; }
             .block-add { width: 100%; }
+            /* Hide lower-priority table columns on tablet/mobile to keep them readable. */
+            table.hide-on-mobile thead th:nth-child(n+4),
+            table.hide-on-mobile tbody td:nth-child(n+4) { display: none; }
+        }
+
+        @media (max-width: 560px) {
+            .container { padding: 16px; }
+            .card, .panel, .admin-side { padding: 16px; }
+            .metric-grid { grid-template-columns: 1fr; }
+            table, .stats-table { font-size: 12px; }
+            thead th, tbody td { padding: 8px 10px; }
+            table.hide-on-mobile thead th:nth-child(n+3),
+            table.hide-on-mobile tbody td:nth-child(n+3) { display: none; }
+            td .btn, td button, td .block-pill { width: 100%; margin-bottom: 4px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -694,7 +731,7 @@
 
         <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">USDT_TRC20_PAYMENT_QUEUE</h2>
         <div style="overflow-x: auto;">
-            <table id="paymentTable">
+            <table id="paymentTable" class="hide-on-mobile">
                 <thead>
                     <tr>
                         <th>STATUS</th>
@@ -712,7 +749,7 @@
 
         <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">OPERATIVE_REGISTRY</h2>
         <div style="overflow-x: auto;">
-            <table id="userTable">
+            <table id="userTable" class="hide-on-mobile">
                 <thead>
                     <tr>
                         <th>OPERATIVE_NAME</th>

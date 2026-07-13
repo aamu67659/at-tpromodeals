@@ -617,25 +617,26 @@ app.post('/api/signup', asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
-    // Accept either { email, password } (legacy) or { identifier, password }.
-    // The identifier may be an email address or a username.
-    const rawIdentifier =
-        (req.body && (req.body.identifier || req.body.email)) ?
-            String(req.body.identifier || req.body.email).trim() : '';
+    // Login is username-only. The form may submit a leading "@" (e.g. "@joe");
+    // strip it before lookup so users don't have to memorise the canonical form.
+    const rawUsername =
+        (req.body && (req.body.username || req.body.identifier)) ?
+            String(req.body.username || req.body.identifier).trim() : '';
     const password = (req.body && req.body.password) ? String(req.body.password) : '';
-    if (!rawIdentifier || !password) {
+    if (!rawUsername || !password) {
         return res.status(400).json({ error: 'Invalid credentials' });
     }
-    // For lockout bucketing we keep the lowercase form. Usernames and emails
-    // collide only if they share the same lowercase letters+digits, which is
-    // an acceptable bucket resolution for lockout purposes.
-    const bucketKey = rawIdentifier.toLowerCase();
+    const cleanedUsername = rawUsername.replace(/^@+/, '');
+    if (!cleanedUsername) {
+        return res.status(400).json({ error: 'Invalid credentials' });
+    }
+    const bucketKey = cleanedUsername.toLowerCase();
     const ip = getClientIp(req);
     const lock = LOGIN_LOCKOUTS.get(bucketKey);
     if (lock && lock.lockedUntil > Date.now()) {
         return res.status(429).json({ error: 'Too many failed attempts. Try again later.', retryAfterMs: lock.lockedUntil - Date.now() });
     }
-    const user = await db.findUserByIdentifier(rawIdentifier);
+    const user = await db.findUserByUsername(cleanedUsername);
     const ok = user && (await bcrypt.compare(password, user.password || ''));
     if (!ok) {
         const entry = LOGIN_LOCKOUTS.get(bucketKey) || { attempts: 0, lockedUntil: 0 };
