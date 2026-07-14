@@ -10,6 +10,7 @@ const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const compression = require('compression');
 const db = require('./db');
+const bot = require('./bot');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -670,6 +671,44 @@ app.post('/api/profile/update', requireAuth, asyncHandler(async (req, res) => {
     res.json({ message: 'Profile updated', user: safe });
 }));
 
+// --- Telegram bot bridge -------------------------------------------------
+// `connect-request` is called by the dashboard to mint a one-time code that
+// the user redeems in the bot via /start <code>. `webhook` is called by
+// Telegram with each inbound Update.
+app.post('/api/telegram/connect-request', requireAuth, asyncHandler(async (req, res) => {
+    if (!bot.isBotEnabled()) {
+        return res.status(503).json({ error: 'TELEGRAM_BOT_TOKEN not configured on the server' });
+    }
+    const code = bot.issueLinkCode(req.user.id);
+    const username = (process.env.TELEGRAM_BOT_USERNAME || '').trim();
+    const deepLink = username
+        ? `https://t.me/${username}?start=${code}`
+        : null;
+    res.json({ code, deepLink, botUsername: username || null, ttlMs: 600000 });
+}));
+
+app.post('/api/telegram/webhook', asyncHandler(async (req, res) => {
+    // Telegram sends the secret_token value as the
+    // X-Telegram-Bot-Api-Secret-Token header on every delivery. We compare
+    // with timingSafeEqual when one is configured.
+    const expected = (process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
+    if (expected) {
+        const provided = (req.headers['x-telegram-bot-api-secret-token'] || '').toString();
+        const a = Buffer.from(provided, 'utf8');
+        const b = Buffer.from(expected, 'utf8');
+        if (a.length !== b.length || !require('crypto').timingSafeEqual(a, b)) {
+            console.warn('[Bot] Webhook rejected: bad secret_token header');
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+    }
+    // Always answer fast; the bot dispatches asynchronously.
+    res.json({ ok: true });
+    setImmediate(() => {
+        bot.handleUpdate(req.body).catch(err =>
+            console.error('[Bot] handleUpdate error:', err.message));
+    });
+}));
+
 // --- Payment Routes (USDT TRC20 via XT.com) ---
 const PAYMENT_RECEIVE_ADDRESS = (process.env.USDT_TRC20_ADDRESS || '').trim();
 const PAYMENT_EXCHANGE_NAME = process.env.PAYMENT_EXCHANGE_NAME || 'XT.com';
@@ -1003,6 +1042,19 @@ if (PAYMENT_RECEIVE_ADDRESS) {
 } else {
     console.log('[AutoPay] USDT_TRC20_ADDRESS not set — automatic payment verification disabled');
 }
+
+// ---------------------------------------------------------------------------
+// Telegram bot boot: rebuild chat → user index from disk, then register the
+// webhook with Telegram so updates flow to /api/telegram/webhook.
+// ---------------------------------------------------------------------------
+if (bot.isBotEnabled()) {
+    bot.rebuildChatIndex()
+        .then(() => bot.setupWebhook())
+        .catch(err => console.error('[Bot] Boot error:', err.message));
+} else {
+    console.log('[Bot] TELEGRAM_BOT_TOKEN not set — bot commands disabled (use /api/telegram/webhook only after configuring)');
+}
+
 
 app.post('/api/forced-ips', requireAuth, asyncHandler(async (req, res) => {
     const { ip } = req.body;

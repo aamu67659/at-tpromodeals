@@ -1105,6 +1105,17 @@
                     <input type="text" id="chatId" placeholder="uplink_id">
                 </div>
                 <button onclick="saveGlobalSettings()" style="margin-top: 10px;">[ ESTABLISH_BRIDGE ]</button>
+
+                <hr style="border: none; border-top: 1px dashed var(--border); margin: 28px 0;">
+                <h3 style="font-size: 13px; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 8px;">Interactive Bot</h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 14px;">Connect this account to a Telegram chat so you can /balance, /links, /newlink, /history, /block, /force, /settings and more from your phone.</p>
+
+                <div id="tgConnectResult" style="display:none; margin: 14px 0; padding: 14px; border: 1px dashed var(--accent-border); border-radius: 8px; background: var(--accent-bg);"></div>
+
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <button id="tgConnectBtn" onclick="connectTelegram()" style="width: auto; padding: 11px 18px;">[ CONNECT_TELEGRAM ]</button>
+                    <span id="tgConnStatus" style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);"></span>
+                </div>
             </div>
         </div>
 
@@ -2071,6 +2082,63 @@
             if (res.ok) alert('SYSTEM_PROTOCOLS_SAVED');
             else alert('!! ERROR: SAVE_FAILED');
         }
+
+        async function connectTelegram() {
+            const btn = document.getElementById('tgConnectBtn');
+            const status = document.getElementById('tgConnStatus');
+            const result = document.getElementById('tgConnectResult');
+            btn.disabled = true;
+            status.innerText = 'REQUESTING_LINK_CODE…';
+            result.style.display = 'none';
+            try {
+                const res = await fetch('/api/telegram/connect-request', { method: 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    status.innerText = 'ERROR';
+                    result.style.display = 'block';
+                    result.innerHTML = '<b style="color:var(--danger);">!! ' + esc(data.error || 'CONNECT_FAILED') + '</b>';
+                    btn.disabled = false;
+                    return;
+                }
+                const link = data.deepLink;
+                const code = data.code;
+                const botU = data.botUsername ? '@' + data.botUsername : '(server default bot)';
+                const ttlMin = Math.round((data.ttlMs || 600000) / 60000);
+                status.innerText = 'CODE_ISSUED';
+                result.style.display = 'block';
+                let html = '<div style="font-family: var(--font-mono); font-size: 12px;">' +
+                           '<div style="margin-bottom: 8px;">Bot: <b>' + esc(botU) + '</b></div>' +
+                           '<div style="margin-bottom: 8px;">One-time code: <code style="color: var(--accent);">' + esc(code) + '</code> (expires in ' + ttlMin + ' min)</div>';
+                if (link) {
+                    html += '<div style="margin-bottom: 8px;">Click below to open the bot and auto-redeem:</div>' +
+                            '<a href="' + esc(link) + '" target="_blank" rel="noopener" ' +
+                            'style="display: inline-block; background: var(--accent); color: var(--accent-deep); ' +
+                            'padding: 10px 16px; border-radius: 8px; font-weight: 700; text-decoration: none; ' +
+                            'font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em;">' +
+                            'OPEN_TELEGRAM_BOT</a>';
+                } else {
+                    html += '<div>Open your bot chat and send: <code>/start ' + esc(code) + '</code></div>';
+                }
+                html += '<div style="margin-top: 10px; color: var(--text-muted);">Or send <code>/login &lt;username&gt; &lt;password&gt;</code> directly in the bot.</div>';
+                html += '</div>';
+                result.innerHTML = html;
+            } catch (err) {
+                status.innerText = 'NETWORK_ERROR';
+                result.style.display = 'block';
+                result.innerHTML = '<b style="color:var(--danger);">!! ' + esc(err.message || 'NETWORK') + '</b>';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
 
         function showSection(id) {
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
