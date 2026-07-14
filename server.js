@@ -307,46 +307,6 @@ app.get('/api/admin/payments', requireAdmin, asyncHandler(async (req, res) => {
     res.json(all);
 }));
 
-app.post('/api/admin/confirm-payment', requireAdmin, asyncHandler(async (req, res) => {
-    const { userId, paymentId } = req.body;
-    const user = await db.findUserById(userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    const pending = (user.pendingPayments || []).slice();
-    const idx = pending.findIndex(p => p.id === paymentId);
-    if (idx === -1) return res.status(404).json({ error: 'Payment not found' });
-    if (pending[idx].status !== 'pending') return res.status(400).json({ error: 'Payment already processed' });
-
-    pending[idx].status = 'confirmed';
-    pending[idx].confirmedAt = new Date().toISOString();
-
-    const updatedUser = await db.updateUser(userId, {
-        pendingPayments: pending,
-        wallet: (user.wallet || 0) + pending[idx].amount
-    });
-    res.json({
-        message: 'Payment confirmed',
-        balance: updatedUser.wallet,
-        payment: pending[idx]
-    });
-}));
-
-app.post('/api/admin/reject-payment', requireAdmin, asyncHandler(async (req, res) => {
-    const { userId, paymentId, reason } = req.body;
-    const user = await db.findUserById(userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    const pending = (user.pendingPayments || []).slice();
-    const idx = pending.findIndex(p => p.id === paymentId);
-    if (idx === -1) return res.status(404).json({ error: 'Payment not found' });
-    if (pending[idx].status !== 'pending') return res.status(400).json({ error: 'Payment already processed' });
-
-    pending[idx].status = 'rejected';
-    pending[idx].rejectedAt = new Date().toISOString();
-    pending[idx].rejectReason = reason || 'Invalid transaction';
-
-    const updatedUser = await db.updateUser(userId, { pendingPayments: pending });
-    res.json({ message: 'Payment rejected', payment: pending[idx] });
-}));
-
 // --- Admin Stats / Monitoring Endpoint ---
 function isExpiringFuture(iso) {
     if (!iso) return false;
@@ -657,16 +617,28 @@ app.get('/api/user', requireAuth, asyncHandler(async (req, res) => {
 // --- Settings & Wallet Routes ---
 app.post('/api/settings', requireAuth, asyncHandler(async (req, res) => {
     const body = { ...req.body };
+    let addressChanged = false;
     if ('depositSendAddress' in body) {
         const addr = (body.depositSendAddress || '').trim();
         if (addr && !/^T[A-Za-z1-9]{33}$/.test(addr)) {
-            return res.status(400).json({ error: 'Invalid TRC20 sender address (must start with T and be 34 chars)' });
+            return res.status(400).json({ error: 'Invalid TRC20 sender address (must start the T and be 34 chars)' });
         }
+        const prev = ((req.user.settings || {}).depositSendAddress || '').trim();
+        addressChanged = prev !== addr;
         body.depositSendAddress = addr;
     }
     const updatedUser = await db.updateUser(req.user.id, {
         settings: { ...req.user.settings, ...body }
     });
+
+    // Re-evaluate poller cadence whenever the sender address flips. Adding it
+    // means future inbound TXes can be auto-attributed → FAST cadence.
+    // Removing it (or replacing it) means the fast path no longer applies,
+    // and the next tick will switch us back to IDLE if no other work exists.
+    if (addressChanged) {
+        kickPoller();
+    }
+
     res.json(updatedUser.settings);
 }));
 
@@ -709,6 +681,7 @@ const USDT_TRC20_CONTRACT = (process.env.USDT_TRC20_CONTRACT || 'TR7NHqjeKQxGTCi
 const TRON_API_BASE = (process.env.TRON_API_BASE || 'https://api.trongrid.io').trim().replace(/\/+$/, '');
 const TRONGRID_API_KEY = (process.env.TRONGRID_API_KEY || '').trim();
 const AUTO_PAY_POLL_MS = parseInt(process.env.AUTO_PAY_POLL_MS || '30000', 10);
+const AUTO_PAY_POLL_IDLE_MS = parseInt(process.env.AUTO_PAY_POLL_IDLE_MS || '300000', 10);
 const AUTO_PAY_LOOKBACK_LIMIT = parseInt(process.env.AUTO_PAY_LOOKBACK_LIMIT || '20', 10);
 // processedTxHashes dedup set is bounded so it can't grow without bound across
 // months of polling. When the cap is reached we evict the oldest entries by
@@ -777,6 +750,10 @@ app.post('/api/payments/submit', requireAuth, asyncHandler(async (req, res) => {
     const updatedUser = await db.updateUser(req.user.id, {
         pendingPayments: [...(req.user.pendingPayments || []), payment]
     });
+
+    // Kick the poller back to FAST cadence — there's now a pending row that
+    // can only be credited once TronGrid sees the matching tx.
+    kickPoller({ immediate: true });
 
     res.json({ payment, balance: updatedUser.wallet, pending: updatedUser.pendingPayments });
 }));
@@ -935,13 +912,93 @@ async function bootstrapProcessedHashes() {
     }
 }
 
+// Returns true when there is at least one pending row or a registered
+// deposit sender address — i.e. when a poll can actually produce credit
+// work. Used by the scheduler to skip TronGrid requests entirely when
+// there's nothing to attribute.
+async function hasWork() {
+    try {
+        const users = await db.getUsers();
+        for (const u of users) {
+            if (!u) continue;
+            if (Array.isArray(u.pendingPayments) && u.pendingPayments.some(p => p && p.status === 'pending')) {
+                return true;
+            }
+            const addr = u.settings && u.settings.depositSendAddress;
+            if (typeof addr === 'string' && addr.trim()) {
+                return true;
+            }
+        }
+    } catch (err) {
+        // If the snapshot read fails, prefer to ask TronGrid rather than
+        // skip silently — better one wasted call than a missed credit.
+        return true;
+    }
+    return false;
+}
+
+// Adaptive scheduler: fast cadence while there is work to do, slow cadence
+// (AUTO_PAY_POLL_IDLE_MS) once nothing is pending and no user has a sender
+// address registered. Any new submission / settings change kicks it back to
+// fast mode via kickPoller().
+let pollHandle = null;
+let pollInFlight = false;
+let pollFast = true;
+
+function clearPollHandle() {
+    if (pollHandle) {
+        clearTimeout(pollHandle);
+        pollHandle = null;
+    }
+}
+
+function schedulePoll() {
+    clearPollHandle();
+    if (!PAYMENT_RECEIVE_ADDRESS) return;
+    const interval = pollFast ? AUTO_PAY_POLL_MS : AUTO_PAY_POLL_IDLE_MS;
+    pollHandle = setTimeout(tickPoll, interval);
+}
+
+async function tickPoll() {
+    if (pollInFlight) {
+        // Don't stack overlapping polls — reschedule and let the current
+        // one decide the next cadence.
+        schedulePoll();
+        return;
+    }
+    pollInFlight = true;
+    try {
+        await pollTronPayments();
+        const work = await hasWork();
+        const wasFast = pollFast;
+        pollFast = work;
+        if (wasFast !== pollFast) {
+            console.log(`[AutoPay] Switching to ${pollFast ? 'FAST' : 'IDLE'} poll cadence (ms=${pollFast ? AUTO_PAY_POLL_MS : AUTO_PAY_POLL_IDLE_MS})`);
+        }
+    } catch (err) {
+        // pollTronPayments already logs axios / network failures; keep the
+        // current cadence whichever way it was set.
+    } finally {
+        pollInFlight = false;
+        schedulePoll();
+    }
+}
+
+function kickPoller({ immediate = false } = {}) {
+    if (!PAYMENT_RECEIVE_ADDRESS) return;
+    pollFast = true;
+    clearPollHandle();
+    pollHandle = setTimeout(tickPoll, immediate ? 0 : AUTO_PAY_POLL_MS);
+}
+
 if (PAYMENT_RECEIVE_ADDRESS) {
-    bootstrapProcessedHashes().then(() => {
-        pollTronPayments();
-        const handle = setInterval(pollTronPayments, AUTO_PAY_POLL_MS);
-        console.log(`[AutoPay] Polling ${TRON_API_BASE} every ${AUTO_PAY_POLL_MS}ms for USDT-TRC20 inbound to ${PAYMENT_RECEIVE_ADDRESS}`);
-        process.on('SIGTERM', () => clearInterval(handle));
-        process.on('SIGINT', () => clearInterval(handle));
+    bootstrapProcessedHashes().then(async () => {
+        const seededWork = await hasWork();
+        pollFast = seededWork;
+        schedulePoll();
+        console.log(`[AutoPay] Initial poll cadence: ${pollFast ? 'FAST' : 'IDLE'} (ms=${pollFast ? AUTO_PAY_POLL_MS : AUTO_PAY_POLL_IDLE_MS}); base=${TRON_API_BASE}, address=${PAYMENT_RECEIVE_ADDRESS}`);
+        process.on('SIGTERM', clearPollHandle);
+        process.on('SIGINT', clearPollHandle);
     });
 } else {
     console.log('[AutoPay] USDT_TRC20_ADDRESS not set — automatic payment verification disabled');

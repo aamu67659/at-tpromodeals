@@ -1202,21 +1202,19 @@
                 const tr = document.createElement('tr');
 
                 let statusColor = 'var(--warning)';
-                let statusLabel = 'PENDING';
+                let statusLabel = 'AWAITING_ONCHAIN';
                 if (p.status === 'confirmed') {
                     statusColor = 'var(--accent)';
                     statusLabel = p.autoVerified ? 'CONFIRMED [AUTO]' : 'CONFIRMED';
                 } else if (p.status === 'rejected') {
                     statusColor = 'var(--danger)';
                     statusLabel = 'REJECTED';
+                } else {
+                    statusColor = 'var(--warning)';
+                    statusLabel = 'AWAITING_ONCHAIN';
                 }
 
-                const actions = p.status === 'pending' ? `
-                    <div style="display: flex; gap: 5px;">
-                        <button class="btn" style="font-size: 10px; padding: 5px 10px; border-color: var(--accent);" onclick="confirmPayment('${escapeHtml(p.userId)}', '${escapeHtml(p.id)}')">[ CONFIRM ]</button>
-                        <button class="btn btn-status" style="font-size: 10px; padding: 5px 10px;" onclick="rejectPayment('${escapeHtml(p.userId)}', '${escapeHtml(p.id)}')">[ REJECT ]</button>
-                    </div>
-                ` : '<span style="color:var(--text-muted); font-size:10px;">PROCESSED</span>';
+                const actions = '<span style="color:var(--text-muted); font-size:10px;">AUTO_PROCESSED</span>';
 
                 const txCell = p.txHash
                     ? `<code style="font-size:10px; word-break:break-all;">${escapeHtml(p.txHash)}</code>`
@@ -1233,49 +1231,6 @@
                 `;
                 tbody.appendChild(tr);
             });
-        }
-
-        async function confirmPayment(userId, paymentId) {
-            if (!confirm('CONFIRM PAYMENT AND CREDIT USER WALLET?')) return;
-            const res = await fetch('/api/admin/confirm-payment', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-admin-token': currentToken
-                },
-                body: JSON.stringify({ userId, paymentId })
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                alert(`PAYMENT_CONFIRMED // WALLET_BALANCE: $${data.balance.toFixed(2)}`);
-                loadPayments();
-                loadUsers();
-            } else {
-                const data = await res.json().catch(() => ({}));
-                alert('!! ERROR: ' + (data.error || 'CONFIRM_FAILED'));
-            }
-        }
-
-        async function rejectPayment(userId, paymentId) {
-            const reason = prompt('REJECTION_REASON (optional):', 'Invalid transaction on-chain');
-            if (reason === null) return;
-            const res = await fetch('/api/admin/reject-payment', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-admin-token': currentToken
-                },
-                body: JSON.stringify({ userId, paymentId, reason })
-            });
-
-            if (res.ok) {
-                alert('PAYMENT_REJECTED');
-                loadPayments();
-            } else {
-                const data = await res.json().catch(() => ({}));
-                alert('!! ERROR: ' + (data.error || 'REJECT_FAILED'));
-            }
         }
 
         if (localStorage.getItem('adminToken')) {
