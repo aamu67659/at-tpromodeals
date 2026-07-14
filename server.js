@@ -199,14 +199,11 @@ function getClientCountry(req) {
 // ---------------------------------------------------------------------------
 // Rate limiting + brute-force guards.
 // express-rate-limit handles per-IP windows; per-account lockouts hash out the
-// remaining threats (online spraying of credentials / PINs).
+// remaining threats (online spraying of credentials).
 // ---------------------------------------------------------------------------
-const LOGIN_LOCKOUTS = new Map();              // email -> { attempts, lockedUntil }
-const PIN_LOCKOUTS = new Map();                // email -> { attempts, lockedUntil }
+const LOGIN_LOCKOUTS = new Map();              // username -> { attempts, lockedUntil }
 const LOGIN_LOCKOUT_THRESHOLD = 8;             // 8 fails per account locks for 15 min
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
-const PIN_LOCKOUT_THRESHOLD = 5;               // 5 PIN attempts locks for 10 min (PIN space is 10k)
-const PIN_LOCKOUT_MS = 10 * 60 * 1000;
 
 function ipKey(req) {
     return getClientIp(req) || '0.0.0.0';
@@ -219,14 +216,6 @@ const loginLimiter = rateLimit({
     legacyHeaders: false,
     keyGenerator: ipKey,
     message: { error: 'Too many login attempts. Slow down.' }
-});
-const forgotLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 5,
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: ipKey,
-    message: { error: 'Too many reset attempts. Slow down.' }
 });
 const adminLimiter = rateLimit({
     windowMs: 5 * 60 * 1000,
@@ -251,10 +240,10 @@ function requireAdminThrottled(req, res, next) {
 }
 
 // --- Admin Routes ---
-// Strip both passwords AND pin hashes before sending to the admin UI so a
+// Strip password hashes before sending to the admin UI so a
 // compromised admin token doesn't leak credential material. (The admin
 // UI only ever shows metadata about users.)
-const SAFE_USER_KEYS = new Set(['password', 'pinHash']);
+const SAFE_USER_KEYS = new Set(['password']);
 function stripSecrets(u) {
     if (!u || typeof u !== 'object') return u;
     const out = Array.isArray(u) ? [] : {};
@@ -571,54 +560,39 @@ app.get('/api/admin/stats', requireAdmin, asyncHandler(async (req, res) => {
 
 // --- Auth Routes ---
 app.post('/api/signup', asyncHandler(async (req, res) => {
-    const { name, email, telegram, password } = req.body || {};
-    if (!name || !email || !telegram || !password) {
-        return res.status(400).json({ error: 'All fields are required' });
-    }
+    const { password } = req.body || {};
+    const requestedUsername = db.normalizeUsername(req.body.username);
+    const name = (req.body && req.body.name) ? String(req.body.name).trim() : requestedUsername;
 
-    const cleanEmail = String(email).trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-        return res.status(400).json({ error: 'Invalid email format' });
+    if (!requestedUsername || !password) {
+        return res.status(400).json({ error: 'Username and password are required' });
     }
-
-    const existingByEmail = await db.findUserByEmail(cleanEmail);
-    if (existingByEmail) {
-        return res.status(400).json({ error: 'Email already registered' });
+    if (!db.isValidUsername(requestedUsername)) {
+        return res.status(400).json({
+            error: 'Username must be 3-20 chars, lowercase letters / digits / . _ - only, and not reserved'
+        });
     }
-
-    // Username: optional on signup. Auto-pick from name when omitted.
-    let requestedUsername = db.normalizeUsername(req.body.username);
-    if (requestedUsername) {
-        if (!db.isValidUsername(requestedUsername)) {
-            return res.status(400).json({
-                error: 'Username must be 3-20 chars, lowercase letters / digits / . _ - only, and not reserved'
-            });
-        }
-        if (await db.isUsernameTaken(requestedUsername)) {
-            return res.status(400).json({ error: 'Username already taken' });
-        }
-    } else {
-        requestedUsername = await db.suggestAvailableUsername(String(name).toLowerCase());
-        if (!requestedUsername) {
-            return res.status(500).json({ error: 'Could not derive a free username' });
-        }
+    if (await db.isUsernameTaken(requestedUsername)) {
+        return res.status(400).json({ error: 'Username already taken' });
+    }
+    if (password.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
     const user = await db.createUser({
         name,
-        email: cleanEmail,
-        telegram,
-        password: hashedPassword,
-        username: requestedUsername
+        username: requestedUsername,
+        password: hashedPassword
     });
-    console.log(`[Signup] New user registered: ${cleanEmail} (@${requestedUsername})`);
+    console.log(`[Signup] New user registered: @${requestedUsername}`);
     res.json({ message: 'Signup successful', username: requestedUsername });
 }));
 
 app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
-    // Login is username-only. The form may submit a leading "@" (e.g. "@joe");
-    // strip it before lookup so users don't have to memorise the canonical form.
+    // Login is username + password only. The form may submit a leading "@"
+    // (e.g. "@joe"); strip it before lookup so users don't have to memorise
+    // the canonical form.
     const rawUsername =
         (req.body && (req.body.username || req.body.identifier)) ?
             String(req.body.username || req.body.identifier).trim() : '';
@@ -676,8 +650,8 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/user', requireAuth, asyncHandler(async (req, res) => {
-    const { password, pinHash, ...rest } = req.user;
-    res.json({ ...rest, hasPin: !!pinHash });
+    const { password, ...rest } = req.user;
+    res.json(rest);
 }));
 
 // --- Settings & Wallet Routes ---
@@ -696,28 +670,14 @@ app.post('/api/settings', requireAuth, asyncHandler(async (req, res) => {
     res.json(updatedUser.settings);
 }));
 
-// --- Profile / Password / PIN Routes ---
+// --- Profile / Password Routes ---
 app.post('/api/profile/update', requireAuth, asyncHandler(async (req, res) => {
-    const { currentPassword, newEmail, newPassword } = req.body || {};
+    const { currentPassword, newPassword } = req.body || {};
     if (!currentPassword || !(await bcrypt.compare(currentPassword, req.user.password))) {
         return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
     const updates = {};
-
-    if (newEmail && typeof newEmail === 'string') {
-        const trimmed = newEmail.trim().toLowerCase();
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-            return res.status(400).json({ error: 'Invalid email format' });
-        }
-        if (trimmed !== (req.user.email || '').toLowerCase()) {
-            const existing = await db.findUserByEmail(trimmed);
-            if (existing && existing.id !== req.user.id) {
-                return res.status(400).json({ error: 'Email already registered to another account' });
-            }
-            updates.email = trimmed;
-        }
-    }
 
     if (newPassword && typeof newPassword === 'string') {
         if (newPassword.length < 6) {
@@ -734,67 +694,8 @@ app.post('/api/profile/update', requireAuth, asyncHandler(async (req, res) => {
     }
 
     const updatedUser = await db.updateUser(req.user.id, updates);
-    const { password, pinHash, ...safe } = updatedUser;
-    res.json({ message: 'Profile updated', user: { ...safe, hasPin: !!pinHash } });
-}));
-
-app.post('/api/profile/pin', requireAuth, asyncHandler(async (req, res) => {
-    const { currentPassword, pin } = req.body || {};
-    if (!currentPassword || !(await bcrypt.compare(currentPassword, req.user.password))) {
-        return res.status(401).json({ error: 'Current password is incorrect' });
-    }
-    if (!/^\d{4}$/.test(pin || '')) {
-        return res.status(400).json({ error: 'PIN must be exactly 4 digits (0-9)' });
-    }
-    const pinHash = await bcrypt.hash(pin, 12);
-    const updatedUser = await db.updateUser(req.user.id, { pinHash });
-    res.json({ message: 'Security PIN updated', hasPin: !!updatedUser.pinHash });
-}));
-
-app.post('/api/forgot/reset', forgotLimiter, asyncHandler(async (req, res) => {
-    const email = (req.body && req.body.email) ? String(req.body.email).trim().toLowerCase() : '';
-    const pin = (req.body && req.body.pin) ? String(req.body.pin) : '';
-    const newPassword = (req.body && req.body.newPassword) ? String(req.body.newPassword) : '';
-    if (!email || !pin || !newPassword) {
-        return res.status(400).json({ error: 'Email, PIN and new password are all required' });
-    }
-    if (!/^\d{4}$/.test(pin)) {
-        return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
-    }
-    if (newPassword.length < 6) {
-        return res.status(400).json({ error: 'New password must be at least 6 characters' });
-    }
-
-    const pinLock = PIN_LOCKOUTS.get(email);
-    if (pinLock && pinLock.lockedUntil > Date.now()) {
-        return res.status(429).json({ error: 'Too many PIN attempts. Try again in a few minutes.', retryAfterMs: pinLock.lockedUntil - Date.now() });
-    }
-
-    const user = await db.findUserByEmail(email);
-    // Always run bcrypt.compare so timing is identical regardless of whether
-    // the account / PIN exists, defending against user-enumeration side
-    // channels.
-    const dummyHash = '$2b$12$0000000000000000000000000000000000000000000000000000';
-    const candidate = (user && user.pinHash) ? user.pinHash : dummyHash;
-    const ok = await bcrypt.compare(pin, candidate);
-    if (!user || !user.pinHash || !ok) {
-        const entry = PIN_LOCKOUTS.get(email) || { attempts: 0, lockedUntil: 0 };
-        entry.attempts++;
-        if (entry.attempts >= PIN_LOCKOUT_THRESHOLD) {
-            entry.attempts = 0;
-            entry.lockedUntil = Date.now() + PIN_LOCKOUT_MS;
-        }
-        PIN_LOCKOUTS.set(email, entry);
-        console.log(`[Forgot] Reset attempt failed for ${email} from ${getClientIp(req)}`);
-        return res.status(401).json({ error: 'Invalid email or PIN' });
-    }
-
-    PIN_LOCKOUTS.delete(email);
-    const hashedNew = await bcrypt.hash(newPassword, 12);
-    await db.updateUser(user.id, { password: hashedNew });
-
-    console.log(`[Forgot] Password reset successful for ${email} from ${getClientIp(req)}`);
-    res.json({ message: 'Password reset. You can now log in with the new password.' });
+    const { password, ...safe } = updatedUser;
+    res.json({ message: 'Profile updated', user: safe });
 }));
 
 // --- Payment Routes (USDT TRC20 via XT.com) ---

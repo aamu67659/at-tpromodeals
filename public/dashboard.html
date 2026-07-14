@@ -1128,7 +1128,7 @@
         <div id="profile-section" class="content-section">
             <div class="grid-cell">
                 <h2>Profile</h2>
-                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Update your comms address, rotate your access cipher, or set/replace your 4-digit recovery PIN. PIN is used only via Forgot Password to reset access if you forget your password.</p>
+                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Rotate your access cipher. Authentication is by username + password, so remember your password — there is no email/PIN recovery.</p>
 
                 <div style="display: grid; grid-template-columns: 1fr; gap: 25px; max-width: 600px;">
                     <div id="profileIdentity" class="profile-card">
@@ -1141,27 +1141,11 @@
                             <span class="profile-label">USERNAME</span>
                             <span class="profile-value" id="profileUsernameVal" style="font-family: var(--font-mono);">--</span>
                         </div>
-                        <div class="profile-row">
-                            <span class="profile-label">EMAIL</span>
-                            <span class="profile-value" id="profileEmailVal">--</span>
-                        </div>
-                        <div class="profile-row">
-                            <span class="profile-label">TELEGRAM</span>
-                            <span class="profile-value" id="profileTelegramVal">--</span>
-                        </div>
-                        <div class="profile-row">
-                            <span class="profile-label">PIN_STATUS</span>
-                            <span class="profile-value" id="profilePinStatus" style="color: var(--warning);">CHECKING...</span>
-                        </div>
                     </div>
 
                     <div class="profile-card">
-                        <div class="profile-card-title">EDIT_EMAIL_AND_PASSWORD</div>
+                        <div class="profile-card-title">CHANGE_PASSWORD</div>
                         <div id="profileEditBanner" class="profile-banner"></div>
-                        <div class="form-group">
-                            <label>NEW_EMAIL (LEAVE_BLANK_TO_KEEP)</label>
-                            <input type="email" id="profileNewEmail" placeholder="you@example.com" spellcheck="false" autocomplete="off">
-                        </div>
                         <div class="form-group">
                             <label>NEW_PASSWORD (LEAVE_BLANK_TO_KEEP)</label>
                             <input type="password" id="profileNewPassword" placeholder="min 6 chars" autocomplete="new-password">
@@ -1171,25 +1155,6 @@
                             <input type="password" id="profileCurrentPassword" placeholder="confirm with current password" autocomplete="current-password">
                         </div>
                         <button onclick="saveProfile()">[ COMMIT_PROFILE_CHANGES ]</button>
-                    </div>
-
-                    <div class="profile-card">
-                        <div class="profile-card-title">RESET_PIN (4_DIGIT_NUMERIC)</div>
-                        <div id="profilePinBanner" class="profile-banner"></div>
-                        <div class="form-group">
-                            <label>NEW_PIN (EXACTLY 4 DIGITS)</label>
-                            <input type="password" id="profileNewPin" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="e.g. 0420" autocomplete="off">
-                        </div>
-                        <div class="form-group">
-                            <label>CONFIRM_PIN</label>
-                            <input type="password" id="profileConfirmPin" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="repeat 4 digits" autocomplete="off">
-                        </div>
-                        <div class="form-group">
-                            <label>CURRENT_PASSWORD (REQUIRED)</label>
-                            <input type="password" id="profilePinCurrentPassword" placeholder="confirm with current password" autocomplete="current-password">
-                        </div>
-                        <button onclick="saveProfilePin()">[ SET / REPLACE_PIN ]</button>
-                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 8px;">!! The PIN is required to use the Forgot Password flow on the login page. Store it in a safe offline location. It cannot be retrieved once lost.</div>
                     </div>
                 </div>
             </div>
@@ -1695,40 +1660,24 @@
             document.getElementById('profileName').innerText = (currentUser.name || 'ANONYMOUS');
             document.getElementById('profileNameVal').innerText = (currentUser.name || 'N/A');
             document.getElementById('profileUsernameVal').innerText = currentUser.username ? '@' + currentUser.username : '—';
-            document.getElementById('profileEmailVal').innerText = (currentUser.email || 'N/A');
-            document.getElementById('profileTelegramVal').innerText = (currentUser.telegram || 'N/A');
-            const pinEl = document.getElementById('profilePinStatus');
-            if (currentUser.hasPin) {
-                pinEl.innerText = 'CONFIGURED';
-                pinEl.style.color = 'var(--accent)';
-            } else {
-                pinEl.innerText = 'NOT_SET :: Required for Forgot Password';
-                pinEl.style.color = 'var(--warning)';
-            }
-            document.getElementById('profileNewEmail').value = '';
             document.getElementById('profileNewPassword').value = '';
             document.getElementById('profileCurrentPassword').value = '';
-            document.getElementById('profileNewPin').value = '';
-            document.getElementById('profileConfirmPin').value = '';
-            document.getElementById('profilePinCurrentPassword').value = '';
             setProfileBanner('profileEditBanner', '', '');
-            setProfileBanner('profilePinBanner', '', '');
         }
 
         async function saveProfile() {
             const currentPassword = document.getElementById('profileCurrentPassword').value;
-            const newEmail = document.getElementById('profileNewEmail').value.trim();
             const newPassword = document.getElementById('profileNewPassword').value;
 
             if (!currentPassword) {
                 setProfileBanner('profileEditBanner', 'error', '!! Current password is required');
                 return;
             }
-            if (!newEmail && !newPassword) {
-                setProfileBanner('profileEditBanner', 'error', '!! Provide a new email or a new password to update');
+            if (!newPassword) {
+                setProfileBanner('profileEditBanner', 'error', '!! Provide a new password to update');
                 return;
             }
-            if (newPassword && newPassword.length < 6) {
+            if (newPassword.length < 6) {
                 setProfileBanner('profileEditBanner', 'error', '!! New password must be at least 6 characters');
                 return;
             }
@@ -1737,65 +1686,18 @@
                 const res = await fetch('/api/profile/update', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ currentPassword, newEmail, newPassword })
+                    body: JSON.stringify({ currentPassword, newPassword })
                 });
                 const data = await res.json().catch(() => ({}));
                 if (res.ok) {
                     setProfileBanner('profileEditBanner', 'success', '> PROFILE_COMMIT_OK :: ' + (data.message || 'Saved'));
-                    if (newEmail && currentUser) currentUser.email = newEmail;
-                    if (data.user) {
-                        document.getElementById('profileEmailVal').innerText = data.user.email || 'N/A';
-                    }
                     document.getElementById('profileCurrentPassword').value = '';
-                    document.getElementById('profileNewEmail').value = '';
                     document.getElementById('profileNewPassword').value = '';
                 } else {
                     setProfileBanner('profileEditBanner', 'error', '!! ERROR: ' + (data.error || 'SAVE_FAILED'));
                 }
             } catch (err) {
                 setProfileBanner('profileEditBanner', 'error', '!! CONNECTION_LOST: ' + err.message);
-            }
-        }
-
-        async function saveProfilePin() {
-            const currentPassword = document.getElementById('profilePinCurrentPassword').value;
-            const pin = document.getElementById('profileNewPin').value.trim();
-            const pinConfirm = document.getElementById('profileConfirmPin').value.trim();
-
-            if (!currentPassword) {
-                setProfileBanner('profilePinBanner', 'error', '!! Current password is required');
-                return;
-            }
-            if (!/^\d{4}$/.test(pin)) {
-                setProfileBanner('profilePinBanner', 'error', '!! PIN must be exactly 4 digits (0-9)');
-                return;
-            }
-            if (pin !== pinConfirm) {
-                setProfileBanner('profilePinBanner', 'error', '!! PIN and confirm do not match');
-                return;
-            }
-
-            try {
-                const res = await fetch('/api/profile/pin', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ currentPassword, pin })
-                });
-                const data = await res.json().catch(() => ({}));
-                if (res.ok) {
-                    setProfileBanner('profilePinBanner', 'success', '> PIN_COMMIT_OK :: ' + (data.message || 'Saved'));
-                    if (currentUser) currentUser.hasPin = !!data.hasPin;
-                    const pinEl = document.getElementById('profilePinStatus');
-                    pinEl.innerText = currentUser && currentUser.hasPin ? 'CONFIGURED' : 'NOT_SET';
-                    pinEl.style.color = (currentUser && currentUser.hasPin) ? 'var(--accent)' : 'var(--warning)';
-                    document.getElementById('profilePinCurrentPassword').value = '';
-                    document.getElementById('profileNewPin').value = '';
-                    document.getElementById('profileConfirmPin').value = '';
-                } else {
-                    setProfileBanner('profilePinBanner', 'error', '!! ERROR: ' + (data.error || 'SAVE_FAILED'));
-                }
-            } catch (err) {
-                setProfileBanner('profilePinBanner', 'error', '!! CONNECTION_LOST: ' + err.message);
             }
         }
 

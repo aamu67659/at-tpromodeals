@@ -301,31 +301,19 @@
                 <div class="form-group">
                     <label>OPERATIVE_HANDLE</label>
                     <div class="input-wrapper">
-                        <input type="text" id="name" required spellcheck="false" autocomplete="off" placeholder="full name">
+                        <input type="text" id="name" required spellcheck="false" autocomplete="off" placeholder="display name">
                     </div>
                 </div>
                 <div class="form-group">
                     <label>CALLSIGN_USERNAME</label>
                     <div class="input-wrapper">
-                        <input type="text" id="username" spellcheck="false" autocomplete="off" autocapitalize="off" minlength="3" maxlength="20" pattern="[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?" placeholder="login handle (auto if blank)">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>COMM_LINK_EMAIL</label>
-                    <div class="input-wrapper">
-                        <input type="email" id="email" required spellcheck="false" autocomplete="off" placeholder="email@address.net">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>TELEGRAM_UPLINK</label>
-                    <div class="input-wrapper">
-                        <input type="text" id="telegram" required spellcheck="false" autocomplete="off" placeholder="@username">
+                        <input type="text" id="username" required spellcheck="false" autocomplete="off" autocapitalize="off" minlength="3" maxlength="20" pattern="[a-z0-9]([a-z0-9._-]*[a-z0-9])?" placeholder="login handle">
                     </div>
                 </div>
                 <div class="form-group">
                     <label>ENCRYPTION_KEY_PASSWORD</label>
                     <div class="input-wrapper">
-                        <input type="password" id="password" required oninput="updateStrength(this.value)">
+                        <input type="password" id="password" required minlength="6" oninput="updateStrength(this.value)">
                     </div>
                     <div class="strength-meter" id="strength-meter" style="display: none;">
                         <span class="strength-bar" id="strength-bar">[□□□□□□□□]</span>
@@ -492,10 +480,8 @@
 
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const name = document.getElementById('name').value;
-            const usernameRaw = document.getElementById('username').value;
-            const email = document.getElementById('email').value;
-            const telegram = document.getElementById('telegram').value;
+            const name = document.getElementById('name').value.trim();
+            const usernameRaw = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
 
             // Show deployment overlay
@@ -517,7 +503,7 @@
                 const res = await fetch('/api/signup', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, username: usernameRaw, email, telegram, password })
+                    body: JSON.stringify({ name, username: usernameRaw, password })
                 });
 
                 const data = await res.json();
