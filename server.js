@@ -687,6 +687,14 @@ app.post('/api/telegram/connect-request', requireAuth, asyncHandler(async (req, 
     res.json({ code, deepLink, botUsername: username || null, ttlMs: 600000 });
 }));
 
+app.get('/api/bot-info', (req, res) => {
+    const username = (process.env.TELEGRAM_BOT_USERNAME || '').trim();
+    res.json({
+        username: username || null,
+        link: username ? `https://t.me/${username}` : null
+    });
+});
+
 app.post('/api/telegram/webhook', asyncHandler(async (req, res) => {
     // Telegram sends the secret_token value as the
     // X-Telegram-Bot-Api-Secret-Token header on every delivery. We compare

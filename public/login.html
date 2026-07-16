@@ -511,5 +511,45 @@
             return false;
         };
     </script>
+    <a class="bot-fab" id="botFab" href="https://t.me/YourBot" target="_blank" rel="noopener noreferrer" aria-label="Open SaaS Proxy Bot on Telegram">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M21.198 2.433a2.242 2.242 0 0 0-2.252-.342c-.736.257-13.954 5.81-15.293 6.371-.585.246-.96.83-.945 1.452.014.622.42 1.183 1.018 1.4l3.685 1.32 1.443 4.65c.197.633.771.93 1.302.683l2.683-1.276 1.74 1.34c.196.155.45.235.715.235.139 0 .281-.026.418-.08.351-.13.59-.456.59-.83v-5.59l4.973-3.418c.6-.413.84-1.18.503-1.84zM9.91 13.838l-.395 3.992-2.621-3.732 9.446-5.3-6.43 5.04z"/></svg>
+        <span>SaaS Proxy Bot</span>
+    </a>
+    <style>
+        .bot-fab {
+            position: fixed;
+            right: 18px;
+            bottom: 18px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px 10px 12px;
+            background: #229ED9;
+            color: #fff;
+            border-radius: 999px;
+            font: 700 12px/1 'JetBrains Mono', ui-monospace, monospace;
+            text-decoration: none;
+            letter-spacing: 0.04em;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.08);
+            z-index: 9999;
+            transition: transform 140ms ease, filter 140ms ease;
+        }
+        .bot-fab:hover { filter: brightness(1.08); transform: translateY(-1px); }
+        .bot-fab:active { transform: translateY(0); }
+        .bot-fab svg { display: block; }
+        @media (max-width: 480px) {
+            .bot-fab { right: 12px; bottom: 12px; padding: 9px 12px 9px 10px; font-size: 11px; }
+        }
+    </style>
+    <script>
+        (async function () {
+            try {
+                const res = await fetch('/api/bot-info');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data && data.link) document.getElementById('botFab').href = data.link;
+            } catch (_) { /* keep placeholder */ }
+        })();
+    </script>
 </body>
 </html>
