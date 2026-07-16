@@ -15,7 +15,7 @@ const bcrypt = require('bcryptjs');
 const db = require('./db');
 
 // ---- Config / state ------------------------------------------------------
-const BOT_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+const BOT_TOKEN = (process.env.TELEGRAM_BOT_TOKEN2 || '').trim();
 const BOT_USERNAME = (process.env.TELEGRAM_BOT_USERNAME || '').trim();
 const WEBHOOK_SECRET = (process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
 const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || '').trim();
@@ -88,7 +88,7 @@ function esc(s) {
 // ---- Webhook setup -------------------------------------------------------
 async function setupWebhook() {
     if (!isBotEnabled()) {
-        console.warn('[Bot] TELEGRAM_BOT_TOKEN not set — bot disabled');
+        console.warn('[Bot] TELEGRAM_BOT_TOKEN2 not set — bot disabled');
         return false;
     }
     if (!PUBLIC_BASE_URL) {
