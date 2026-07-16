@@ -2131,15 +2131,6 @@
             }
         }
 
-        function esc(s) {
-            return String(s == null ? '' : s)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;');
-        }
-
-
         function showSection(id) {
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
 
