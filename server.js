@@ -11,6 +11,8 @@ const bcrypt = require('bcryptjs');
 const compression = require('compression');
 const db = require('./db');
 const bot = require('./bot');
+const fsSync = require('fs');
+const fsPromises = require('fs').promises;
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -88,17 +90,137 @@ app.use((req, res, next) => {
 
 app.use(compression());
 
+// ---------------------------------------------------------------------------
+// File-backed session store. Avoids the MemoryStore warning in production
+// (leaks memory, doesn't scale past a single process) without pulling in
+// Redis or sqlite. Sessions are JSON-serialized to disk with a debounced
+// flush after set/destroy. Cookie-only "touch" updates (from `rolling`) stay
+// in memory so the disk isn't hammered on every authenticated request.
+// ---------------------------------------------------------------------------
+const SESSION_STORE_DIR = fsSync.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
+const SESSIONS_FILE = path.join(SESSION_STORE_DIR, 'sessions.json');
+const SESSIONS_FILE_MAX_BYTES = 8 * 1024 * 1024; // refuse to load files > 8 MiB
+let _sessions = {};
+let _sessionsDirty = false;
+let _sessionsFlushTimer = null;
+
+function _loadSessionsSync() {
+    try {
+        const buf = fsSync.readFileSync(SESSIONS_FILE);
+        if (buf.length > SESSIONS_FILE_MAX_BYTES) return {};
+        const parsed = JSON.parse(buf.toString('utf8'));
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (_) {
+        return {};
+    }
+}
+function _saveSessionsSync() {
+    try {
+        const tmp = SESSIONS_FILE + '.tmp';
+        fsSync.writeFileSync(tmp, JSON.stringify(_sessions));
+        fsSync.renameSync(tmp, SESSIONS_FILE);
+        _sessionsDirty = false;
+    } catch (err) {
+        console.error('[Sessions] flush failed:', err.message);
+    }
+}
+function _scheduleFlush() {
+    if (_sessionsFlushTimer || !_sessionsDirty) return;
+    _sessionsFlushTimer = setTimeout(() => {
+        _sessionsFlushTimer = null;
+        if (_sessionsDirty) _saveSessionsSync();
+    }, 200);
+}
+function _pruneExpired() {
+    const now = Date.now();
+    let removed = false;
+    for (const sid of Object.keys(_sessions)) {
+        const s = _sessions[sid];
+        const exp = s && s.cookie && s.cookie.expires;
+        if (exp && new Date(exp).getTime() <= now) {
+            delete _sessions[sid];
+            removed = true;
+        }
+    }
+    if (removed) _sessionsDirty = true;
+}
+
+if (!fsSync.existsSync(SESSION_STORE_DIR)) {
+    try { fsSync.mkdirSync(SESSION_STORE_DIR, { recursive: true }); } catch (_) {}
+}
+if (!fsSync.existsSync(SESSIONS_FILE)) {
+    fsSync.writeFileSync(SESSIONS_FILE, '{}');
+} else {
+    _sessions = _loadSessionsSync();
+    _pruneExpired();
+    if (_sessionsDirty) _saveSessionsSync();
+}
+
+// Final flush on graceful shutdown so in-flight sessions are not lost.
+process.on('SIGTERM', () => {
+    if (_sessionsDirty) _saveSessionsSync();
+});
+process.on('SIGINT', () => {
+    if (_sessionsDirty) _saveSessionsSync();
+});
+
+class FileStore extends session.Store {
+    get(sid, fn) {
+        const s = _sessions[sid];
+        return fn(null, s ? Object.assign({}, s) : null);
+    }
+    set(sid, sess, fn) {
+        _sessions[sid] = Object.assign({}, sess);
+        _sessionsDirty = true;
+        _scheduleFlush();
+        return fn();
+    }
+    touch(sid, sess, fn) {
+        if (_sessions[sid] && sess && sess.cookie) {
+            // Cookie-only refresh (rolling session); don't churn the disk.
+            _sessions[sid].cookie = sess.cookie;
+        }
+        return fn();
+    }
+    destroy(sid, fn) {
+        if (_sessions[sid]) {
+            delete _sessions[sid];
+            _sessionsDirty = true;
+            _scheduleFlush();
+        }
+        return fn();
+    }
+    length(fn) {
+        return fn(null, Object.keys(_sessions).length);
+    }
+    clear(fn) {
+        _sessions = {};
+        _sessionsDirty = true;
+        _scheduleFlush();
+        return fn();
+    }
+    all(fn) {
+        const arr = Object.entries(_sessions).map(([id, sess]) => {
+            const out = { id };
+            Object.assign(out, sess);
+            return out;
+        });
+        return fn(null, arr);
+    }
+}
+
 app.use(session({
     name: 'sp.sid',
     secret: EFFECTIVE_SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     rolling: true,
+    store: new FileStore(),
     cookie: {
         httpOnly: true,
         secure: IS_PROD,
         sameSite: 'lax',
-        maxAge: 8 * 60 * 60 * 1000,    // 8h instead of 24h
+        maxAge: 10 * 60 * 1000,    // 10-min idle timeout; `rolling` resets on every authed request
         path: '/'
     }
 }));
@@ -605,7 +727,7 @@ app.post('/api/logout', (req, res) => {
             console.error('[Logout] Error destroying session:', err);
             return res.status(500).json({ error: 'Logout failed' });
         }
-        res.clearCookie('connect.sid'); // Clear the session cookie
+        res.clearCookie('sp.sid'); // Clear the session cookie (must match session({ name: 'sp.sid' }))
         res.json({ message: 'Logged out' });
     });
 });
@@ -1501,12 +1623,8 @@ async function handleRedirection(user, req, res, linkData) {
 }
 
 // --- Newsletter (admin-authored broadcast shown on user dashboard) ---
-const fsPromises = require('fs').promises;
-const fsSync = require('fs');
-const NEWSLETTER_DATA_DIR = fsSync.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
-if (!fsSync.existsSync(NEWSLETTER_DATA_DIR)) {
-    try { fsSync.mkdirSync(NEWSLETTER_DATA_DIR, { recursive: true }); } catch (_) {}
-}
+// (fsSync / fsPromises are required at the top of this file.)
+const NEWSLETTER_DATA_DIR = SESSION_STORE_DIR;
 const NEWSLETTER_FILE = path.join(NEWSLETTER_DATA_DIR, 'newsletter.json');
 
 async function readNewsletter() {
