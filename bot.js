@@ -85,6 +85,19 @@ function esc(s) {
         .replace(/>/g, '&gt;');
 }
 
+// Same safety check the server uses. Bot commands would otherwise bypass it.
+function isSafeHttpUrl(raw) {
+    if (raw == null || raw === '') return false;
+    if (typeof raw !== 'string') return false;
+    if (raw.length > 2048) return false;
+    try {
+        const u = new URL(raw);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+        if (!u.hostname || !u.hostname.includes('.')) return false;
+        return true;
+    } catch (_) { return false; }
+}
+
 // ---- Webhook setup -------------------------------------------------------
 async function setupWebhook() {
     if (!isBotEnabled()) {
@@ -466,6 +479,12 @@ async function cmdNewLink(chatId, user, args) {
     const price = PRICES[duration];
     if (!price) return reply(chatId, '⚠️ Invalid duration. Use 3days / 1week / 2weeks / month.');
     if (!name || !realLink || !nonRealLink) return reply(chatId, '⚠️ name, realUrl and safeUrl are all required.');
+    if (typeof name !== 'string' || name.length === 0 || name.length > 80) return reply(chatId, '⚠️ name must be 1–80 chars.');
+    // Block javascript:, data:, vbscript:, file: and other non-http(s) URLs
+    // that would execute via the redirect endpoint for the next visitor.
+    if (!isSafeHttpUrl(realLink) || !isSafeHttpUrl(nonRealLink)) {
+        return reply(chatId, '⚠️ realUrl / safeUrl must be absolute http(s) URLs.');
+    }
     if (slug && !/^[a-zA-Z0-9-]+$/.test(slug)) return reply(chatId, '⚠️ Slug may only contain letters, numbers and dashes.');
     if ((user.wallet || 0) < price) return reply(chatId, `❌ Need $${price.toFixed(2)}, balance $${Number(user.wallet || 0).toFixed(2)}.`);
 
@@ -635,14 +654,22 @@ async function cmdSetSetting(chatId, user, args) {
     } else if (listKeys.has(key)) {
         settings[key] = value.split(',').map(s => s.trim()).filter(Boolean);
     } else if (key === 'depositSendAddress') {
-        if (value && !/^T[A-Za-z1-9]{33}$/.test(value)) {
+        const v = (value || '').trim();
+        if (v && !/^T[A-Za-z1-9]{33}$/.test(v)) {
             return reply(chatId, '⚠️ Invalid TRC20 address (must start with T and be 34 chars).');
         }
-        settings[key] = value;
+        settings[key] = v;
+    } else if (key === 'realLink' || key === 'nonRealLink') {
+        if (value && !isSafeHttpUrl(value)) {
+            return reply(chatId, '⚠️ Must be an absolute http(s) URL.');
+        }
+        settings[key] = (value || '').trim();
     } else if (key === 'botToken') {
-        settings[key] = value;
+        if (value && value.length > 256) return reply(chatId, '⚠️ botToken too long.');
+        settings[key] = (value || '').trim();
     } else if (key === 'chatId') {
-        settings[key] = value;
+        if (value && !/^-?\d+$/.test(value.trim())) return reply(chatId, '⚠️ chatId must be numeric.');
+        settings[key] = (value || '').trim();
     } else {
         return reply(chatId, `⚠️ Unknown or read-only setting. Mutable keys: antiRed, ispFilter, reallowVisited, mobileIsps, depositSendAddress, botToken, chatId, nonRealLink, realLink.`);
     }

@@ -39,7 +39,15 @@ ensureFile(ADMIN_BLOCKS_FILE, { ips: [], isps: [], countries: [] });
 function safeParseLimited(buf, fallback, maxBytes) {
     if (!buf || buf.length > maxBytes) return fallback;
     try {
-        const parsed = JSON.parse(buf);
+        // `__proto__` is the canonical prototype-pollution sink. JSON.parse
+        // (without reviver) sets it as an own data property which can leak
+        // through spread into Object.prototype. Drop those keys explicitly.
+        const parsed = JSON.parse(buf, (key, value) => {
+            if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
+                return undefined;
+            }
+            return value;
+        });
         return parsed == null || typeof parsed !== 'object' ? fallback : parsed;
     } catch (_) { return fallback; }
 }

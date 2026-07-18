@@ -64,19 +64,47 @@ app.set('trust proxy', 1);
 
 // Strict HTTPS-aware helmet defaults. CSP stays off because the app uses
 // inline <script> blocks; instead we depend on input validation + cookie
-// hardening on the server side.
+// hardening on the server side. In production we also enable HSTS with
+// includeSubDomains so accidental HTTP downgrades never re-expose cookies,
+// plus Permissions-Policy that disables powerful features the app never
+// needs (camera/mic/geolocation/payment/USB/etc.).
 app.use(helmet({
     contentSecurityPolicy: false,
     referrerPolicy: { policy: 'no-referrer' },
     crossOriginOpenerPolicy: { policy: 'same-origin' },
     crossOriginResourcePolicy: { policy: 'same-origin' },
-    frameguard: { action: 'deny' }
+    frameguard: { action: 'deny' },
+    hsts: IS_PROD ? {
+        maxAge: 63072000,            // 2 years
+        includeSubDomains: true,
+        preload: true
+    } : false,
+    permittedCrossDomainPolicies: { permittedPolicies: 'none' },
+    noSniff: true,
+    xssFilter: true
 }));
+app.use((req, res, next) => {
+    res.setHeader('Permissions-Policy',
+        'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), ' +
+        'microphone=(), payment=(), usb=(), interest-cohort=()');
+    next();
+});
 app.disable('x-powered-by');
 
 // Limit request body size — the largest expected payload is the blocklist
 // bulk import (1000 rows). Anything bigger is an attack.
-app.use(express.json({ limit: '64kb' }));
+app.use(express.json({
+    limit: '64kb',
+    // Strip prototype-pollution-prone keys during body parse so a malicious
+    // `__proto__` / `constructor` block cannot hijack default prototypes on
+    // the host after db.updateUser does `{ ...prev, ...updates }`.
+    reviver: (key, value) => {
+        if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
+            return undefined;
+        }
+        return value;
+    }
+}));
 app.use(cookieParser());
 
 // Tiny allowlist of static asset paths to log; everything else is silenced
@@ -84,6 +112,44 @@ app.use(cookieParser());
 app.use((req, res, next) => {
     if (!req.url.startsWith('/l/') && !req.url.startsWith('/api/')) {
         console.log(`[Request] ${req.method} ${req.url}`);
+    }
+    next();
+});
+
+// CSRF defense-in-depth on top of `sameSite=lax`: state-changing /api
+// requests must come from an Origin / Referer we host. The Telegram webhook
+// is exempt because it's server-to-server and already protected by the
+// X-Telegram-Bot-Api-Secret-Token header (and the safe-parser below).
+app.use((req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+    if (!req.path.startsWith('/api/')) return next();
+    if (req.path === '/api/telegram/webhook') return next();
+
+    const origin = req.headers['origin'];
+    const referer = req.headers['referer'] || req.headers['referrer'];
+    const secFetchSite = req.headers['sec-fetch-site'];
+    const expectedHost = req.headers['host'];
+
+    const safeUrls = new Set(['http:', 'https:']);
+    const matches = (val) => {
+        if (typeof val !== 'string' || !val) return false;
+        try {
+            const u = new URL(val);
+            if (!safeUrls.has(u.protocol)) return false;
+            return u.host === expectedHost;
+        } catch (_) { return false; }
+    };
+
+    const originOk = matches(origin) || matches(referer);
+    const fetchMetadataOk = secFetchSite === 'same-origin' || secFetchSite === 'none';
+
+    if (!originOk && !fetchMetadataOk) {
+        if (IS_PROD) {
+            console.warn(`[CSRF] Blocked ${req.method} ${req.path} from origin=${origin || referer || '<none>'} sec-fetch-site=${secFetchSite || '<none>'} (host=${expectedHost})`);
+            return res.status(403).json({ error: 'CROSS_ORIGIN_BLOCKED' });
+        }
+        // In development we still let it through so curl / Postman / smoke
+        // tests can exercise the API without spoofing headers.
     }
     next();
 });
@@ -319,6 +385,20 @@ function getClientCountry(req) {
     return cf || null;
 }
 
+// URL allowlist: only http(s) targets (no javascript:, data:, vbscript:,
+// file:, etc.) so a compromised authenticated user can't plant an XSS
+// payload that the redirect endpoint then executes for the next visitor.
+function isSafeHttpUrl(raw, { allowEmpty = true } = {}) {
+    if (raw == null || raw === '') return !!allowEmpty;
+    if (typeof raw !== 'string') return false;
+    if (raw.length > 2048) return false;
+    let u;
+    try { u = new URL(raw); } catch (_) { return false; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    if (!u.hostname || !u.hostname.includes('.')) return false;
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Rate limiting + brute-force guards.
 // express-rate-limit handles per-IP windows; per-account lockouts hash out the
@@ -355,6 +435,24 @@ const redirectLimiter = rateLimit({
     legacyHeaders: false,
     keyGenerator: ipKey,
     message: { error: 'Quota exceeded for redirects.' }
+});
+// Generic API throttle: signup / settings / payments / links / IP block ops.
+// Heavy endpoints (login, /l/, /api/admin/*) have their own rateLimiters.
+const apiLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: ipKey,
+    message: { error: 'Too many API calls. Slow down.' }
+});
+const signupLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: ipKey,
+    message: { error: 'Too many signup attempts from this IP. Try again later.' }
 });
 
 // Wrap requireAdmin to also apply adminLimiter (per-IP throttle for /api/admin/*).
@@ -642,7 +740,7 @@ app.get('/api/admin/stats', requireAdmin, asyncHandler(async (req, res) => {
 }));
 
 // --- Auth Routes ---
-app.post('/api/signup', asyncHandler(async (req, res) => {
+app.post('/api/signup', signupLimiter, asyncHandler(async (req, res) => {
     const { password } = req.body || {};
     const requestedUsername = db.normalizeUsername(req.body.username);
     const rawEmail = (req.body && req.body.email) ? String(req.body.email).trim().toLowerCase() : '';
@@ -716,6 +814,11 @@ app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
         return res.status(401).json({ error: 'Invalid credentials' });
     }
     LOGIN_LOCKOUTS.delete(bucketKey);
+    // Regenerate the session ID on privilege change so a pre-login session
+    // cookie cannot be reused by an attacker as a "fixated" authed session.
+    await new Promise((resolve, reject) => {
+        req.session.regenerate((err) => err ? reject(err) : resolve());
+    });
     req.session.userId = user.id;
     const country = getClientCountry(req);
     const history = Array.isArray(user.loginHistory) ? user.loginHistory.slice(-49) : [];
@@ -747,11 +850,30 @@ app.get('/api/user', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 // --- Settings & Wallet Routes ---
-app.post('/api/settings', requireAuth, asyncHandler(async (req, res) => {
-    const body = { ...req.body };
+const SETTINGS_ALLOWED_KEYS = new Set([
+    'depositSendAddress',
+    'realLink',
+    'nonRealLink',
+    'antiRed',
+    'ispFilter',
+    'reallowVisited',
+    'mobileIsps',
+    'botToken',
+    'chatId'
+]);
+const SETTINGS_BOOLEAN_KEYS = new Set(['antiRed', 'ispFilter', 'reallowVisited']);
+const SETTINGS_LIST_KEYS = new Set(['mobileIsps']);
+
+app.post('/api/settings', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
+    // Mass-assignment protection: drop any keys the user has no business
+    // setting (lets them set anything that lands in the user record).
+    const body = {};
+    for (const k of Object.keys(req.body || {})) {
+        if (SETTINGS_ALLOWED_KEYS.has(k)) body[k] = req.body[k];
+    }
     let addressChanged = false;
     if ('depositSendAddress' in body) {
-        const addr = (body.depositSendAddress || '').trim();
+        const addr = (typeof body.depositSendAddress === 'string' ? body.depositSendAddress : '').trim();
         if (addr && !/^T[A-Za-z1-9]{33}$/.test(addr)) {
             return res.status(400).json({ error: 'Invalid TRC20 sender address (must start the T and be 34 chars)' });
         }
@@ -759,6 +881,44 @@ app.post('/api/settings', requireAuth, asyncHandler(async (req, res) => {
         addressChanged = prev !== addr;
         body.depositSendAddress = addr;
     }
+    for (const k of ['realLink', 'nonRealLink']) {
+        if (k in body) {
+            const v = (typeof body[k] === 'string' ? body[k] : '').trim();
+            if (!isSafeHttpUrl(v, { allowEmpty: true })) {
+                return res.status(400).json({ error: `INVALID_${k.toUpperCase()}` });
+            }
+            body[k] = v;
+        }
+    }
+    for (const k of SETTINGS_BOOLEAN_KEYS) {
+        if (k in body) {
+            if (typeof body[k] !== 'boolean') {
+                return res.status(400).json({ error: `${k}_MUST_BE_BOOLEAN` });
+            }
+        }
+    }
+    for (const k of SETTINGS_LIST_KEYS) {
+        if (k in body) {
+            if (!Array.isArray(body[k]) || body[k].some(v => typeof v !== 'string')) {
+                return res.status(400).json({ error: `${k}_MUST_BE_STRING_ARRAY` });
+            }
+            body[k] = body[k].map(s => String(s).trim()).filter(Boolean).slice(0, 64);
+            if (body[k].some(v => v.length > 40)) {
+                return res.status(400).json({ error: `${k}_ENTRY_TOO_LONG` });
+            }
+        }
+    }
+    if ('botToken' in body) {
+        if (typeof body.botToken !== 'string') return res.status(400).json({ error: 'BOT_TOKEN_INVALID' });
+        if (body.botToken.length > 256) return res.status(400).json({ error: 'BOT_TOKEN_TOO_LONG' });
+        body.botToken = body.botToken.trim();
+    }
+    if ('chatId' in body) {
+        if (typeof body.chatId !== 'string') return res.status(400).json({ error: 'CHAT_ID_INVALID' });
+        if (!/^-?\d+$/.test(body.chatId.trim())) return res.status(400).json({ error: 'CHAT_ID_INVALID' });
+        body.chatId = body.chatId.trim();
+    }
+
     const updatedUser = await db.updateUser(req.user.id, {
         settings: { ...req.user.settings, ...body }
     });
@@ -775,7 +935,7 @@ app.post('/api/settings', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 // --- Profile / Password Routes ---
-app.post('/api/profile/update', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/profile/update', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { currentPassword, newPassword } = req.body || {};
     if (!currentPassword || !(await bcrypt.compare(currentPassword, req.user.password))) {
         return res.status(401).json({ error: 'Current password is incorrect' });
@@ -878,7 +1038,7 @@ function trackProcessedHash(hash) {
             if (value !== undefined) processedTxHashes.delete(value);
         }
     }
-    trackProcessedHash(hash);
+    processedTxHashes.add(hash);
 }
 
 app.get('/api/payments/info', (req, res) => {
@@ -892,7 +1052,7 @@ app.get('/api/payments/info', (req, res) => {
     });
 });
 
-app.post('/api/payments/submit', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/payments/submit', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { amount, txHash } = req.body;
     const amt = parseFloat(amount);
     if (!amt || amt <= 0 || !isFinite(amt)) {
@@ -1195,15 +1355,18 @@ if (bot.isBotEnabled()) {
 }
 
 
-app.post('/api/forced-ips', requireAuth, asyncHandler(async (req, res) => {
-    const { ip } = req.body;
-    if (!req.user.forcedIps.includes(ip)) {
-        await db.updateUser(req.user.id, { forcedIps: [...req.user.forcedIps, ip] });
+app.post('/api/forced-ips', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
+    const ip = typeof req.body.ip === 'string' ? req.body.ip.trim() : '';
+    if (!db.ipRuleKind(ip)) {
+        return res.status(400).json({ error: 'INVALID_IP_FORMAT (use exact v4/v6, wildcard, or CIDR)' });
+    }
+    if (!(req.user.forcedIps || []).includes(ip)) {
+        await db.updateUser(req.user.id, { forcedIps: [...(req.user.forcedIps || []), ip] });
     }
     res.json({ message: 'IP added' });
 }));
 
-app.post('/api/blocked-ips', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/blocked-ips', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { ip } = req.body;
     if (!ip || !/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) {
         return res.status(400).json({ error: 'Invalid IP format' });
@@ -1239,20 +1402,31 @@ async function findActiveConflict(slug, excludeUserId) {
     return null;
 }
 
-app.post('/api/links', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, duration } = req.body;
-    
+
     const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
     const price = prices[duration];
 
     if (!price) return res.status(400).json({ error: 'Invalid duration selected' });
 
-    if (req.user.wallet < price) {
-        return res.status(400).json({ error: `Insufficient credits. This plan requires $${price.toFixed(2)}.` });
-    }
-
     if (!name || !realLink || !nonRealLink) {
         return res.status(400).json({ error: 'Name, Real Link, and Safe Link are required' });
+    }
+    if (typeof name !== 'string' || name.trim().length === 0 || name.length > 80) {
+        return res.status(400).json({ error: 'INVALID_NAME' });
+    }
+    if (!isSafeHttpUrl(realLink, { allowEmpty: false })) {
+        return res.status(400).json({ error: 'INVALID_REALLINK' });
+    }
+    if (!isSafeHttpUrl(nonRealLink, { allowEmpty: false })) {
+        return res.status(400).json({ error: 'INVALID_NONREALLINK' });
+    }
+
+    const fresh = await db.findUserById(req.user.id);
+    if (!fresh) return res.status(401).json({ error: 'Unauthorized' });
+    if (fresh.wallet < price) {
+        return res.status(400).json({ error: `Insufficient credits. This plan requires $${price.toFixed(2)}.` });
     }
 
     const newSlug = slug || require('crypto').randomBytes(4).toString('hex');
@@ -1311,12 +1485,21 @@ app.delete('/api/links/:slug', requireAuth, asyncHandler(async (req, res) => {
     res.json({ message: 'Link deleted' });
 }));
 
-app.put('/api/links/:oldSlug', requireAuth, asyncHandler(async (req, res) => {
+app.put('/api/links/:oldSlug', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { oldSlug } = req.params;
     const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited } = req.body;
 
     if (!name || !realLink || !nonRealLink) {
         return res.status(400).json({ error: 'Name, Real Link, and Safe Link are required' });
+    }
+    if (typeof name !== 'string' || name.length > 80) {
+        return res.status(400).json({ error: 'INVALID_NAME' });
+    }
+    if (!isSafeHttpUrl(realLink, { allowEmpty: false })) {
+        return res.status(400).json({ error: 'INVALID_REALLINK' });
+    }
+    if (!isSafeHttpUrl(nonRealLink, { allowEmpty: false })) {
+        return res.status(400).json({ error: 'INVALID_NONREALLINK' });
     }
 
     const newSlug = slug || oldSlug;
@@ -1366,14 +1549,18 @@ app.delete('/api/blocked-ips/:ip', requireAuth, asyncHandler(async (req, res) =>
     res.json({ message: 'IP unblocked' });
 }));
 
-app.post('/api/renew-link', requireAuth, asyncHandler(async (req, res) => {
+app.post('/api/renew-link', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { slug, duration } = req.body;
     const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
     const price = prices[duration];
 
     if (!price) return res.status(400).json({ error: 'Invalid duration selected' });
 
-    if (req.user.wallet < price) {
+    // Re-read wallet from disk so two requests racing each other can't both
+    // pass a stale balance check.
+    const freshUser = await db.findUserById(req.user.id);
+    if (!freshUser) return res.status(401).json({ error: 'Unauthorized' });
+    if (freshUser.wallet < price) {
         return res.status(400).json({ error: `Insufficient credits. This plan requires $${price.toFixed(2)}.` });
     }
 
@@ -1403,7 +1590,7 @@ app.post('/api/renew-link', requireAuth, asyncHandler(async (req, res) => {
     links[index].expiryDate = expiry.toISOString();
 
     const updatedUser = await db.updateUser(req.user.id, {
-        wallet: req.user.wallet - price,
+        wallet: freshUser.wallet - price,
         links: links
     });
 
@@ -1628,6 +1815,12 @@ async function handleRedirection(user, req, res, linkData) {
     }
 
     if (!targetUrl) return res.send("Configuration missing for links.");
+    // Final safety net: even if a bad URL sneaked into the user record before
+    // these validations landed, refuse to follow schemes other than http(s).
+    if (!isSafeHttpUrl(targetUrl, { allowEmpty: false })) {
+        console.warn(`[Proxy] Refused unsafe redirect target for user ${user.id}: ${String(targetUrl).slice(0, 80)}`);
+        return res.status(500).send('Configuration missing for links.');
+    }
     res.redirect(targetUrl);
 }
 
@@ -1660,8 +1853,9 @@ async function writeNewsletter(payload) {
     return record;
 }
 
-// Public: any logged-in client can read the current broadcast.
-app.get('/api/newsletter', asyncHandler(async (req, res) => {
+// Authenticated users only — broadcasts can carry admin-authored narrative
+// we don't want to leak to anonymous scrapers / attackers.
+app.get('/api/newsletter', requireAuth, asyncHandler(async (req, res) => {
     const data = await readNewsletter();
     res.json(data);
 }));
@@ -1732,8 +1926,10 @@ async function writeAntiredDomains(list) {
     return record;
 }
 
-// Public: any client can read the pool so it can render public AntiRed URLs.
-app.get('/api/antired-domains', asyncHandler(async (req, res) => {
+// Authenticated users only — the domain pool is operational infrastructure
+// we don't want to leak to anonymous scrapers. The dashboard fronts the
+// pool so logged-in users still get rotation URLs.
+app.get('/api/antired-domains', requireAuth, asyncHandler(async (req, res) => {
     const data = await readAntiredDomains();
     res.json(data);
 }));
