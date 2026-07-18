@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="SaaS Proxy">
+  <rect x="2" y="2" width="60" height="60" rx="12" fill="#0d1016" stroke="#262d3a" stroke-width="1.5"/>
+  <path d="M 14 22 L 46 22" stroke="#7be0a4" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <path d="M 38 15 L 46 22 L 38 29" stroke="#7be0a4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M 50 42 L 18 42" stroke="#7be0a4" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <path d="M 26 35 L 18 42 L 26 49" stroke="#7be0a4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>
