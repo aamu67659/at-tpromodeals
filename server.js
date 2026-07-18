@@ -645,18 +645,26 @@ app.get('/api/admin/stats', requireAdmin, asyncHandler(async (req, res) => {
 app.post('/api/signup', asyncHandler(async (req, res) => {
     const { password } = req.body || {};
     const requestedUsername = db.normalizeUsername(req.body.username);
+    const rawEmail = (req.body && req.body.email) ? String(req.body.email).trim().toLowerCase() : '';
     const name = (req.body && req.body.name) ? String(req.body.name).trim() : requestedUsername;
 
-    if (!requestedUsername || !password) {
-        return res.status(400).json({ error: 'Username and password are required' });
+    if (!requestedUsername || !password || !rawEmail) {
+        return res.status(400).json({ error: 'Username, email and password are required' });
     }
     if (!db.isValidUsername(requestedUsername)) {
         return res.status(400).json({
             error: 'Username must be 3-20 chars, lowercase letters / digits / . _ - only, and not reserved'
         });
     }
+    const basicEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!basicEmail.test(rawEmail) || rawEmail.length > 120) {
+        return res.status(400).json({ error: 'Invalid email address' });
+    }
     if (await db.isUsernameTaken(requestedUsername)) {
         return res.status(400).json({ error: 'Username already taken' });
+    }
+    if (await db.findUserByEmail(rawEmail)) {
+        return res.status(400).json({ error: 'Email already registered' });
     }
     if (password.length < 6) {
         return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -666,9 +674,10 @@ app.post('/api/signup', asyncHandler(async (req, res) => {
     const user = await db.createUser({
         name,
         username: requestedUsername,
+        email: rawEmail,
         password: hashedPassword
     });
-    console.log(`[Signup] New user registered: @${requestedUsername}`);
+    console.log(`[Signup] New user registered: @${requestedUsername} <${rawEmail}>`);
     res.json({ message: 'Signup successful', username: requestedUsername });
 }));
 

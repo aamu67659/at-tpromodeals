@@ -305,6 +305,13 @@
                     </div>
                 </div>
                 <div class="form-group">
+                    <label>COMMS_CHANNEL_EMAIL</label>
+                    <div class="input-wrapper">
+                        <input type="email" id="email" required spellcheck="false" autocomplete="email" autocapitalize="off" inputmode="email" maxlength="120" placeholder="operative@example.com">
+                    </div>
+                    <div class="error-msg" id="email-error"></div>
+                </div>
+                <div class="form-group">
                     <label>CALLSIGN_USERNAME</label>
                     <div class="input-wrapper">
                         <input type="text" id="username" required spellcheck="false" autocomplete="off" autocapitalize="off" minlength="3" maxlength="20" pattern="[a-z0-9]([a-z0-9._-]*[a-z0-9])?" placeholder="login handle">
@@ -481,8 +488,19 @@
         document.getElementById('signupForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const name = document.getElementById('name').value.trim();
+            const emailRaw = document.getElementById('email').value.trim();
             const usernameRaw = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
+
+            const emailError = document.getElementById('email-error');
+            const basicEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!basicEmail.test(emailRaw)) {
+                emailError.textContent = '!! INVALID_COMMS_FORMAT';
+                emailError.style.display = 'block';
+                return;
+            }
+            emailError.style.display = 'none';
+            const email = emailRaw.toLowerCase();
 
             // Show deployment overlay
             const overlay = document.getElementById('deployment-overlay');
@@ -503,7 +521,7 @@
                 const res = await fetch('/api/signup', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, username: usernameRaw, password })
+                    body: JSON.stringify({ name, email, username: usernameRaw, password })
                 });
 
                 const data = await res.json();
