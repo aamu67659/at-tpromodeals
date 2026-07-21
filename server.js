@@ -286,7 +286,7 @@ app.use(session({
         httpOnly: true,
         secure: IS_PROD,
         sameSite: 'lax',
-        maxAge: 10 * 60 * 1000,    // 10-min idle timeout; `rolling` resets on every authed request
+        maxAge: 30 * 60 * 1000,    // 30-min idle timeout; `rolling` resets on every authed request
         path: '/'
     }
 }));

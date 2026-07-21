@@ -881,6 +881,23 @@
             location.reload();
         }
 
+        let inactivityTimeout;
+        function resetInactivityTimer() {
+            clearTimeout(inactivityTimeout);
+            const delay = 30 * 60 * 1000;
+            // Only track inactivity if the user is actually logged in
+            if (currentToken || localStorage.getItem('adminToken')) {
+                inactivityTimeout = setTimeout(() => {
+                    console.log('[Admin] Session expired due to inactivity');
+                    logout();
+                }, delay);
+            }
+        }
+        ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(name => {
+            document.addEventListener(name, resetInactivityTimer, true);
+        });
+        resetInactivityTimer();
+
         async function loadUsers() {
             const tokenInput = document.getElementById('adminToken').value;
             const token = tokenInput || localStorage.getItem('adminToken');
@@ -893,6 +910,7 @@
             if (res.ok) {
                 currentToken = token;
                 localStorage.setItem('adminToken', token);
+                resetInactivityTimer();
                 document.getElementById('loginSection').style.display = 'none';
                 document.getElementById('adminSection').style.display = 'block';
 
