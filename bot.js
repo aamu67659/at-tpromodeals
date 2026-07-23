@@ -800,8 +800,9 @@ async function cmdAdminAntired(_chatId, args) {
     if (!args.length) return reply(_chatId, 'Usage: <code>/admin_antired &lt;host1&gt;,&lt;host2&gt;,…</code> (≥4 hosts)');
     const hosts = Array.from(new Set(args.join(',').split(',').map(s => s.trim()).filter(Boolean)));
     if (hosts.length < 4) return reply(_chatId, '⚠️ Need at least 4 hosts.');
-    if ((process.env.ANTIRED_DOMAINS || '').trim().length > 0) {
-        return reply(_chatId, '⚠️ ANTIRED_DOMAINS is set via env — update the host env instead.');
+    const envKey = process.env.ANTIRED_ROTATOR_DOMAINS ? 'ANTIRED_ROTATOR_DOMAINS' : 'ANTIRED_DOMAINS';
+    if ((process.env[envKey] || '').trim().length > 0) {
+        return reply(_chatId, `⚠️ ${envKey} is set via env — update the host env instead.`);
     }
     const fs = require('fs').promises;
     const path = require('path');

@@ -1900,14 +1900,15 @@ function normalizeAntiredHosts(items) {
 }
 
 function getEnvAntiredDomains() {
-    const raw = (process.env.ANTIRED_DOMAINS || '');
+    const raw = (process.env.ANTIRED_ROTATOR_DOMAINS || process.env.ANTIRED_DOMAINS || '');
     return normalizeAntiredHosts(raw.split(','));
 }
 
 async function readAntiredDomains() {
     const envList = getEnvAntiredDomains();
     if (envList.length > 0) {
-        return { domains: envList, updatedAt: null, source: 'env', envKey: 'ANTIRED_DOMAINS' };
+        const envKey = process.env.ANTIRED_ROTATOR_DOMAINS ? 'ANTIRED_ROTATOR_DOMAINS' : 'ANTIRED_DOMAINS';
+        return { domains: envList, updatedAt: null, source: 'env', envKey };
     }
     try {
         const raw = await fsPromises.readFile(ANTIRED_DOMAINS_FILE, 'utf8');
@@ -1937,10 +1938,12 @@ app.get('/api/antired-domains', requireAuth, asyncHandler(async (req, res) => {
 // Admin only: replace the pool entirely with the supplied list.
 // Refused (HTTP 409) while the host environment is driving the pool.
 app.post('/api/admin/antired-domains', requireAdmin, asyncHandler(async (req, res) => {
-    if (getEnvAntiredDomains().length > 0) {
+    const envList = getEnvAntiredDomains();
+    if (envList.length > 0) {
+        const envKey = process.env.ANTIRED_ROTATOR_DOMAINS ? 'ANTIRED_ROTATOR_DOMAINS' : 'ANTIRED_DOMAINS';
         return res.status(409).json({
             error: 'ANTIRED_DOMAINS_SET_VIA_ENV',
-            message: 'ANTIRED_DOMAINS is configured via the host environment. Update the env on the host (e.g. ANTIRED_DOMAINS="https://rot1.example.com,https://rot2.example.com,...") and restart the server.'
+            message: `${envKey} is configured via the host environment. Update the env on the host (e.g. ${envKey}="https://rot1.example.com,https://rot2.example.com,...") and restart the server.`
         });
     }
     const incoming = Array.isArray(req.body && req.body.domains) ? req.body.domains : null;
@@ -1952,7 +1955,9 @@ app.post('/api/admin/antired-domains', requireAdmin, asyncHandler(async (req, re
     res.json({ ok: true, ...saved, source: 'admin' });
 }));
 
-console.log(`[Antired] Domain pool source: ${getEnvAntiredDomains().length > 0 ? 'ENV (ANTIRED_DOMAINS, ' + getEnvAntiredDomains().length + ' hosts)' : 'admin file'}`);
+const bootEnvList = getEnvAntiredDomains();
+const bootEnvKey = process.env.ANTIRED_ROTATOR_DOMAINS ? 'ANTIRED_ROTATOR_DOMAINS' : 'ANTIRED_DOMAINS';
+console.log(`[Antired] Domain pool source: ${bootEnvList.length > 0 ? 'ENV (' + bootEnvKey + ', ' + bootEnvList.length + ' hosts)' : 'admin file'}`);
 
 // --- Admin-level blocklists (IP / ISP / Country) ---
 // Site-wide rules applied to /l/:slug regardless of which user's link was hit.
