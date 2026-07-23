@@ -1010,6 +1010,21 @@
                 </div>
             </div>
 
+            <div id="bulkLinkSection" style="background: var(--bg-elevated); padding: 20px; border: 1px solid var(--border); margin-bottom: 25px;">
+                <h3 style="margin-top: 0; font-size: 14px; text-transform: uppercase;">BULK_LINK_CREATOR</h3>
+                <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">Paste one link per line. Format: <code>NAME, REAL_URL, SAFE_URL, SLUG(optional)</code>. Max 50 per submission.</p>
+                
+                <div class="form-group">
+                    <label>BULK_DATA_ENTRY</label>
+                    <textarea id="bulkLinkText" rows="6" placeholder="target1, https://real1.com, https://safe1.com, slug1&#10;target2, https://real2.com, https://safe2.com" style="font-family: var(--font-mono); font-size: 12px;"></textarea>
+                </div>
+
+                <div style="display: flex; gap: 15px; align-items: center;">
+                    <button onclick="createBulkLinks()">[ DEPLOY_BULK_POOL ]</button>
+                    <span id="bulkStatus" style="font-size: 11px; color: var(--text-muted);"></span>
+                </div>
+            </div>
+
             <div class="table-container">
                 <table id="linksTable" class="hide-on-mobile">
                     <thead>
@@ -1609,6 +1624,54 @@
             } else {
                 const data = await res.json();
                 alert('!! ERROR: ' + data.error);
+            }
+        }
+
+        async function createBulkLinks() {
+            const text = document.getElementById('bulkLinkText').value.trim();
+            const duration = document.getElementById('planDuration').value;
+            const antiRed = document.getElementById('newAntiRed').checked;
+            const ispFilter = document.getElementById('newIspFilter').checked;
+            const mobileIsps = getNewLinkSelectedIsps();
+            const reallowVisited = document.getElementById('newReallowVisited').checked;
+            const statusEl = document.getElementById('bulkStatus');
+
+            if (!text) {
+                alert('!! ERROR: BULK_DATA_REQUIRED');
+                return;
+            }
+
+            statusEl.innerText = 'PROCESSING_BULK_POOL...';
+            statusEl.style.color = 'var(--warning)';
+
+            try {
+                const res = await fetch('/api/links/bulk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text, duration, antiRed, ispFilter, mobileIsps, reallowVisited })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    document.getElementById('bulkLinkText').value = '';
+                    statusEl.innerText = `SUCCESS :: ${data.count} UPLINKS DEPLOYED`;
+                    statusEl.style.color = 'var(--accent)';
+                    loadData();
+                    if (data.errors && data.errors.length > 0) {
+                        console.warn('Bulk partial errors:', data.errors);
+                        alert(`DEPLOY_COMPLETE :: ${data.count} success, ${data.errors.length} skipped. Check console for details.`);
+                    } else {
+                        alert(`BULK_DEPLOY_SUCCESS :: ${data.count} UPLINKS ONLINE`);
+                    }
+                } else {
+                    statusEl.innerText = 'FAILED :: ' + (data.error || 'SERVER_ERROR');
+                    statusEl.style.color = 'var(--danger)';
+                    alert('!! BULK_ERROR: ' + (data.error || 'Check input format'));
+                }
+            } catch (e) {
+                statusEl.innerText = '!! NETWORK_ERROR';
+                statusEl.style.color = 'var(--danger)';
+                alert('!! ERROR: ' + e.message);
             }
         }
 

@@ -1469,6 +1469,104 @@ app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) =>
     res.json({ ...newLink, balance: updatedUser.wallet });
 }));
 
+app.post('/api/links/bulk', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
+    const { text, duration, antiRed, ispFilter, mobileIsps, reallowVisited } = req.body;
+
+    const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
+    const pricePerUnit = prices[duration];
+
+    if (!pricePerUnit) return res.status(400).json({ error: 'Invalid duration selected' });
+    if (!text || typeof text !== 'string') return res.status(400).json({ error: 'Input text is required' });
+
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('#'));
+    if (lines.length === 0) return res.status(400).json({ error: 'No valid lines provided' });
+    if (lines.length > 50) return res.status(400).json({ error: 'Bulk limit is 50 links per submission' });
+
+    const fresh = await db.findUserById(req.user.id);
+    if (!fresh) return res.status(401).json({ error: 'Unauthorized' });
+
+    const totalPrice = lines.length * pricePerUnit;
+    if (fresh.wallet < totalPrice) {
+        return res.status(400).json({ error: `Insufficient credits. Need $${totalPrice.toFixed(2)} for ${lines.length} links.` });
+    }
+
+    const processed = [];
+    const errors = [];
+    let currentWallet = fresh.wallet;
+
+    const now = new Date();
+    let expiry = new Date(now);
+    if (duration === '3days') expiry.setDate(expiry.getDate() + 3);
+    else if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
+    else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);
+    else if (duration === 'month') expiry.setMonth(expiry.getMonth() + 1);
+
+    for (const line of lines) {
+        const parts = line.split(',').map(p => p.trim());
+        if (parts.length < 3) {
+            errors.push(`Invalid format: ${line}`);
+            continue;
+        }
+
+        const [name, realLink, nonRealLink, slug] = parts;
+        if (!name || !realLink || !nonRealLink) {
+            errors.push(`Missing fields: ${line}`);
+            continue;
+        }
+
+        if (!isSafeHttpUrl(realLink, { allowEmpty: false }) || !isSafeHttpUrl(nonRealLink, { allowEmpty: false })) {
+            errors.push(`Invalid URLs: ${line}`);
+            continue;
+        }
+
+        const newSlug = slug || require('crypto').randomBytes(4).toString('hex');
+        if (newSlug && !/^[a-zA-Z0-9-]+$/.test(newSlug)) {
+            errors.push(`Invalid slug: ${newSlug}`);
+            continue;
+        }
+
+        const conflict = await findActiveConflict(newSlug, req.user.id);
+        if (conflict) {
+            errors.push(`Slug conflict: ${newSlug}`);
+            continue;
+        }
+
+        const newLink = {
+            id: require('uuid').v4(),
+            name,
+            realLink,
+            nonRealLink,
+            slug: newSlug,
+            antiRed: antiRed !== undefined ? antiRed : true,
+            ispFilter: ispFilter !== undefined ? ispFilter : true,
+            mobileIsps: mobileIsps || req.user.settings.mobileIsps,
+            reallowVisited: reallowVisited !== undefined ? reallowVisited : true,
+            expiryDate: expiry.toISOString(),
+            createdAt: new Date().toISOString()
+        };
+
+        processed.push(newLink);
+        currentWallet -= pricePerUnit;
+    }
+
+    if (processed.length === 0) {
+        return res.status(400).json({ error: 'No links could be processed', details: errors });
+    }
+
+    const updatedUser = await db.updateUser(req.user.id, {
+        wallet: currentWallet,
+        links: [...(fresh.links || []), ...processed]
+    });
+
+    res.json({
+        ok: true,
+        count: processed.length,
+        totalPrice,
+        balance: updatedUser.wallet,
+        errors: errors.length > 0 ? errors : undefined
+    });
+}));
+
 app.delete('/api/links/:slug', requireAuth, asyncHandler(async (req, res) => {
     const { slug } = req.params;
 
