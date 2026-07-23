@@ -404,9 +404,10 @@ async function cmdCountries(_chatId) {
 }
 
 async function cmdAntired(_chatId) {
-    const env = (process.env.ANTIRED_DOMAINS || '').split(',').map(s => s.trim()).filter(Boolean);
+    const envKey = process.env.ANTIRED_ROTATOR_DOMAINS ? 'ANTIRED_ROTATOR_DOMAINS' : 'ANTIRED_DOMAINS';
+    const env = (process.env[envKey] || '').split(',').map(s => s.trim()).filter(Boolean);
     if (env.length) {
-        return reply(_chatId, `🛡 <b>Anti-red pool (env)</b>:\n${env.map(d => '  • ' + esc(d)).join('\n')}`);
+        return reply(_chatId, `🛡 <b>Anti-red pool (${envKey})</b>:\n${env.map(d => '  • ' + esc(d)).join('\n')}`);
     }
     return reply(_chatId, '🛡 Anti-red pool is sourced from the admin panel file (no env override set).');
 }
