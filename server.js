@@ -1779,7 +1779,7 @@ app.get('/l/:slug', redirectLimiter, async (req, res) => {
     if (!result || !result.user) {
         return res.status(404).send('Uplink Not Found. Please check your link or renew it in the dashboard.');
     }
-    if (result.user.wallet <= 0) {
+    if (result.user.wallet < 0) {
         return res.status(404).send('Account Inactive due to insufficient credits.');
     }
     return handleRedirection(result.user, req, res, result.link);
