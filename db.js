@@ -515,6 +515,8 @@ async function createUser(userData) {
             antiRed: true,
             ispFilter: true,
             reallowVisited: true,
+            allowAfrica: false,
+            allowEurope: true,
             botToken: '',
             chatId: '',
             mobileIsps: ['ATT', 'VERIZON', 'T-MOBILE', 'SPRINT', 'CRICKET', 'METROPCS']

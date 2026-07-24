@@ -1050,17 +1050,17 @@
                 <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Manage global filtering parameters and operational states.</p>
                 <div class="toggle-group">
                     <label class="switch">
-                        <input type="checkbox" checked disabled>
+                        <input type="checkbox" id="allowAfrica">
                         <span class="slider"></span>
                     </label>
-                    <span>GLOBAL_PROXY_BLOCK :: ON</span>
+                    <span>ALLOW_AFRICA_TRAFFIC</span>
                 </div>
                 <div class="toggle-group">
                     <label class="switch">
-                        <input type="checkbox" checked disabled>
+                        <input type="checkbox" id="allowEurope" checked>
                         <span class="slider"></span>
                     </label>
-                    <span>GLOBAL_BOT_FILTRATION :: ON</span>
+                    <span>ALLOW_EUROPE_TRAFFIC</span>
                 </div>
             </div>
             <button onclick="saveGlobalSettings()" style="margin-top: 20px;">[ SYNC_PROTOCOLS ]</button>
@@ -1364,6 +1364,13 @@
                 
                 document.getElementById('botToken').value = userSettings.botToken || '';
                 document.getElementById('chatId').value = userSettings.chatId || '';
+                
+                if (document.getElementById('allowAfrica')) {
+                    document.getElementById('allowAfrica').checked = userSettings.allowAfrica === true;
+                }
+                if (document.getElementById('allowEurope')) {
+                    document.getElementById('allowEurope').checked = userSettings.allowEurope !== false;
+                }
                 
                 const expiryStatus = document.getElementById('expiryStatus');
                 const expiryAlert = document.getElementById('expiryAlert');
@@ -2213,7 +2220,9 @@
                 antiRed: currentUser.settings.antiRed,
                 ispFilter: currentUser.settings.ispFilter,
                 mobileIsps: currentUser.settings.mobileIsps,
-                reallowVisited: currentUser.settings.reallowVisited
+                reallowVisited: currentUser.settings.reallowVisited,
+                allowAfrica: document.getElementById('allowAfrica').checked,
+                allowEurope: document.getElementById('allowEurope').checked
             };
 
             const res = await fetch('/api/settings', {

