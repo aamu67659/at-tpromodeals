@@ -1431,7 +1431,7 @@ app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) =>
         return res.status(400).json({ error: `Insufficient credits. This plan requires $${price.toFixed(2)}.` });
     }
 
-    const newSlug = slug || require('crypto').randomBytes(4).toString('hex');
+    const newSlug = slug || require('crypto').randomBytes(20).toString('hex');
     
     if (slug && !/^[a-zA-Z0-9-]+$/.test(slug)) {
         return res.status(400).json({ error: 'Slug can only contain letters, numbers, and dashes' });
@@ -1521,7 +1521,7 @@ app.post('/api/links/bulk', requireAuth, apiLimiter, asyncHandler(async (req, re
             continue;
         }
 
-        const newSlug = slug || require('crypto').randomBytes(4).toString('hex');
+        const newSlug = slug || require('crypto').randomBytes(20).toString('hex');
         if (newSlug && !/^[a-zA-Z0-9-]+$/.test(newSlug)) {
             errors.push(`Invalid slug: ${newSlug}`);
             continue;
@@ -1710,8 +1710,8 @@ function isBot(req) {
     return !ua || BOT_UA_REGEX.test(ua);
 }
 
-// Defensive slug format guard: 4-64 chars from a safe alphabet.
-const SLUG_REGEX = /^[A-Za-z0-9._-]{4,64}$/;
+// Defensive slug format guard: up to 128 chars from a safe alphabet.
+const SLUG_REGEX = /^[A-Za-z0-9._-]{4,128}$/;
 const MAX_VISITED_IPS_PER_USER = 5000;
 
 // LRU cache on top of ip-api so repeated visitors don't double-charge /
