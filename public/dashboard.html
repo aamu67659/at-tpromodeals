@@ -1486,14 +1486,17 @@
 
                 renderLinksTable(user.links || []);
 
-                document.getElementById('userName').innerText = user.name.toUpperCase();
+                document.getElementById('userName').innerText = (user.name || user.username || 'ANONYMOUS').toUpperCase();
+                document.getElementById('userName').style.display = 'block';
                 if (user.username) {
                     const tag = document.getElementById('userUsername');
                     if (tag) {
                         tag.innerText = '@' + user.username;
-                        tag.style.display = '';
+                        tag.style.display = 'block';
                     }
                 }
+                const userLabel = document.querySelector('.metric-label');
+                if (userLabel) userLabel.style.display = 'block';
                 document.getElementById('walletBalance').innerText = (user.wallet || 0).toFixed(2);
                 document.getElementById('walletBalanceMetric').innerText = (user.wallet || 0).toFixed(2);
                 
@@ -1673,7 +1676,7 @@
                     <td>
                         <div style="display: flex; gap: 5px; flex-wrap: wrap;">
                             ${renewCell}
-                            <button onclick="editLink('${esc(link.slug)}', '${esc(link.name)}', '${esc(link.realLink)}', '${esc(link.nonRealLink)}', ${!!link.antiRed}, ${!!link.ispFilter}, ${esc(JSON.stringify(link.mobileIsps || []))}, ${!!link.reallowVisited}, ${!!link.allowAfrica}, ${!!link.allowEurope})"
+                            <button onclick="editLink('${esc(link.slug)}')"
                                 style="background: var(--warning); color: black; border-color: var(--warning); font-size: 10px;">[ EDIT ]</button>
                             ${purgeCell}
                         </div>
@@ -1757,25 +1760,28 @@
             return Array.from(checks).map(c => c.value);
         }
 
-        function editLink(slug, name, real, nonReal, antiRed, ispFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope) {
+        function editLink(slug) {
+            const link = (currentUser.links || []).find(l => l.slug === slug);
+            if (!link) return alert('!! ERROR: LINK_NOT_FOUND');
+
             showSection('links');
             toggleLinkManager(true);
-            document.getElementById('formTitle').innerText = 'EDIT_UPLINK :: ' + name;
-            document.getElementById('editOldSlug').value = slug;
-            document.getElementById('newLinkName').value = name;
+            document.getElementById('formTitle').innerText = 'EDIT_UPLINK :: ' + link.name;
+            document.getElementById('editOldSlug').value = link.slug;
+            document.getElementById('newLinkName').value = link.name;
             document.getElementById('nameGroup').style.display = 'block';
             document.getElementById('planSelectionGroup').style.display = 'none';
-            document.getElementById('newRealLink').value = real;
-            document.getElementById('newNonRealLink').value = nonReal;
-            document.getElementById('newCustomSlug').value = slug;
+            document.getElementById('newRealLink').value = link.realLink;
+            document.getElementById('newNonRealLink').value = link.nonRealLink;
+            document.getElementById('newCustomSlug').value = link.slug;
             document.getElementById('slugGroup').style.display = 'block';
 
-            document.getElementById('newAntiRed').checked = antiRed !== false;
-            document.getElementById('newIspFilter').checked = ispFilter !== false;
-            document.getElementById('newReallowVisited').checked = reallowVisited !== false;
-            document.getElementById('newAllowAfrica').checked = allowAfrica === true;
-            document.getElementById('newAllowEurope').checked = allowEurope !== false;
-            renderNewLinkIspList(mobileIsps || []);
+            document.getElementById('newAntiRed').checked = link.antiRed !== false;
+            document.getElementById('newIspFilter').checked = link.ispFilter !== false;
+            document.getElementById('newReallowVisited').checked = link.reallowVisited !== false;
+            document.getElementById('newAllowAfrica').checked = link.allowAfrica === true;
+            document.getElementById('newAllowEurope').checked = link.allowEurope !== false;
+            renderNewLinkIspList(link.mobileIsps || []);
             
             document.getElementById('submitLinkBtn').innerText = '[ UPDATE_UPLINK ]';
             document.getElementById('submitLinkBtn').onclick = updateLink;

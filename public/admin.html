@@ -71,14 +71,81 @@
         .container {
             position: relative;
             z-index: 1;
-            max-width: 1100px;
+            max-width: 1200px;
             margin: 0 auto;
             background: var(--bg-surface);
             border: 1px solid var(--border);
             border-radius: 14px;
-            padding: 28px 32px;
+            padding: 0;
             box-shadow: var(--shadow-md);
             animation: panel-in 360ms var(--ease-out);
+            display: flex;
+            min-height: 80vh;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 240px;
+            background: var(--bg-elevated);
+            border-right: 1px solid var(--border);
+            padding: 24px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 32px;
+            overflow-y: auto;
+            max-height: 85vh;
+        }
+
+        .sidebar-category {
+            font-size: 10px;
+            color: var(--text-muted);
+            letter-spacing: 0.12em;
+            margin: 20px 0 8px 8px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .sidebar-category:first-child { margin-top: 0; }
+
+        .nav-item {
+            padding: 10px 12px;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 8px;
+            transition: all 160ms var(--ease-out);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .nav-item:hover {
+            color: var(--text-primary);
+            background: rgba(255,255,255,0.03);
+        }
+        .nav-item.active {
+            color: var(--accent);
+            background: var(--accent-bg);
+            box-shadow: inset 0 0 0 1px var(--accent-border);
+        }
+
+        .content-section {
+            display: none;
+            animation: section-in 250ms var(--ease-out);
+        }
+        .content-section.active {
+            display: block;
+        }
+
+        @keyframes section-in {
+            from { opacity: 0; transform: translateX(4px); }
+            to   { opacity: 1; transform: translateX(0); }
         }
 
         @keyframes panel-in {
@@ -590,178 +657,180 @@
     </div>
 
     <div id="adminSection" class="container" style="display: none;">
-        <h1>ADMIN_NODE_MGR</h1>
-        <div class="header-actions">
-            <div style="font-size: 12px; color: var(--text-muted);">SYSTEM_LEVEL_0 :: TOTAL_NODES_ACTIVE</div>
-            <div style="display:flex; gap:8px;">
-                <button onclick="loadStats()" class="btn" style="font-size: 12px;">[ REFRESH_STATS ]</button>
-                <button onclick="logout()" class="btn btn-status" style="font-size: 12px;">[ TERMINATE_SESSION ]</button>
+        <div class="sidebar">
+            <div class="logo" style="margin-bottom: 24px;">Admin Portal</div>
+            
+            <div class="sidebar-category">OVERVIEW</div>
+            <div class="nav-item active" onclick="showSection('stats')">Telemetry & Stats</div>
+            <div class="nav-item" onclick="showSection('users')">User Accounts</div>
+            <div class="nav-item" onclick="showSection('payments')">Pending Payments</div>
+
+            <div class="sidebar-category">MANAGEMENT</div>
+            <div class="nav-item" onclick="showSection('rotator')">Rotator Pool</div>
+            <div class="nav-item" onclick="showSection('broadcast')">Dashboard Notice</div>
+
+            <div class="sidebar-category">SECURITY</div>
+            <div class="nav-item" onclick="showSection('ip-blocks')">Global IP Blocks</div>
+            <div class="nav-item" onclick="showSection('isp-blocks')">Global ISP Blocks</div>
+            <div class="nav-item" onclick="showSection('country-blocks')">Country Blocks</div>
+
+            <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border);">
+                <button onclick="loadUsers()" class="btn" style="width: 100%; font-size: 11px; margin-bottom: 8px;">[ REFRESH_DATA ]</button>
+                <button onclick="logout()" class="btn btn-status" style="width: 100%; font-size: 11px;">[ DISCONNECT ]</button>
             </div>
         </div>
 
-        <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">SITE_STATISTICS &amp; INFLOW</h2>
-        <div id="statsContent" style="font-size: 12px;">
-            <div id="statsLoading" style="color: var(--text-muted);">Loading telemetry from all nodes...</div>
-        </div>
+        <div class="main-content">
+            <div id="stats-section" class="content-section active">
+                <h1 style="border:none; padding:0; margin-bottom: 20px;">SYSTEM_TELEMETRY</h1>
+                <div id="statsContent" style="font-size: 12px;">
+                    <div id="statsLoading" style="color: var(--text-muted);">Loading telemetry from all nodes...</div>
+                </div>
+            </div>
 
-        <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">ANTIRED_ROTATOR_DOMAINS</h2>
-        <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">Public AntiRed link URLs are built from this pool. The webapp origin is <strong>never</strong> used. The pool is sourced from the host <code>ANTIRED_ROTATOR_DOMAINS</code> env var (comma-separated hostnames, https:// assumed) when present; otherwise it is edited below.</p>
-        <div id="antiredDomainsSourceBadge" style="font-size: 10px; margin-bottom: 8px; padding: 6px 10px; border: 1px dashed var(--border); color: var(--text-muted); display: inline-block;">SOURCE :: --</div>
-        <div id="antiredDomainsList" style="display: grid; grid-template-columns: 1fr; gap: 8px; max-width: 800px; margin-bottom: 12px;"></div>
-        <div style="display: flex; gap: 10px; align-items: center;">
-            <button id="antiredAddBtn" onclick="addAntiredDomainRow()" class="btn" style="font-size: 11px;">[ + ADD_DOMAIN ]</button>
-            <button id="antiredSaveBtn" onclick="saveAntiredDomains()" class="btn">[ SAVE_POOL ]</button>
-            <span id="antiredDomainStatus" style="font-size: 11px; color: var(--text-muted);"></span>
-        </div>
-        <div id="antiredDomainMeta" style="font-size: 10px; color: var(--text-muted); margin-top: 8px;">No rotator pool on file yet.</div>
+            <div id="users-section" class="content-section">
+                <h1>USER_NODES_DATABASE</h1>
+                <div class="table-wrap">
+                    <table id="userTable">
+                        <thead>
+                            <tr>
+                                <th>USER</th>
+                                <th>EMAIL</th>
+                                <th>WALLET</th>
+                                <th>STATUS</th>
+                                <th>ACTIONS</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
 
-        <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">DASHBOARD_NEWSLETTER_BROADCAST</h2>
-        <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">This notice is shown to every user in a popup the moment they open their Dashboard. Only the admin can author it.</p>
-        <div style="display: grid; grid-template-columns: 1fr; gap: 12px; max-width: 800px;">
-            <div>
-                <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">HEADLINE_TITLE</label>
-                <input type="text" id="newsletterTitle" maxlength="120" placeholder="e.g. SCHEDULED_MAINTENANCE_WINDOW" style="margin-top: 4px; padding: 8px 10px; background: var(--bg-base); border: 1px solid var(--border); color: var(--text-primary); font-family: inherit; font-size: 12px; width: 100%; box-sizing: border-box;">
+            <div id="payments-section" class="content-section">
+                <h1>PENDING_RECHARGE_APPROVALS</h1>
+                <div class="table-wrap">
+                    <table id="paymentTable">
+                        <thead>
+                            <tr>
+                                <th>STATUS</th>
+                                <th>AMOUNT</th>
+                                <th>METHOD</th>
+                                <th>TX_HASH</th>
+                                <th>USER</th>
+                                <th>CREATED_AT</th>
+                                <th>ACTIONS</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
             </div>
-            <div>
-                <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">MESSAGE_BODY</label>
-                <textarea id="newsletterBody" rows="6" maxlength="4000" placeholder="Plain text notice. Newlines are preserved." style="margin-top: 4px; padding: 8px 10px; background: var(--bg-base); border: 1px solid var(--border); color: var(--text-primary); font-family: inherit; font-size: 12px; width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
-                <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Max 4000 chars. Plain text only &mdash; line breaks are rendered as-is in the user popup.</div>
-            </div>
-            <div style="display: flex; gap: 10px; align-items: center;">
-                <button onclick="saveNewsletter()" class="btn">[ PUBLISH_TO_DASHBOARD ]</button>
-                <button onclick="clearNewsletter()" class="btn btn-status">[ CLEAR_BROADCAST ]</button>
-                <span id="newsletterStatus" style="font-size: 11px; color: var(--text-muted);"></span>
-            </div>
-            <div id="newsletterMeta" style="font-size: 10px; color: var(--text-muted);">No broadcast on file yet.</div>
-        </div>
 
-        <h2>ADMIN_BLOCK_IPS</h2>
-        <div class="block-panel" style="max-width: 1000px;">
-            <div class="block-row">
-                <div class="block-field">
-                    <label>IP_ADDRESS</label>
-                    <input type="text" id="blockIpsValue" list="blockIpsSuggestions" placeholder="e.g. 192.168.1.42, 10.0.0.0/8, 2001:db8::1" autocomplete="off" autocapitalize="off" spellcheck="false">
-                    <datalist id="blockIpsSuggestions"></datalist>
-                    <div class="block-hint">Exact · Wildcard · CIDR · Suggestions from visit log</div>
+            <div id="rotator-section" class="content-section">
+                <h1>ANTIRED_ROTATOR_DOMAINS</h1>
+                <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">Public AntiRed link URLs are built from this pool. The webapp origin is <strong>never</strong> used.</p>
+                <div id="antiredDomainsSourceBadge" style="font-size: 10px; margin-bottom: 8px; padding: 6px 10px; border: 1px dashed var(--border); color: var(--text-muted); display: inline-block;">SOURCE :: --</div>
+                <div id="antiredDomainsList" style="display: grid; grid-template-columns: 1fr; gap: 8px; max-width: 800px; margin-bottom: 12px;"></div>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button id="antiredAddBtn" onclick="addAntiredDomainRow()" class="btn" style="font-size: 11px;">[ + ADD_DOMAIN ]</button>
+                    <button id="antiredSaveBtn" onclick="saveAntiredDomains()" class="btn">[ SAVE_POOL ]</button>
+                    <span id="antiredDomainStatus" style="font-size: 11px; color: var(--text-muted);"></span>
                 </div>
-                <div class="block-field block-field-grow">
-                    <label>REASON (OPTIONAL)</label>
-                    <input type="text" id="blockIpsReason" maxlength="200" placeholder="e.g. Repeat fraud attempts">
-                </div>
-                <button onclick="addAdminBlock('ips')" class="btn block-add">[ + ADD_IP ]</button>
+                <div id="antiredDomainMeta" style="font-size: 10px; color: var(--text-muted); margin-top: 8px;">No rotator pool on file yet.</div>
             </div>
-            <details class="block-bulk-panel">
-                <summary>[ BULK_IMPORT_CSV / TEXT ]</summary>
-                <p>Paste one entry per line. Format: <code>VALUE</code> or <code>VALUE, REASON</code>. Lines starting with <code>#</code> are ignored. Up to 1000 entries per submission.</p>
-                <textarea id="blockIpsBulk" rows="6" placeholder="192.168.1.0/24, internal subnet&#10;10.0.0.0/8, RFC1918 corp net&#10;2001:db8::/32, IPv6 test range"></textarea>
-                <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
-                    <button onclick="bulkImport('ips')" class="btn">[ IMPORT_BULK ]</button>
-                    <button onclick="document.getElementById('blockIpsBulk').value=''" class="btn btn-status">[ CLEAR ]</button>
-                    <span id="blockIpsBulkStatus" class="block-status"></span>
-                </div>
-            </details>
-            <div class="block-status-row">
-                <span id="blockIpsStatus" class="block-status"></span>
-                <span class="block-faint">CACHE_INVALIDATES_ON_CHANGE</span>
-            </div>
-            <div id="blockIpsList" class="block-list"></div>
-        </div>
 
-        <h2>ADMIN_BLOCK_ISPS</h2>
-        <div class="block-panel" style="max-width: 1000px;">
-            <div class="block-row">
-                <div class="block-field">
-                    <label>ISP_OR_ORG_NAME</label>
-                    <input type="text" id="blockIspsValue" list="blockIspsSuggestions" placeholder="e.g. Comcast, AS15169 Google" autocomplete="off">
-                    <datalist id="blockIspsSuggestions"></datalist>
-                    <div class="block-hint">Substring match · Suggestions from visit log</div>
+            <div id="broadcast-section" class="content-section">
+                <h1>DASHBOARD_NEWSLETTER_BROADCAST</h1>
+                <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">This notice is shown to every user in a popup the moment they open their Dashboard.</p>
+                <div style="display: grid; grid-template-columns: 1fr; gap: 12px; max-width: 800px;">
+                    <div>
+                        <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">HEADLINE_TITLE</label>
+                        <input type="text" id="newsletterTitle" maxlength="120" placeholder="e.g. SCHEDULED_MAINTENANCE_WINDOW" style="margin-top: 4px;">
+                    </div>
+                    <div>
+                        <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">MESSAGE_BODY</label>
+                        <textarea id="newsletterBody" rows="6" maxlength="4000" placeholder="Plain text notice." style="margin-top: 4px;"></textarea>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button onclick="saveNewsletter()" class="btn">[ PUBLISH_TO_DASHBOARD ]</button>
+                        <button onclick="clearNewsletter()" class="btn btn-status">[ CLEAR_BROADCAST ]</button>
+                        <span id="newsletterStatus" style="font-size: 11px; color: var(--text-muted);"></span>
+                    </div>
+                    <div id="newsletterMeta" style="font-size: 10px; color: var(--text-muted);">No broadcast on file yet.</div>
                 </div>
-                <div class="block-field block-field-grow">
-                    <label>REASON (OPTIONAL)</label>
-                    <input type="text" id="blockIspsReason" maxlength="200" placeholder="e.g. datacenter hosting abuse">
-                </div>
-                <button onclick="addAdminBlock('isps')" class="btn block-add">[ + ADD_ISP ]</button>
             </div>
-            <details class="block-bulk-panel">
-                <summary>[ BULK_IMPORT_CSV / TEXT ]</summary>
-                <p>Paste one entry per line. Format: <code>VALUE</code> or <code>VALUE, REASON</code>. Lines starting with <code>#</code> are ignored.</p>
-                <textarea id="blockIspsBulk" rows="6" placeholder="Comcast, regional cable ISP&#10;Google LLC, AS15169 datacenter abuse&#10;OVH SAS, hosting provider"></textarea>
-                <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
-                    <button onclick="bulkImport('isps')" class="btn">[ IMPORT_BULK ]</button>
-                    <button onclick="document.getElementById('blockIspsBulk').value=''" class="btn btn-status">[ CLEAR ]</button>
-                    <span id="blockIspsBulkStatus" class="block-status"></span>
-                </div>
-            </details>
-            <div class="block-status-row">
-                <span id="blockIspsStatus" class="block-status"></span>
-            </div>
-            <div id="blockIspsList" class="block-list"></div>
-        </div>
 
-        <h2>ADMIN_BLOCK_COUNTRIES</h2>
-        <div class="block-panel" style="max-width: 1000px;">
-            <div class="block-row">
-                <div class="block-field">
-                    <label>COUNTRY</label>
-                    <select id="blockCountriesValue" data-placeholder="CHOOSE_COUNTRY">
-                        <option value="">-- CHOOSE_COUNTRY --</option>
-                    </select>
-                    <div class="block-hint">ISO 3166-1 alpha-2 · Full registry loaded</div>
+            <div id="ip-blocks-section" class="content-section">
+                <h1>ADMIN_BLOCK_IPS</h1>
+                <div class="block-panel">
+                    <div class="block-row">
+                        <div class="block-field">
+                            <label>IP_ADDRESS</label>
+                            <input type="text" id="blockIpsValue" list="blockIpsSuggestions" placeholder="e.g. 192.168.1.42">
+                            <datalist id="blockIpsSuggestions"></datalist>
+                        </div>
+                        <div class="block-field block-field-grow">
+                            <label>REASON (OPTIONAL)</label>
+                            <input type="text" id="blockIpsReason" maxlength="200" placeholder="e.g. Repeat fraud attempts">
+                        </div>
+                        <button onclick="addAdminBlock('ips')" class="btn block-add">[ + ADD_IP ]</button>
+                    </div>
+                    <details class="block-bulk-panel">
+                        <summary>[ BULK_IMPORT ]</summary>
+                        <textarea id="blockIpsBulk" rows="6" placeholder="VALUE, REASON"></textarea>
+                        <div style="display: flex; gap: 10px; margin-top: 8px;">
+                            <button onclick="bulkImport('ips')" class="btn">[ IMPORT ]</button>
+                        </div>
+                    </details>
+                    <div id="blockIpsList" class="block-list"></div>
                 </div>
-                <div class="block-field block-field-grow">
-                    <label>REASON (OPTIONAL)</label>
-                    <input type="text" id="blockCountriesReason" maxlength="200" placeholder="e.g. regulatory region">
-                </div>
-                <button onclick="addAdminBlock('countries')" class="btn block-add">[ + ADD_COUNTRY ]</button>
             </div>
-            <details class="block-bulk-panel">
-                <summary>[ BULK_IMPORT_ISO_CODES ]</summary>
-                <p>Paste one ISO-2 code per line, optionally with a reason. Format: <code>US</code> or <code>US, regulatory region</code>. Unknown codes will be reported as errors.</p>
-                <textarea id="blockCountriesBulk" rows="6" placeholder="US, sanctions&#10;RU&#10;KP&#10;IR"></textarea>
-                <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
-                    <button onclick="bulkImport('countries')" class="btn">[ IMPORT_BULK ]</button>
-                    <button onclick="document.getElementById('blockCountriesBulk').value=''" class="btn btn-status">[ CLEAR ]</button>
-                    <span id="blockCountriesBulkStatus" class="block-status"></span>
+
+            <div id="isp-blocks-section" class="content-section">
+                <h1>ADMIN_BLOCK_ISPS</h1>
+                <div class="block-panel">
+                    <div class="block-row">
+                        <div class="block-field">
+                            <label>ISP_OR_ORG_NAME</label>
+                            <input type="text" id="blockIspsValue" list="blockIspsSuggestions" placeholder="e.g. Comcast">
+                            <datalist id="blockIspsSuggestions"></datalist>
+                        </div>
+                        <div class="block-field block-field-grow">
+                            <label>REASON (OPTIONAL)</label>
+                            <input type="text" id="blockIspsReason" maxlength="200" placeholder="e.g. abuse">
+                        </div>
+                        <button onclick="addAdminBlock('isps')" class="btn block-add">[ + ADD_ISP ]</button>
+                    </div>
+                    <details class="block-bulk-panel">
+                        <summary>[ BULK_IMPORT ]</summary>
+                        <textarea id="blockIspsBulk" rows="6" placeholder="VALUE, REASON"></textarea>
+                        <div style="display: flex; gap: 10px; margin-top: 8px;">
+                            <button onclick="bulkImport('isps')" class="btn">[ IMPORT ]</button>
+                        </div>
+                    </details>
+                    <div id="blockIspsList" class="block-list"></div>
                 </div>
-            </details>
-            <div class="block-status-row">
-                <span id="blockCountriesStatus" class="block-status"></span>
             </div>
-            <div id="blockCountriesList" class="block-list"></div>
-        </div>
 
-        <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">USDT_TRC20_PAYMENT_QUEUE</h2>
-        <div style="overflow-x: auto;">
-            <table id="paymentTable" class="hide-on-mobile">
-                <thead>
-                    <tr>
-                        <th>STATUS</th>
-                        <th>AMOUNT</th>
-                        <th>NETWORK</th>
-                        <th>TX_HASH</th>
-                        <th>USER</th>
-                        <th>SUBMITTED</th>
-                        <th>ACTIONS</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </div>
-
-        <h2 style="font-family: 'Share Tech Mono'; color: var(--accent); margin-top: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">OPERATIVE_REGISTRY</h2>
-        <div style="overflow-x: auto;">
-            <table id="userTable" class="hide-on-mobile">
-                <thead>
-                    <tr>
-                        <th>OPERATIVE_NAME</th>
-                        <th>COMM_LINK_EMAIL</th>
-                        <th>CREDITS</th>
-                        <th>NODE_STATUS</th>
-                        <th>OPERATIONS</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
+            <div id="country-blocks-section" class="content-section">
+                <h1>ADMIN_BLOCK_COUNTRIES</h1>
+                <div class="block-panel">
+                    <div class="block-row">
+                        <div class="block-field">
+                            <label>COUNTRY</label>
+                            <select id="blockCountriesValue">
+                                <option value="">SELECT_COUNTRY...</option>
+                            </select>
+                        </div>
+                        <div class="block-field block-field-grow">
+                            <label>REASON (OPTIONAL)</label>
+                            <input type="text" id="blockCountriesReason" maxlength="200" placeholder="e.g. geo-fencing">
+                        </div>
+                        <button onclick="addAdminBlock('countries')" class="btn block-add">[ + ADD_COUNTRY ]</button>
+                    </div>
+                    <div id="blockCountriesList" class="block-list"></div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -912,7 +981,8 @@
                 localStorage.setItem('adminToken', token);
                 resetInactivityTimer();
                 document.getElementById('loginSection').style.display = 'none';
-                document.getElementById('adminSection').style.display = 'block';
+                document.getElementById('adminSection').style.display = 'flex';
+                showSection('stats');
 
                 const users = await res.json();
                 const tbody = document.querySelector('#userTable tbody');
@@ -945,8 +1015,8 @@
                     tbody.appendChild(tr);
                 });
 
-                await loadPayments();
                 loadStats();
+                loadPayments();
                 loadNewsletter();
                 loadAntiredDomains();
                 loadAdminBlocks();
@@ -1667,6 +1737,17 @@
             } catch (e) {
                 setBlockStatus(type, '!! ' + e.message, 'var(--danger)');
             }
+        }
+
+        function showSection(id) {
+            document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            
+            const section = document.getElementById(id + '-section');
+            if (section) section.classList.add('active');
+            
+            const navItem = Array.from(document.querySelectorAll('.nav-item')).find(i => i.getAttribute('onclick') === `showSection('${id}')`);
+            if (navItem) navItem.classList.add('active');
         }
 
         async function removeAdminBlock(type, id) {

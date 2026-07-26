@@ -128,10 +128,31 @@
         }
 
         .diagram-container {
-            background: #fff;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 30px 0;
+            background: var(--bg-canvas);
+            padding: 30px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            margin: 40px 0;
+        }
+
+        .btn-protocol {
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: var(--accent);
+            text-decoration: none;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            padding: 10px 0;
+            border-bottom: 2px solid var(--accent);
+            transition: all 0.2s;
+            display: inline-block;
+            margin-top: 20px;
+        }
+
+        .btn-protocol:hover {
+            color: var(--text-primary);
+            border-bottom-color: var(--text-primary);
+            padding-left: 10px;
         }
 
         .features-grid {
@@ -176,27 +197,48 @@
     <header class="hero">
         <h1>High-Precision Traffic Filtration for Ads & Scale</h1>
         <p>Protect your conversion rates by filtering out bots, crawlers, and suspicious traffic. Deliver real users to your target apps while keeping non-real visitors at bay.</p>
-        <a href="/login" class="btn-signin">Start Filtering Now</a>
+        <div style="display: flex; gap: 20px; justify-content: center; align-items: center;">
+            <a href="/login" class="btn-signin">Deploy Now</a>
+            <a href="#logic" class="btn-protocol">Start Filtering Now</a>
+        </div>
     </header>
 
-    <section class="section">
+    <section id="logic" class="section">
         <div class="card">
             <h2>OPERATIONAL_LOGIC_PROTOCOL</h2>
-            <p>Our intelligent routing engine analyzes every visit in real-time. Whether you're running massive ad campaigns or scaling your user base, SaaS Proxy ensures only quality traffic reaches your destination.</p>
+            <p>Our intelligent routing engine analyzes every visit in real-time. Whether you're running massive ad campaigns or scaling your user base, SaaS Proxy ensures only quality traffic reaches your destination. We use a multi-layered approach to protect your infrastructure and marketing budget.</p>
             
-            <div class="diagram-container">
-                <div class="mermaid">
-                    graph TD
-                    A[Incoming Traffic Source] --> B{IP & Header Analysis}
-                    B -- Bot/Crawler detected --> C[Safe Decoy Page]
-                    B -- VPN/Proxy detected --> C
-                    B -- Blocked Region/ISP --> C
-                    B -- Real User Pattern --> D[Anti-Red Logic]
-                    D -- Rotation Pool --> E[REAL TARGET APP]
-                    
-                    style A fill:#f9f9f9,stroke:#333
-                    style E fill:#7be0a4,stroke:#0d1016,color:#0d1016
-                    style C fill:#f07080,stroke:#333,color:#fff
+        <div class="diagram-container">
+            <h2 style="font-size: 16px; margin-bottom: 20px;">OPERATIONAL_LOGIC_PROTOCOL</h2>
+            <div class="mermaid">
+                graph TD
+                A[Incoming Traffic: FB/Google/TikTok Ads] --> B{Layer 1: Edge Analysis}
+                B -- Audit Bot / Crawler --> C[SAFE DECOY PAGE]
+                B -- Datacenter / VPN IP --> C
+                B -- Real Residential IP --> D{Layer 2: Behavioral Check}
+                D -- Headless / Automated --> C
+                D -- Human Pattern --> E{Layer 3: Target Logic}
+                E -- Restricted Region/ISP --> C
+                E -- Verified Real User --> F[ENCRYPTED HASH REDIRECT]
+                F --> G[REAL TARGET CONVERSION PAGE]
+                
+                style A fill:#1b212c,stroke:#7be0a4,color:#e6ecf3
+                style G fill:#7be0a4,stroke:#0d1016,color:#0d1016,stroke-width:4px
+                style C fill:#d83a4a,stroke:#0d1016,color:#fff
+                style B fill:#141821,stroke:#262d3a,color:#b6c0cf
+                style D fill:#141821,stroke:#262d3a,color:#b6c0cf
+                style E fill:#141821,stroke:#262d3a,color:#b6c0cf
+                style F fill:#1b212c,stroke:#7be0a4,color:#7be0a4
+            </div>
+            
+            <div style="margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; text-align: left;">
+                <div>
+                    <h3 style="color: var(--accent); font-family: var(--font-mono); font-size: 14px;">FOR_ADS_MARKETERS</h3>
+                    <p style="color: var(--text-muted); font-size: 15px;">Ad platforms audit links frequently using automated agents. If they see your real offer, your account risks restriction. SaaS Proxy detects these audits instantly, serving them compliant content while real users flow to your offer.</p>
+                </div>
+                <div>
+                    <h3 style="color: var(--accent); font-family: var(--font-mono); font-size: 14px;">MASSIVE_VISIT_STABILITY</h3>
+                    <p style="color: var(--text-muted); font-size: 15px;">Built for scale. Filter thousands of visits per second without latency. Our residential-first logic ensures you only pay for real human interaction, maximizing your ROI on every click.</p>
                 </div>
             </div>
         </div>
@@ -226,7 +268,21 @@
     </footer>
 
     <script>
-        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+        mermaid.initialize({ 
+            startOnLoad: true, 
+            theme: 'base',
+            themeVariables: {
+                primaryColor: '#1b212c',
+                primaryTextColor: '#e6ecf3',
+                primaryBorderColor: '#262d3a',
+                lineColor: '#8b95a8',
+                secondaryColor: '#141821',
+                tertiaryColor: '#141821',
+                mainBkg: '#141821',
+                nodeBorder: '#262d3a',
+                clusterBkg: '#0d1016'
+            }
+        });
     </script>
 </body>
 </html>
