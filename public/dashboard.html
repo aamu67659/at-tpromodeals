@@ -962,6 +962,10 @@
                     <div class="metric-label">TOTAL_VISITS</div>
                     <div class="metric-value" id="totalVisitsCount">0</div>
                 </div>
+                <div class="metric-card">
+                    <div class="metric-label">NEXT_EXPIRY</div>
+                    <div class="metric-value" id="expiryMetric" style="font-size: 14px;">N/A</div>
+                </div>
             </div>
 
             <div id="recentActivityCard" class="card" style="margin-top: 24px;">
@@ -1476,7 +1480,6 @@
                     document.getElementById('allowEurope').checked = userSettings.allowEurope !== false;
                 }
                 
-                const expiryStatus = document.getElementById('expiryStatus');
                 const expiryAlert = document.getElementById('expiryAlert');
                 const expiryMetric = document.getElementById('expiryMetric');
                 const uplinkStatus = document.getElementById('uplinkStatus');
@@ -1486,6 +1489,17 @@
                     .filter(l => l.expiryDate && new Date(l.expiryDate) > new Date())
                     .sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate))[0];
                 const expiredLink = links.find(l => l.expiryDate && new Date(l.expiryDate) <= new Date());
+
+                if (expiryMetric) {
+                    if (activeLink) {
+                        expiryMetric.innerText = new Date(activeLink.expiryDate).toLocaleDateString();
+                    } else if (expiredLink) {
+                        expiryMetric.innerText = 'OFFLINE';
+                        expiryMetric.style.color = 'var(--danger)';
+                    } else {
+                        expiryMetric.innerText = 'N/A';
+                    }
+                }
 
                 // Visibility logic based on links existence
                 const creationForm = document.getElementById('linkCreationForm');
