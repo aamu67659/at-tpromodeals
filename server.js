@@ -316,7 +316,7 @@ app.get('/', (req, res) => {
     if (req.session.userId) {
         return res.redirect('/dashboard.html');
     }
-    res.redirect('/login');
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.get('/login', (req, res) => {

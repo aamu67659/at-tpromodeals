@@ -2,121 +2,224 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0d1016">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <title>SaaS Proxy</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <title>SaaS Proxy · Anti-Bot Traffic Filtration</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
     <style>
         :root {
             --bg-canvas: #0d1016;
+            --bg-surface: #141821;
             --bg-elevated: #1b212c;
             --border: #262d3a;
             --text-primary: #e6ecf3;
+            --text-secondary: #b6c0cf;
             --text-muted: #8b95a8;
-            --text-faint: #5d6779;
             --accent: #7be0a4;
-            --accent-bg: rgba(123, 224, 164, 0.10);
+            --accent-strong: #95e8bc;
+            --accent-deep: #0d1016;
             --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-            --font-sans: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
         }
+
         * { box-sizing: border-box; }
-        html, body { height: 100%; }
         body {
-            margin: 0;
-            background:
-              radial-gradient(900px 600px at 50% -10%, rgba(123,224,164,0.06), transparent 60%),
-              var(--bg-canvas);
-            color: var(--text-primary);
             font-family: var(--font-sans);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            flex-direction: column;
-            gap: 18px;
+            color: var(--text-primary);
+            margin: 0;
+            background: var(--bg-canvas);
+            line-height: 1.6;
         }
-        body::before {
-            content: "";
+
+        .navbar {
             position: fixed;
-            inset: 0;
-            background-image:
-              linear-gradient(rgba(255,255,255,0.014) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(255,255,255,0.014) 1px, transparent 1px);
-            background-size: 36px 36px;
-            pointer-events: none;
-            z-index: 0;
-            mask-image: radial-gradient(ellipse at center, #000 30%, transparent 80%);
-            -webkit-mask-image: radial-gradient(ellipse at center, #000 30%, transparent 80%);
-        }
-        .loader-mark {
-            position: relative;
-            z-index: 1;
+            top: 0;
+            right: 0;
+            left: 0;
+            height: 70px;
+            background: rgba(13, 16, 22, 0.8);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
             display: flex;
+            justify-content: space-between;
             align-items: center;
-            gap: 12px;
+            padding: 0 40px;
+            z-index: 1000;
+        }
+
+        .logo {
+            font-family: var(--font-mono);
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--accent);
+            letter-spacing: 0.05em;
+        }
+
+        .nav-actions .btn-signin {
+            background: var(--accent);
+            color: var(--accent-deep);
+            padding: 10px 24px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 700;
             font-family: var(--font-mono);
             font-size: 13px;
-            color: var(--text-muted);
-            letter-spacing: 0.10em;
             text-transform: uppercase;
+            letter-spacing: 0.05em;
+            transition: transform 0.2s;
         }
-        .loader-mark .dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: var(--accent);
-            animation: pulse 1.2s ease-in-out infinite;
+
+        .nav-actions .btn-signin:hover {
+            transform: translateY(-1px);
+            background: var(--accent-strong);
         }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50%      { opacity: 0.35; transform: scale(0.85); }
+
+        .hero {
+            padding: 160px 20px 80px;
+            text-align: center;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .hero h1 {
+            font-size: 56px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin-bottom: 24px;
+            background: linear-gradient(to bottom, #fff, #888);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p {
+            font-size: 20px;
+            color: var(--text-secondary);
+            margin-bottom: 40px;
+        }
+
+        .section {
+            padding: 80px 20px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            padding: 40px;
+            border-radius: 12px;
+            margin-bottom: 40px;
+        }
+
+        h2 {
+            color: var(--accent);
+            font-family: var(--font-mono);
+            font-size: 24px;
+            margin-top: 0;
+        }
+
+        .diagram-container {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 30px 0;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        .feature-item h3 {
+            color: var(--text-primary);
+            margin-bottom: 10px;
+        }
+
+        .feature-item p {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        footer {
+            padding: 60px 20px;
+            text-align: center;
+            border-top: 1px solid var(--border);
+            color: var(--text-faint);
+            font-size: 12px;
+            font-family: var(--font-mono);
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 36px; }
+            .features-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
-    <div class="loader-mark"><span class="dot"></span> Loading SaaS Proxy…</div>
+    <nav class="navbar">
+        <div class="logo">SAAS_PROXY</div>
+        <div class="nav-actions">
+            <a href="/login" class="btn-signin">Sign In / Register</a>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <h1>High-Precision Traffic Filtration for Ads & Scale</h1>
+        <p>Protect your conversion rates by filtering out bots, crawlers, and suspicious traffic. Deliver real users to your target apps while keeping non-real visitors at bay.</p>
+        <a href="/login" class="btn-signin" style="display: inline-block;">Start Filtering Now</a>
+    </header>
+
+    <section class="section">
+        <div class="card">
+            <h2>OPERATIONAL_LOGIC_PROTOCOL</h2>
+            <p>Our intelligent routing engine analyzes every visit in real-time. Whether you're running massive ad campaigns or scaling your user base, SaaS Proxy ensures only quality traffic reaches your destination.</p>
+            
+            <div class="diagram-container">
+                <div class="mermaid">
+                    graph TD
+                    A[Incoming Traffic Source] --> B{IP & Header Analysis}
+                    B -- Bot/Crawler detected --> C[Safe Decoy Page]
+                    B -- VPN/Proxy detected --> C
+                    B -- Blocked Region/ISP --> C
+                    B -- Real User Pattern --> D[Anti-Red Logic]
+                    D -- Rotation Pool --> E[REAL TARGET APP]
+                    
+                    style A fill:#f9f9f9,stroke:#333
+                    style E fill:#7be0a4,stroke:#0d1016,color:#0d1016
+                    style C fill:#f07080,stroke:#333,color:#fff
+                </div>
+            </div>
+        </div>
+
+        <div class="features-grid">
+            <div class="card feature-item">
+                <h3>Ads Traffic Protection</h3>
+                <p>Perfect for Facebook, Google, and TikTok ads. Eliminate click-fraud and automated auditing bots from seeing your real offer.</p>
+            </div>
+            <div class="card feature-item">
+                <h3>Intelligent ISP Filtering</h3>
+                <p>Filter by mobile carriers (AT&T, Verizon, T-Mobile) to ensure you only get high-value mobile users.</p>
+            </div>
+            <div class="card feature-item">
+                <h3>Global Blocklists</h3>
+                <p>Leverage site-wide IP and country blocklists managed by the operator to stay ahead of known malicious actors.</p>
+            </div>
+            <div class="card feature-item">
+                <h3>Rotator Domains</h3>
+                <p>Use our Anti-Red rotator pool to keep your main application domain hidden and secure from public scraping.</p>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        &copy; 2026 SAAS_PROXY // ADVANCED_TRAFFIC_SECURITY // ALL_RIGHTS_RESERVED
+    </footer>
+
     <script>
-        window.location.href = '/login.html';
-    </script>
-    <a class="bot-fab" id="botFab" href="https://t.me/YourBot" target="_blank" rel="noopener noreferrer" aria-label="Open SaaS Proxy Bot on Telegram">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M21.198 2.433a2.242 2.242 0 0 0-2.252-.342c-.736.257-13.954 5.81-15.293 6.371-.585.246-.96.83-.945 1.452.014.622.42 1.183 1.018 1.4l3.685 1.32 1.443 4.65c.197.633.771.93 1.302.683l2.683-1.276 1.74 1.34c.196.155.45.235.715.235.139 0 .281-.026.418-.08.351-.13.59-.456.59-.83v-5.59l4.973-3.418c.6-.413.84-1.18.503-1.84zM9.91 13.838l-.395 3.992-2.621-3.732 9.446-5.3-6.43 5.04z"/></svg>
-        <span>SaaS Proxy Bot</span>
-    </a>
-    <style>
-        .bot-fab {
-            position: fixed;
-            right: 18px;
-            bottom: 18px;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 14px 10px 12px;
-            background: #229ED9;
-            color: #fff;
-            border-radius: 999px;
-            font: 700 12px/1 'JetBrains Mono', ui-monospace, monospace;
-            text-decoration: none;
-            letter-spacing: 0.04em;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.08);
-            z-index: 9999;
-            transition: transform 140ms ease, filter 140ms ease;
-        }
-        .bot-fab:hover { filter: brightness(1.08); transform: translateY(-1px); }
-        .bot-fab:active { transform: translateY(0); }
-        .bot-fab svg { display: block; }
-        @media (max-width: 480px) {
-            .bot-fab { right: 12px; bottom: 12px; padding: 9px 12px 9px 10px; font-size: 11px; }
-        }
-    </style>
-    <script>
-        (async function () {
-            try {
-                const res = await fetch('/api/bot-info');
-                if (!res.ok) return;
-                const data = await res.json();
-                if (data && data.link) document.getElementById('botFab').href = data.link;
-            } catch (_) { /* keep placeholder */ }
-        })();
+        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
     </script>
 </body>
 </html>
