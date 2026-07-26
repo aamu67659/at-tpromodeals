@@ -1405,7 +1405,7 @@ async function findActiveConflict(slug, excludeUserId) {
 }
 
 app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
-    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, duration } = req.body;
+    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, duration, allowAfrica, allowEurope } = req.body;
 
     const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
     const price = prices[duration];
@@ -1459,6 +1459,8 @@ app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) =>
         ispFilter: ispFilter !== undefined ? ispFilter : true,
         mobileIsps: mobileIsps || req.user.settings.mobileIsps,
         reallowVisited: reallowVisited !== undefined ? reallowVisited : true,
+        allowAfrica: allowAfrica !== undefined ? allowAfrica : false,
+        allowEurope: allowEurope !== undefined ? allowEurope : true,
         expiryDate: expiry.toISOString(),
         createdAt: new Date().toISOString()
     };
@@ -1472,7 +1474,7 @@ app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) =>
 }));
 
 app.post('/api/links/bulk', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
-    const { text, duration, antiRed, ispFilter, mobileIsps, reallowVisited } = req.body;
+    const { text, duration, antiRed, ispFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope } = req.body;
 
     const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
     const pricePerUnit = prices[duration];
@@ -1543,6 +1545,8 @@ app.post('/api/links/bulk', requireAuth, apiLimiter, asyncHandler(async (req, re
             ispFilter: ispFilter !== undefined ? ispFilter : true,
             mobileIsps: mobileIsps || req.user.settings.mobileIsps,
             reallowVisited: reallowVisited !== undefined ? reallowVisited : true,
+            allowAfrica: allowAfrica !== undefined ? allowAfrica : false,
+            allowEurope: allowEurope !== undefined ? allowEurope : true,
             expiryDate: expiry.toISOString(),
             createdAt: new Date().toISOString()
         };
@@ -1587,7 +1591,7 @@ app.delete('/api/links/:slug', requireAuth, asyncHandler(async (req, res) => {
 
 app.put('/api/links/:oldSlug', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { oldSlug } = req.params;
-    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited } = req.body;
+    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope } = req.body;
 
     if (!name || !realLink || !nonRealLink) {
         return res.status(400).json({ error: 'Name, Real Link, and Safe Link are required' });
@@ -1629,6 +1633,8 @@ app.put('/api/links/:oldSlug', requireAuth, apiLimiter, asyncHandler(async (req,
         ispFilter: ispFilter !== undefined ? ispFilter : links[index].ispFilter,
         mobileIsps: mobileIsps !== undefined ? mobileIsps : links[index].mobileIsps,
         reallowVisited: reallowVisited !== undefined ? reallowVisited : links[index].reallowVisited,
+        allowAfrica: allowAfrica !== undefined ? allowAfrica : links[index].allowAfrica,
+        allowEurope: allowEurope !== undefined ? allowEurope : links[index].allowEurope,
         updatedAt: new Date().toISOString()
     };
 
@@ -1822,8 +1828,8 @@ async function handleRedirection(user, req, res, linkData) {
     const useIspFilter = linkData.ispFilter !== undefined ? linkData.ispFilter : settings.ispFilter;
     const useMobileIsps = linkData.mobileIsps || settings.mobileIsps;
     const useReallowVisited = linkData.reallowVisited !== undefined ? linkData.reallowVisited : settings.reallowVisited;
-    const useAllowAfrica = settings.allowAfrica !== undefined ? settings.allowAfrica : false;
-    const useAllowEurope = settings.allowEurope !== undefined ? settings.allowEurope : true;
+    const useAllowAfrica = linkData.allowAfrica !== undefined ? linkData.allowAfrica : (settings.allowAfrica !== undefined ? settings.allowAfrica : false);
+    const useAllowEurope = linkData.allowEurope !== undefined ? linkData.allowEurope : (settings.allowEurope !== undefined ? settings.allowEurope : true);
 
     // 0c. Blocked IP Check (user-level - deny before any other logic)
     if ((blockedIps || []).includes(clientIp)) {

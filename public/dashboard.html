@@ -1087,6 +1087,23 @@
                             </div>
                         </div>
 
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 15px;">
+                            <div class="toggle-group">
+                                <label class="switch">
+                                    <input type="checkbox" id="newAllowAfrica">
+                                    <span class="slider"></span>
+                                </label>
+                                <span>ALLOW_AFRICA</span>
+                            </div>
+                            <div class="toggle-group">
+                                <label class="switch">
+                                    <input type="checkbox" id="newAllowEurope" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <span>ALLOW_EUROPE</span>
+                            </div>
+                        </div>
+
                         <div id="newLinkIspConfig" style="margin-top: 15px;">
                             <label>ALLOWED_CARRIERS</label>
                             <div id="newLinkIspList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; max-height: 120px; overflow-y: auto; padding: 10px; border: 1px solid var(--border); background: var(--bg-surface);">
@@ -1656,7 +1673,7 @@
                     <td>
                         <div style="display: flex; gap: 5px; flex-wrap: wrap;">
                             ${renewCell}
-                            <button onclick="editLink('${esc(link.slug)}', '${esc(link.name)}', '${esc(link.realLink)}', '${esc(link.nonRealLink)}', ${!!link.antiRed}, ${!!link.ispFilter}, ${esc(JSON.stringify(link.mobileIsps || []))}, ${!!link.reallowVisited})"
+                            <button onclick="editLink('${esc(link.slug)}', '${esc(link.name)}', '${esc(link.realLink)}', '${esc(link.nonRealLink)}', ${!!link.antiRed}, ${!!link.ispFilter}, ${esc(JSON.stringify(link.mobileIsps || []))}, ${!!link.reallowVisited}, ${!!link.allowAfrica}, ${!!link.allowEurope})"
                                 style="background: var(--warning); color: black; border-color: var(--warning); font-size: 10px;">[ EDIT ]</button>
                             ${purgeCell}
                         </div>
@@ -1705,7 +1722,7 @@
                         <td>
                             <div style="display: flex; gap: 5px; flex-wrap: wrap;">
                                 ${renewCell}
-                                <button onclick="editLink('${esc(link.slug)}', '${esc(link.name)}', '${esc(link.realLink)}', '${esc(link.nonRealLink)}', ${!!link.antiRed}, ${!!link.ispFilter}, ${esc(JSON.stringify(link.mobileIsps || []))}, ${!!link.reallowVisited})"
+                                <button onclick="editLink('${esc(link.slug)}', '${esc(link.name)}', '${esc(link.realLink)}', '${esc(link.nonRealLink)}', ${!!link.antiRed}, ${!!link.ispFilter}, ${esc(JSON.stringify(link.mobileIsps || []))}, ${!!link.reallowVisited}, ${!!link.allowAfrica}, ${!!link.allowEurope})"
                                     style="background: var(--warning); color: black; border-color: var(--warning); font-size: 10px;">[ EDIT ]</button>
                                 ${purgeCell}
                             </div>
@@ -1740,8 +1757,8 @@
             return Array.from(checks).map(c => c.value);
         }
 
-        function editLink(slug, name, real, nonReal, antiRed, ispFilter, mobileIsps, reallowVisited) {
-            showSection('dashboard');
+        function editLink(slug, name, real, nonReal, antiRed, ispFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope) {
+            showSection('links');
             toggleLinkManager(true);
             document.getElementById('formTitle').innerText = 'EDIT_UPLINK :: ' + name;
             document.getElementById('editOldSlug').value = slug;
@@ -1756,6 +1773,8 @@
             document.getElementById('newAntiRed').checked = antiRed !== false;
             document.getElementById('newIspFilter').checked = ispFilter !== false;
             document.getElementById('newReallowVisited').checked = reallowVisited !== false;
+            document.getElementById('newAllowAfrica').checked = allowAfrica === true;
+            document.getElementById('newAllowEurope').checked = allowEurope !== false;
             renderNewLinkIspList(mobileIsps || []);
             
             document.getElementById('submitLinkBtn').innerText = '[ UPDATE_UPLINK ]';
@@ -1778,6 +1797,8 @@
             document.getElementById('newAntiRed').checked = true;
             document.getElementById('newIspFilter').checked = true;
             document.getElementById('newReallowVisited').checked = true;
+            document.getElementById('newAllowAfrica').checked = false;
+            document.getElementById('newAllowEurope').checked = true;
             renderNewLinkIspList(currentUser ? currentUser.settings.mobileIsps : []);
             
             document.getElementById('submitLinkBtn').innerText = '[ DEPLOY ANTIRED ]';
@@ -1826,6 +1847,8 @@
             const ispFilter = document.getElementById('newIspFilter').checked;
             const mobileIsps = getNewLinkSelectedIsps();
             const reallowVisited = document.getElementById('newReallowVisited').checked;
+            const allowAfrica = document.getElementById('newAllowAfrica').checked;
+            const allowEurope = document.getElementById('newAllowEurope').checked;
             const duration = document.getElementById('planDuration').value;
 
             if (!name || !realLink || !nonRealLink) {
@@ -1836,7 +1859,7 @@
             const res = await fetch('/api/links', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, duration })
+                body: JSON.stringify({ name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, duration, allowAfrica, allowEurope })
             });
 
             if (res.ok) {
@@ -1907,11 +1930,13 @@
             const ispFilter = document.getElementById('newIspFilter').checked;
             const mobileIsps = getNewLinkSelectedIsps();
             const reallowVisited = document.getElementById('newReallowVisited').checked;
+            const allowAfrica = document.getElementById('newAllowAfrica').checked;
+            const allowEurope = document.getElementById('newAllowEurope').checked;
 
             const res = await fetch('/api/links/' + oldSlug, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited })
+                body: JSON.stringify({ name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope })
             });
 
             if (res.ok) {
