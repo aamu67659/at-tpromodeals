@@ -819,6 +819,22 @@
             flex-wrap: wrap;
         }
 
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .switch-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 600px) {
+            .form-row, .switch-grid { grid-template-columns: 1fr; gap: 10px; }
+        }
+
         .pulse-dot {
             width: 8px; height: 8px; border-radius: 50%;
             background: var(--accent);
@@ -1030,7 +1046,7 @@
                     <h3 id="formTitle" style="margin-top: 0; font-size: 14px; text-transform: uppercase;">CREATE_NEW_ANTIRED LINK</h3>
                     <input type="hidden" id="editOldSlug">
                     
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div class="form-row">
                         <div id="planSelectionGroup" class="form-group">
                             <label>SELECT_PLAN</label>
                             <select id="planDuration">
@@ -1051,7 +1067,7 @@
                         <input type="text" id="newCustomSlug" placeholder="optional-handle">
                     </div>
 
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div class="form-row">
                         <div class="form-group">
                             <label>YOUR_PAGE (REAL_TARGET)</label>
                             <input type="text" id="newRealLink" placeholder="https://real-target.com">
@@ -1063,7 +1079,7 @@
                     </div>
 
                     <div style="background: var(--bg-base); padding: 15px; border: 1px solid var(--border); margin-bottom: 20px;">
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+                        <div class="switch-grid">
                             <div class="toggle-group">
                                 <label class="switch">
                                     <input type="checkbox" id="newAntiRed" checked>
@@ -1087,7 +1103,7 @@
                             </div>
                         </div>
 
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 15px;">
+                        <div class="form-row" style="margin-top: 15px;">
                             <div class="toggle-group">
                                 <label class="switch">
                                     <input type="checkbox" id="newAllowAfrica">

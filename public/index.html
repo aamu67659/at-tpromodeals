@@ -49,6 +49,10 @@
             z-index: 1000;
         }
 
+        @media (max-width: 600px) {
+            .navbar { padding: 0 20px; }
+        }
+
         .logo {
             font-family: var(--font-mono);
             font-size: 20px;
@@ -133,56 +137,30 @@
             border: 1px solid var(--border);
             border-radius: 12px;
             margin: 40px 0;
+            overflow-x: auto;
         }
 
-        .btn-protocol {
-            font-family: var(--font-mono);
-            font-size: 13px;
-            color: var(--accent);
-            text-decoration: none;
-            text-transform: uppercase;
-            letter-spacing: 0.15em;
-            padding: 10px 0;
-            border-bottom: 2px solid var(--accent);
-            transition: all 0.2s;
-            display: inline-block;
-            margin-top: 20px;
-        }
-
-        .btn-protocol:hover {
-            color: var(--text-primary);
-            border-bottom-color: var(--text-primary);
-            padding-left: 10px;
-        }
-
-        .features-grid {
+        .logic-grid {
+            margin-top: 30px;
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 30px;
-        }
-
-        .feature-item h3 {
-            color: var(--text-primary);
-            margin-bottom: 10px;
-        }
-
-        .feature-item p {
-            color: var(--text-muted);
-            font-size: 14px;
-        }
-
-        footer {
-            padding: 60px 20px;
-            text-align: center;
-            border-top: 1px solid var(--border);
-            color: var(--text-faint);
-            font-size: 12px;
-            font-family: var(--font-mono);
+            gap: 40px;
+            text-align: left;
         }
 
         @media (max-width: 768px) {
+            .logic-grid { grid-template-columns: 1fr; gap: 20px; }
             .hero h1 { font-size: 36px; }
             .features-grid { grid-template-columns: 1fr; }
+            .card { padding: 25px; }
+        }
+
+        @media (max-width: 480px) {
+            .hero h1 { font-size: 28px; }
+            .hero p { font-size: 16px; }
+            .hero { padding: 120px 20px 60px; }
+            .btn-signin { width: 100%; }
+            .hero > div { flex-direction: column; }
         }
     </style>
 </head>
@@ -231,7 +209,7 @@
                 style F fill:#1b212c,stroke:#7be0a4,color:#7be0a4
             </div>
             
-            <div style="margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; text-align: left;">
+            <div class="logic-grid">
                 <div>
                     <h3 style="color: var(--accent); font-family: var(--font-mono); font-size: 14px;">FOR_ADS_MARKETERS</h3>
                     <p style="color: var(--text-muted); font-size: 15px;">Ad platforms audit links frequently using automated agents. If they see your real offer, your account risks restriction. SaaS Proxy detects these audits instantly, serving them compliant content while real users flow to your offer.</p>

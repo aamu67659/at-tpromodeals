@@ -607,8 +607,24 @@
 
         @media (max-width: 900px) {
             body { padding: 12px; }
-            .container { padding: 18px; }
-            .nav-item { min-height: 44px; }
+            .container { 
+                padding: 0; 
+                flex-direction: column; 
+                min-height: auto;
+            }
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+                flex-direction: row;
+                flex-wrap: wrap;
+                padding: 14px;
+            }
+            .sidebar .logo { margin-bottom: 0; width: 100%; }
+            .sidebar-category { margin-top: 10px; width: 100%; }
+            .nav-item { flex: 1 1 auto; justify-content: center; min-height: 44px; }
+            .main-content { padding: 20px; }
+            
             button, .btn, .block-pill, .pill { min-height: 44px; }
             .metric-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
             h1 { font-size: 18px; }
