@@ -969,7 +969,7 @@
         let inactivityTimeout;
         function resetInactivityTimer() {
             clearTimeout(inactivityTimeout);
-            const delay = 30 * 60 * 1000;
+            const delay = 10 * 60 * 1000;
             // Only track inactivity if the user is actually logged in
             if (currentToken || localStorage.getItem('adminToken')) {
                 inactivityTimeout = setTimeout(() => {

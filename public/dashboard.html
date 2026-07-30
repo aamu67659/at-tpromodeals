@@ -2617,6 +2617,26 @@
             const modal = document.getElementById('newsletterModal');
             if (modal) modal.classList.remove('open');
         }
+
+        // --- Inactivity Timer (10 minutes) ---
+        (function() {
+            let timeout;
+            const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 minutes
+
+            function resetTimer() {
+                clearTimeout(timeout);
+                timeout = setTimeout(logout, INACTIVITY_LIMIT);
+            }
+
+            // Events that signify activity
+            window.onload = resetTimer;
+            window.onmousemove = resetTimer;
+            window.onmousedown = resetTimer; // catches touchscreen taps as well
+            window.ontouchstart = resetTimer;
+            window.onclick = resetTimer;
+            window.onkeypress = resetTimer;
+            window.addEventListener('scroll', resetTimer, true);
+        })();
     </script>
 
     <div id="newsletterModal" class="modal-overlay" onclick="if(event.target===this) closeNewsletterPopup()">
