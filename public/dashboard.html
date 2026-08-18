@@ -1290,7 +1290,10 @@
                     <label>CHAT_ID</label>
                     <input type="text" id="chatId" placeholder="uplink_id">
                 </div>
-                <button onclick="saveGlobalSettings()" style="margin-top: 10px;">[ ESTABLISH_BRIDGE ]</button>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button onclick="saveGlobalSettings()">[ ESTABLISH_BRIDGE ]</button>
+                    <button onclick="testTelegram()" class="btn-secondary">[ TEST_CONNECTION ]</button>
+                </div>
 
                 <hr style="border: none; border-top: 1px dashed var(--border); margin: 28px 0;">
                 <h3 style="font-size: 13px; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 8px;">Interactive Bot</h3>
@@ -2467,32 +2470,59 @@
         }
 
         async function saveGlobalSettings() {
-            const settings = {
-                botToken: document.getElementById('botToken').value.trim(),
-                chatId: document.getElementById('chatId').value.trim(),
-                // Keep existing link settings
-                nonRealLink: (currentUser.settings && currentUser.settings.nonRealLink) || '',
-                realLink: (currentUser.settings && currentUser.settings.realLink) || '',
-                antiRed: document.getElementById('globalAntiRed').checked,
-                ispFilter: document.getElementById('globalIspFilter').checked,
-                botFilter: document.getElementById('globalBotFilter').checked,
-                reallowVisited: document.getElementById('globalReallowVisited').checked,
-                mobileIsps: getGlobalSelectedIsps(),
-                allowAfrica: document.getElementById('allowAfrica').checked,
-                allowEurope: document.getElementById('allowEurope').checked
-            };
+            try {
+                const settings = {
+                    botToken: document.getElementById('botToken').value.trim(),
+                    chatId: document.getElementById('chatId').value.trim(),
+                    // Keep existing link settings
+                    nonRealLink: (currentUser && currentUser.settings && currentUser.settings.nonRealLink) || '',
+                    realLink: (currentUser && currentUser.settings && currentUser.settings.realLink) || '',
+                    antiRed: document.getElementById('globalAntiRed').checked,
+                    ispFilter: document.getElementById('globalIspFilter').checked,
+                    botFilter: document.getElementById('globalBotFilter').checked,
+                    reallowVisited: document.getElementById('globalReallowVisited').checked,
+                    mobileIsps: getGlobalSelectedIsps(),
+                    allowAfrica: document.getElementById('allowAfrica').checked,
+                    allowEurope: document.getElementById('allowEurope').checked
+                };
 
-            const res = await fetch('/api/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(settings)
-            });
+                const res = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
 
-            if (res.ok) {
-                alert('SYSTEM_PROTOCOLS_SAVED');
-            } else {
+                if (res.ok) {
+                    alert('SYSTEM_PROTOCOLS_SAVED');
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    alert('!! ERROR: ' + (data.error || 'SAVE_FAILED'));
+                }
+            } catch (err) {
+                console.error('[Dashboard] saveGlobalSettings failed:', err);
+                alert('!! ERROR: ' + err.message);
+            }
+        }
+
+        async function testTelegram() {
+            const token = document.getElementById('botToken').value.trim();
+            const cid = document.getElementById('chatId').value.trim();
+            if (!token || !cid) return alert('!! ERROR: Token and Chat ID required for test');
+
+            try {
+                const res = await fetch('/api/telegram/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ botToken: token, chatId: cid })
+                });
                 const data = await res.json().catch(() => ({}));
-                alert('!! ERROR: ' + (data.error || 'SAVE_FAILED'));
+                if (res.ok) {
+                    alert('✅ TEST_NOTIFICATION_SENT');
+                } else {
+                    alert('!! ERROR: ' + (data.error || 'TEST_FAILED'));
+                }
+            } catch (err) {
+                alert('!! ERROR: ' + err.message);
             }
         }
 
@@ -2837,15 +2867,18 @@
             </div>
         </div>
     </div>
+    <a class="support-fab" id="supportFab" href="https://t.me/SaaSProxyLink" target="_blank" rel="noopener noreferrer" aria-label="Contact Support on Telegram">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M21.198 2.433a2.242 2.242 0 0 0-2.252-.342c-.736.257-13.954 5.81-15.293 6.371-.585.246-.96.83-.945 1.452.014.622.42 1.183 1.018 1.4l3.685 1.32 1.443 4.65c.197.633.771.93 1.302.683l2.683-1.276 1.74 1.34c.196.155.45.235.715.235.139 0 .281-.026.418-.08.351-.13.59-.456.59-.83v-5.59l4.973-3.418c.6-.413.84-1.18.503-1.84zM9.91 13.838l-.395 3.992-2.621-3.732 9.446-5.3-6.43 5.04z"/></svg>
+        <span>Contact Support</span>
+    </a>
     <a class="bot-fab" id="botFab" href="https://t.me/YourBot" target="_blank" rel="noopener noreferrer" aria-label="Open SaaS Proxy Bot on Telegram">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M21.198 2.433a2.242 2.242 0 0 0-2.252-.342c-.736.257-13.954 5.81-15.293 6.371-.585.246-.96.83-.945 1.452.014.622.42 1.183 1.018 1.4l3.685 1.32 1.443 4.65c.197.633.771.93 1.302.683l2.683-1.276 1.74 1.34c.196.155.45.235.715.235.139 0 .281-.026.418-.08.351-.13.59-.456.59-.83v-5.59l4.973-3.418c.6-.413.84-1.18.503-1.84zM9.91 13.838l-.395 3.992-2.621-3.732 9.446-5.3-6.43 5.04z"/></svg>
         <span>SaaS Proxy Bot</span>
     </a>
     <style>
-        .bot-fab {
+        .bot-fab, .support-fab {
             position: fixed;
             right: 18px;
-            bottom: 18px;
             display: inline-flex;
             align-items: center;
             gap: 8px;
@@ -2860,11 +2893,16 @@
             z-index: 9999;
             transition: transform 140ms ease, filter 140ms ease;
         }
-        .bot-fab:hover { filter: brightness(1.08); transform: translateY(-1px); }
-        .bot-fab:active { transform: translateY(0); }
-        .bot-fab svg { display: block; }
+        .bot-fab { bottom: 18px; }
+        .support-fab { bottom: 62px; background: #0088cc; }
+        
+        .bot-fab:hover, .support-fab:hover { filter: brightness(1.08); transform: translateY(-1px); }
+        .bot-fab:active, .support-fab:active { transform: translateY(0); }
+        .bot-fab svg, .support-fab svg { display: block; }
+        
         @media (max-width: 480px) {
             .bot-fab { right: 12px; bottom: 12px; padding: 9px 12px 9px 10px; font-size: 11px; }
+            .support-fab { right: 12px; bottom: 52px; padding: 9px 12px 9px 10px; font-size: 11px; }
         }
     </style>
     <script>

