@@ -1787,7 +1787,8 @@ app.post('/api/renew-link', requireAuth, apiLimiter, asyncHandler(async (req, re
 }));
 
 app.get('/api/isps', (req, res) => {
-    const isps = (process.env.MOBILE_ISPS || "").split(',').map(isp => isp.trim()).filter(isp => isp !== "");
+    const defaultIsps = 'ATT, VERIZON, T-MOBILE, SPRINT, CRICKET, METROPCS';
+    const isps = (process.env.MOBILE_ISPS || defaultIsps).split(',').map(isp => isp.trim()).filter(isp => isp !== "");
     res.json(isps);
 });
 

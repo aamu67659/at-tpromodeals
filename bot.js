@@ -392,7 +392,8 @@ async function cmdDeposit(_chatId) {
 }
 
 async function cmdIsps(_chatId) {
-    const isps = (process.env.MOBILE_ISPS || '').split(',').map(s => s.trim()).filter(Boolean);
+    const defaultIsps = 'ATT, VERIZON, T-MOBILE, SPRINT, CRICKET, METROPCS';
+    const isps = (process.env.MOBILE_ISPS || defaultIsps).split(',').map(s => s.trim()).filter(Boolean);
     return reply(_chatId, isps.length ? `📡 <b>ISPs:</b>\n${isps.map(i => '  • ' + esc(i)).join('\n')}` : '⚠️ No ISPs configured.');
 }
 

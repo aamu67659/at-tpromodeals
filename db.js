@@ -520,7 +520,7 @@ async function createUser(userData) {
             allowEurope: true,
             botToken: '',
             chatId: '',
-            mobileIsps: ['ATT', 'VERIZON', 'T-MOBILE', 'SPRINT', 'CRICKET', 'METROPCS']
+            mobileIsps: (process.env.MOBILE_ISPS || 'ATT, VERIZON, T-MOBILE, SPRINT, CRICKET, METROPCS').split(',').map(s => s.trim()).filter(Boolean)
         },
         forcedIps: [],
         blockedIps: [],
