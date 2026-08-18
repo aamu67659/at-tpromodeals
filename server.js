@@ -1899,7 +1899,21 @@ async function lookupIpGeo(ip) {
         });
 
         if (ipApiRes && ipApiRes.data && ipApiRes.data.status === 'success') {
-            const data = ipApiRes.data;
+            const d = ipApiRes.data;
+            const data = {
+                status: 'success',
+                country: d.country || 'Unknown',
+                countryCode: d.countryCode || 'UN',
+                regionName: d.regionName || 'Unknown',
+                city: d.city || 'Unknown',
+                isp: d.isp || d.org || d.as || 'Unknown',
+                org: d.org || 'Unknown',
+                proxy: d.proxy === true,
+                hosting: d.hosting === true,
+                continentCode: d.continentCode || 'UN',
+                query: ip
+            };
+            console.log(`[Proxy] IP lookup success (ip-api) for ${ip}: ISP=${data.isp}, Proxy=${data.proxy}`);
             ipGeoCache.set(ip, { data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
             return data;
         }
@@ -1919,13 +1933,14 @@ async function lookupIpGeo(ip) {
                 countryCode: d.country_code || 'UN',
                 regionName: d.region || 'Unknown',
                 city: d.city || 'Unknown',
-                isp: d.connection ? d.connection.isp : 'Unknown',
-                org: d.connection ? d.connection.org : 'Unknown',
-                proxy: d.security ? d.security.proxy : false,
-                hosting: d.security ? d.security.hosting : false,
+                isp: d.connection ? (d.connection.isp || d.connection.org || d.connection.asn || 'Unknown') : 'Unknown',
+                org: d.connection ? (d.connection.org || d.connection.isp || 'Unknown') : 'Unknown',
+                proxy: d.security ? !!d.security.proxy : false,
+                hosting: d.security ? !!d.security.hosting : false,
                 continentCode: d.continent_code || 'UN',
                 query: ip
             };
+            console.log(`[Proxy] IP lookup success (ipwho) for ${ip}: ISP=${data.isp}, Proxy=${data.proxy}`);
             ipGeoCache.set(ip, { data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
             return data;
         }
@@ -1952,6 +1967,7 @@ async function lookupIpGeo(ip) {
                 continentCode: 'UN',
                 query: ip
             };
+            console.log(`[Proxy] IP lookup success (freeipapi) for ${ip}: ISP=${data.isp}, Proxy=${data.proxy}`);
             ipGeoCache.set(ip, { data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
             return data;
         }
@@ -1978,6 +1994,7 @@ async function lookupIpGeo(ip) {
                 continentCode: 'UN',
                 query: ip
             };
+            console.log(`[Proxy] IP lookup success (ipapi.co) for ${ip}: ISP=${data.isp}, Proxy=${data.proxy}`);
             ipGeoCache.set(ip, { data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
             return data;
         }
@@ -2098,6 +2115,10 @@ async function handleRedirection(user, req, res, linkData) {
 
     // 2. IP Analysis (cached)
     const data = await lookupIpGeo(clientIp);
+
+    const isProxy = data && data.proxy === true;
+    const isHosting = data && data.hosting === true;
+    const isSuspicious = isProxy || isHosting;
 
     // 2a. Admin ISP block
     if (data && (adminBlocks.isps || []).length) {
