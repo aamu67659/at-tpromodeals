@@ -918,13 +918,14 @@ app.post('/api/settings', requireAuth, apiLimiter, asyncHandler(async (req, res)
         body.botToken = body.botToken.trim();
     }
     if ('chatId' in body) {
-        if (typeof body.chatId !== 'string') return res.status(400).json({ error: 'CHAT_ID_INVALID' });
-        if (!/^-?\d+$/.test(body.chatId.trim())) return res.status(400).json({ error: 'CHAT_ID_INVALID' });
-        body.chatId = body.chatId.trim();
+        const v = (typeof body.chatId === 'string' ? body.chatId : '').trim();
+        if (v !== '' && !/^-?\d+$/.test(v)) return res.status(400).json({ error: 'CHAT_ID_INVALID' });
+        body.chatId = v;
     }
 
+    const currentSettings = req.user.settings || {};
     const updatedUser = await db.updateUser(req.user.id, {
-        settings: { ...req.user.settings, ...body }
+        settings: { ...currentSettings, ...body }
     });
 
     // Re-evaluate poller cadence whenever the sender address flips. Adding it

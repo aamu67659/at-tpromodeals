@@ -2471,8 +2471,8 @@
                 botToken: document.getElementById('botToken').value.trim(),
                 chatId: document.getElementById('chatId').value.trim(),
                 // Keep existing link settings
-                nonRealLink: currentUser.settings.nonRealLink,
-                realLink: currentUser.settings.realLink,
+                nonRealLink: (currentUser.settings && currentUser.settings.nonRealLink) || '',
+                realLink: (currentUser.settings && currentUser.settings.realLink) || '',
                 antiRed: document.getElementById('globalAntiRed').checked,
                 ispFilter: document.getElementById('globalIspFilter').checked,
                 botFilter: document.getElementById('globalBotFilter').checked,
@@ -2488,8 +2488,12 @@
                 body: JSON.stringify(settings)
             });
 
-            if (res.ok) alert('SYSTEM_PROTOCOLS_SAVED');
-            else alert('!! ERROR: SAVE_FAILED');
+            if (res.ok) {
+                alert('SYSTEM_PROTOCOLS_SAVED');
+            } else {
+                const data = await res.json().catch(() => ({}));
+                alert('!! ERROR: ' + (data.error || 'SAVE_FAILED'));
+            }
         }
 
         async function connectTelegram() {
