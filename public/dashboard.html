@@ -1042,7 +1042,13 @@
                     <div id="uplinkStatusBadge" style="font-family: var(--font-mono); font-size: 11px; padding: 4px 10px; border-radius: 4px; background: var(--bg-elevated); border: 1px solid var(--border);">STATUS: <span id="uplinkStatus">IDLE</span></div>
                 </div>
 
-                <div id="linkCreationForm" style="background: var(--bg-elevated); padding: 20px; border: 1px solid var(--border); margin-bottom: 25px;">
+                <div id="creation-tabs" style="display: none; gap: 10px; margin-bottom: 20px;">
+                    <button id="tab-single" onclick="showCreationTab('single')" style="flex: 1; font-size: 12px; background: var(--accent); color: black;">[ SINGLE_UPLINK ]</button>
+                    <button id="tab-bulk" onclick="showCreationTab('bulk')" style="flex: 1; font-size: 12px; background: var(--bg-elevated); color: var(--text-muted); border-color: var(--border);">[ BULK_UPLINKS ]</button>
+                </div>
+
+                <!-- Single Link Creator -->
+                <div id="linkCreationForm" style="display: none; background: var(--bg-elevated); padding: 20px; border: 1px solid var(--border); margin-bottom: 25px;">
                     <h3 id="formTitle" style="margin-top: 0; font-size: 14px; text-transform: uppercase;">CREATE_NEW_ANTIRED LINK</h3>
                     <input type="hidden" id="editOldSlug">
                     
@@ -1142,7 +1148,7 @@
                 </div>
 
                 <!-- Bulk Link Creator -->
-                <div id="bulkLinkSection" style="background: var(--bg-elevated); padding: 20px; border: 1px solid var(--border); margin-bottom: 25px;">
+                <div id="bulkLinkSection" style="display: none; background: var(--bg-elevated); padding: 20px; border: 1px solid var(--border); margin-bottom: 25px;">
                     <h3 style="margin-top: 0; font-size: 14px; text-transform: uppercase;">BULK_LINK_CREATOR</h3>
                     <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">Paste one link per line. Format: <code>NAME, REAL_URL, SAFE_URL, SLUG(optional)</code>. Max 50 per submission.</p>
                     
@@ -1482,20 +1488,47 @@
         let currentUser = null;
 
         function toggleLinkManager(forceVisible) {
+            const tabs = document.getElementById('creation-tabs');
             const creationForm = document.getElementById('linkCreationForm');
             const bulkSection = document.getElementById('bulkLinkSection');
             const btn = document.getElementById('showCreationFormsBtn');
             
-            const show = forceVisible === true || (forceVisible === undefined && (creationForm.style.display === 'none' || creationForm.style.display === ''));
+            const isHidden = tabs.style.display === 'none' || tabs.style.display === '';
+            const show = forceVisible === true || (forceVisible === undefined && isHidden);
             
             if (show) {
-                creationForm.style.display = 'block';
-                bulkSection.style.display = 'block';
+                tabs.style.display = 'flex';
                 if (btn) btn.style.display = 'none';
+                cancelEdit(); // Reset to "Create" mode
+                showCreationTab('single');
             } else {
+                tabs.style.display = 'none';
                 creationForm.style.display = 'none';
                 bulkSection.style.display = 'none';
                 if (btn) btn.style.display = 'inline-block';
+            }
+        }
+
+        function showCreationTab(tab) {
+            const single = document.getElementById('linkCreationForm');
+            const bulk = document.getElementById('bulkLinkSection');
+            const btnSingle = document.getElementById('tab-single');
+            const btnBulk = document.getElementById('tab-bulk');
+
+            if (tab === 'single') {
+                single.style.display = 'block';
+                bulk.style.display = 'none';
+                btnSingle.style.background = 'var(--accent)';
+                btnSingle.style.color = 'black';
+                btnBulk.style.background = 'var(--bg-elevated)';
+                btnBulk.style.color = 'var(--text-muted)';
+            } else {
+                single.style.display = 'none';
+                bulk.style.display = 'block';
+                btnBulk.style.background = 'var(--accent)';
+                btnBulk.style.color = 'black';
+                btnSingle.style.background = 'var(--bg-elevated)';
+                btnSingle.style.color = 'var(--text-muted)';
             }
         }
 
@@ -1634,7 +1667,7 @@
                     }
                     
                     // Keep existing visibility unless forced
-                    if (creationForm.style.display === 'block') {
+                    if (document.getElementById('creation-tabs').style.display === 'flex') {
                         toggleLinkManager(true);
                     } else {
                         toggleLinkManager(false);
