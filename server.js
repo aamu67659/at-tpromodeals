@@ -108,6 +108,35 @@ app.use(express.json({
 }));
 app.use(cookieParser());
 
+// ---------------------------------------------------------------------------
+// Domain Isolation & Enforcement
+// ---------------------------------------------------------------------------
+const PRIMARY_DASHBOARD_URL = (process.env.PUBLIC_BASE_URL || 'https://saasproxylink.store').trim();
+let PRIMARY_HOST = '';
+try {
+    const u = new URL(PRIMARY_DASHBOARD_URL);
+    PRIMARY_HOST = u.hostname.toLowerCase();
+} catch (e) {
+    PRIMARY_HOST = 'saasproxylink.store';
+}
+
+app.use((req, res, next) => {
+    // Rotator domains (pool) are used ONLY for tracking links (/l/:slug).
+    // All other routes (dashboard, admin, login, signup, API) must use the primary domain.
+    if (req.path.startsWith('/l/')) return next();
+    
+    const hostHeader = (req.headers.host || '').split(':')[0].toLowerCase();
+    
+    // Allow primary host, and allow local dev bypass
+    if (hostHeader === PRIMARY_HOST || hostHeader === 'localhost' || hostHeader === '127.0.0.1' || !IS_PROD) {
+        return next();
+    }
+    
+    // Block access to dashboard/admin/API on secondary domains
+    console.warn(`[Security] Blocked access to ${req.path} via secondary host: ${hostHeader}`);
+    return res.status(403).send('Access Restricted: This domain is reserved for traffic routing only. Please use the primary dashboard domain.');
+});
+
 // Tiny allowlist of static asset paths to log; everything else is silenced
 // so the per-request console.log can't be used as a log-flood DoS vector.
 app.use((req, res, next) => {
