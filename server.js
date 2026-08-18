@@ -1943,7 +1943,12 @@ async function handleRedirection(user, req, res, linkData) {
         return res.status(403).send('Tracking Link Expired. Please renew in dashboard.');
     }
 
-    const { settings, forcedIps, blockedIps, visitedIps } = user;
+    const {
+        settings = {},
+        forcedIps = [],
+        blockedIps = [],
+        visitedIps = []
+    } = user;
     const clientIp = getClientIp(req);
     const isVisited = Array.isArray(visitedIps) && visitedIps.some(v => v.ip === clientIp);
     const userAgent = req.headers['user-agent'] || 'Unknown';
@@ -2070,7 +2075,9 @@ async function handleRedirection(user, req, res, linkData) {
             text: message,
             parse_mode: 'HTML',
             disable_web_page_preview: true
-        }).catch(() => {});
+        }).catch(err => {
+            console.error(`[Proxy] Telegram notify failed for user ${user.id}:`, err.message);
+        });
     }
 
     if (!targetUrl) return res.send("Configuration missing for links.");
