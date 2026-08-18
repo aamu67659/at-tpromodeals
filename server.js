@@ -1795,6 +1795,24 @@ function isBot(req) {
     return !ua || BOT_UA_REGEX.test(ua);
 }
 
+function isSafeHttpUrl(raw, { allowEmpty = true } = {}) {
+    if (raw == null || raw === '') return allowEmpty;
+    if (typeof raw !== 'string') return false;
+    if (raw.length > 2048) return false;
+    try {
+        const u = new URL(raw);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+        if (!u.hostname || !u.hostname.includes('.')) return false;
+        return true;
+    } catch (_) { return false; }
+}
+
+function isExpiryActive(dateStr) {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    return !isNaN(d.getTime()) && d > new Date();
+}
+
 // Defensive slug format guard: up to 128 chars from a safe alphabet.
 const SLUG_REGEX = /^[A-Za-z0-9._-]{4,128}$/;
 const MAX_VISITED_IPS_PER_USER = 5000;
@@ -1928,7 +1946,7 @@ async function handleRedirection(user, req, res, linkData) {
     const adminBlocks = await getAdminBlocksSnapshot();
 
     // 0a. Admin IP block (site-wide, highest priority - deny before any other logic).
-    if (db.ipMatchesAdminBlock && db.ipMatchesAdminBlock(clientIp, adminBlocks.ips)) {
+    if (db.ipMatchesAnyBlock && db.ipMatchesAnyBlock(clientIp, adminBlocks.ips)) {
         return res.status(403).send('Access denied by administrator.');
     }
 
