@@ -1008,7 +1008,7 @@ app.post('/api/telegram/test', requireAuth, apiLimiter, asyncHandler(async (req,
     
     if (!effectiveToken || !effectiveChat) return res.status(400).json({ error: 'TOKEN_AND_CHAT_ID_REQUIRED' });
 
-    const message = `🛠 <b>Connection Test</b>\n\nYour Zencoder Proxy notification bridge is correctly configured for user: <code>${telegramEscape(req.user.name || req.user.username)}</code>`;
+    const message = `🛠 <b>Connection Test</b>\n\nYour Proxy notification bridge is correctly configured for user: <code>${telegramEscape(req.user.name || req.user.username)}</code>`;
 
     try {
         await axios.post(`https://api.telegram.org/bot${effectiveToken}/sendMessage`, {
