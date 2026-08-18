@@ -514,6 +514,7 @@ async function createUser(userData) {
             realLink: '',
             antiRed: true,
             ispFilter: true,
+            botFilter: true,
             reallowVisited: true,
             allowAfrica: false,
             allowEurope: true,

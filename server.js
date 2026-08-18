@@ -857,6 +857,7 @@ const SETTINGS_ALLOWED_KEYS = new Set([
     'nonRealLink',
     'antiRed',
     'ispFilter',
+    'botFilter',
     'reallowVisited',
     'mobileIsps',
     'botToken',
@@ -864,7 +865,7 @@ const SETTINGS_ALLOWED_KEYS = new Set([
     'allowAfrica',
     'allowEurope'
 ]);
-const SETTINGS_BOOLEAN_KEYS = new Set(['antiRed', 'ispFilter', 'reallowVisited', 'allowAfrica', 'allowEurope']);
+const SETTINGS_BOOLEAN_KEYS = new Set(['antiRed', 'ispFilter', 'botFilter', 'reallowVisited', 'allowAfrica', 'allowEurope']);
 const SETTINGS_LIST_KEYS = new Set(['mobileIsps']);
 
 app.post('/api/settings', requireAuth, apiLimiter, asyncHandler(async (req, res) => {

@@ -622,6 +622,7 @@ async function cmdSettings(_chatId, user, args) {
         realLink: s.realLink || '',
         antiRed: s.antiRed !== false,
         ispFilter: s.ispFilter !== false,
+        botFilter: s.botFilter !== false,
         reallowVisited: s.reallowVisited !== false,
         mobileIsps: (s.mobileIsps || []).join(','),
         depositSendAddress: s.depositSendAddress || '',
@@ -645,7 +646,7 @@ async function cmdSetSetting(chatId, user, args) {
     const [key, ...rest] = args;
     const value = rest.join(' ');
     const settings = { ...(user.settings || {}) };
-    const booleanKeys = new Set(['antiRed', 'ispFilter', 'reallowVisited']);
+    const booleanKeys = new Set(['antiRed', 'ispFilter', 'botFilter', 'reallowVisited']);
     const listKeys = new Set(['mobileIsps']);
     if (booleanKeys.has(key)) {
         if (!['true','false','1','0','yes','no','on','off'].includes(value.toLowerCase())) {
@@ -672,7 +673,7 @@ async function cmdSetSetting(chatId, user, args) {
         if (value && !/^-?\d+$/.test(value.trim())) return reply(chatId, '⚠️ chatId must be numeric.');
         settings[key] = (value || '').trim();
     } else {
-        return reply(chatId, `⚠️ Unknown or read-only setting. Mutable keys: antiRed, ispFilter, reallowVisited, mobileIsps, depositSendAddress, botToken, chatId, nonRealLink, realLink.`);
+        return reply(chatId, `⚠️ Unknown or read-only setting. Mutable keys: antiRed, ispFilter, botFilter, reallowVisited, mobileIsps, depositSendAddress, botToken, chatId, nonRealLink, realLink.`);
     }
     await db.updateUser(user.id, { settings });
     return reply(chatId, `✅ Setting <b>${esc(key)}</b> updated.`);

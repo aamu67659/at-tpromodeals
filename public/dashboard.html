@@ -1222,6 +1222,13 @@
                     </label>
                     <span>ALLOW_EUROPE_TRAFFIC</span>
                 </div>
+
+                <div id="globalIspConfig" style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
+                    <label style="margin-bottom: 10px; display: block;">GLOBAL_ALLOWED_CARRIERS</label>
+                    <div id="globalIspList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; max-height: 150px; overflow-y: auto; padding: 12px; border: 1px solid var(--border); background: var(--bg-surface); border-radius: 8px;">
+                        <!-- Global ISPs loaded here -->
+                    </div>
+                </div>
             </div>
             <button onclick="saveGlobalSettings()" style="margin-top: 20px;">[ SYNC_PROTOCOLS ]</button>
         </div>
@@ -1534,6 +1541,7 @@
                 
                 allIsps = Array.from(new Set([...defaultIsps, ...userMobileIsps]));
                 renderNewLinkIspList(userMobileIsps);
+                renderGlobalIspList(userMobileIsps);
 
                 renderLinksTable(user.links || []);
 
@@ -1820,6 +1828,31 @@
 
         function getNewLinkSelectedIsps() {
             const checks = document.querySelectorAll('input[name="newLinkIspCheck"]:checked');
+            return Array.from(checks).map(c => c.value);
+        }
+
+        function renderGlobalIspList(selectedIsps = []) {
+            const container = document.getElementById('globalIspList');
+            if (!container) return;
+            container.innerHTML = '';
+            allIsps.sort().forEach(isp => {
+                const div = document.createElement('div');
+                div.style.display = 'flex';
+                div.style.alignItems = 'center';
+                div.style.gap = '5px';
+                div.style.fontSize = '11px';
+                
+                const isChecked = selectedIsps.includes(isp);
+                div.innerHTML = `
+                    <input type="checkbox" name="globalIspCheck" value="${esc(isp)}" ${isChecked ? 'checked' : ''}>
+                    <span>${esc(isp)}</span>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function getGlobalSelectedIsps() {
+            const checks = document.querySelectorAll('input[name="globalIspCheck"]:checked');
             return Array.from(checks).map(c => c.value);
         }
 
@@ -2444,7 +2477,7 @@
                 ispFilter: document.getElementById('globalIspFilter').checked,
                 botFilter: document.getElementById('globalBotFilter').checked,
                 reallowVisited: document.getElementById('globalReallowVisited').checked,
-                mobileIsps: currentUser.settings.mobileIsps,
+                mobileIsps: getGlobalSelectedIsps(),
                 allowAfrica: document.getElementById('allowAfrica').checked,
                 allowEurope: document.getElementById('allowEurope').checked
             };
