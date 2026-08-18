@@ -2437,6 +2437,8 @@
 
                     let statusColor = 'var(--warning)';
                     let statusLabel = '[PENDING]';
+                    let actionHtml = '';
+
                     if (p.status === 'confirmed') {
                         statusColor = 'var(--accent)';
                         statusLabel = p.autoVerified ? '[AUTO-CREDITED]' : '[CONFIRMED]';
@@ -2445,13 +2447,21 @@
                         statusLabel = '[REJECTED]';
                     } else {
                         pendingCount++;
+                        actionHtml = `<span style="color:var(--danger); cursor:pointer; font-size:10px; margin-left:8px;" onclick="cancelPayment('${p.id}')">[CANCEL]</span>`;
                     }
 
                     div.innerHTML = `
-                        <span style="color:${statusColor};">${statusLabel}</span>
-                        <span style="color:var(--accent);">$${p.amount.toFixed(2)}</span>
-                        <span style="color:var(--text-muted); font-size:10px; word-break:break-all;">from ${(p.fromAddress || '').substring(0,8)}...${(p.fromAddress || '').substring(28)}</span>
-                        <span style="color:var(--text-muted); font-size:10px;">${new Date(p.createdAt).toLocaleString()}</span>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <span style="color:${statusColor};">${statusLabel}</span>
+                                <span style="color:var(--accent);">$${p.amount.toFixed(2)}</span>
+                                ${actionHtml}
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="color:var(--text-muted); font-size:9px;">${new Date(p.createdAt).toLocaleString()}</div>
+                                ${p.fromAddress ? `<div style="color:var(--text-faint); font-size:9px; word-break:break-all;">from ${esc(p.fromAddress.substring(0,8))}...${esc(p.fromAddress.substring(28))}</div>` : ''}
+                            </div>
+                        </div>
                     `;
                     list.appendChild(div);
                 });
@@ -2463,6 +2473,21 @@
                 }
             } catch (err) {
                 list.innerText = 'ERROR_LOADING_PAYMENTS';
+            }
+        }
+
+        async function cancelPayment(id) {
+            if (!confirm('Are you sure you want to cancel this pending payment request?')) return;
+            try {
+                const res = await fetch('/api/payments/' + id, { method: 'DELETE' });
+                if (res.ok) {
+                    refreshPaymentHistory();
+                } else {
+                    const data = await res.json();
+                    alert('!! ERROR: ' + data.error);
+                }
+            } catch (err) {
+                alert('!! ERROR: ' + err.message);
             }
         }
 

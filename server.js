@@ -1211,6 +1211,22 @@ app.post('/api/payments/submit', requireAuth, apiLimiter, asyncHandler(async (re
     res.json({ payment, balance: updatedUser.wallet, pending: updatedUser.pendingPayments });
 }));
 
+app.delete('/api/payments/:id', requireAuth, asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const pending = req.user.pendingPayments || [];
+    const index = pending.findIndex(p => p.id === id);
+    if (index === -1) return res.status(404).json({ error: 'PAYMENT_NOT_FOUND' });
+    
+    // Only allow canceling pending payments
+    if (pending[index].status !== 'pending') {
+        return res.status(400).json({ error: 'ONLY_PENDING_PAYMENTS_CAN_BE_CANCELED' });
+    }
+
+    pending.splice(index, 1);
+    await db.updateUser(req.user.id, { pendingPayments: pending });
+    res.json({ success: true });
+}));
+
 app.get('/api/payments/my', requireAuth, asyncHandler(async (req, res) => {
     res.json(req.user.pendingPayments || []);
 }));
@@ -1340,20 +1356,36 @@ async function pollTronPayments() {
                     pending[idx].txHash = hash;
                 }
             } else {
-                // sender_wallet mode: synthesize an audit row
-                pending.push({
-                    id: require('uuid').v4(),
-                    amount: valueNum,
-                    txHash: hash,
-                    network: 'USDT-TRC20',
-                    address: PAYMENT_RECEIVE_ADDRESS,
-                    fromAddress: (tx.from || '').trim(),
-                    status: 'confirmed',
-                    autoVerified: true,
-                    onChainAmount: valueNum,
-                    createdAt: new Date().toISOString(),
-                    confirmedAt: new Date().toISOString()
-                });
+                // sender_wallet mode: try to find a pending payment of similar amount to "consume"
+                const existingIdx = pending.findIndex(p => 
+                    p.status === 'pending' && 
+                    Math.abs(parseFloat(p.amount) - valueNum) < 0.01
+                );
+
+                if (existingIdx !== -1) {
+                    pending[existingIdx].status = 'confirmed';
+                    pending[existingIdx].confirmedAt = new Date().toISOString();
+                    pending[existingIdx].autoVerified = true;
+                    pending[existingIdx].onChainAmount = valueNum;
+                    pending[existingIdx].fromAddress = tx.from;
+                    pending[existingIdx].txHash = hash;
+                    console.log(`[AutoPay] Consumed existing pending payment for ${matchedUser.email} via wallet match`);
+                } else {
+                    // synthesize an audit row
+                    pending.push({
+                        id: require('uuid').v4(),
+                        amount: valueNum,
+                        txHash: hash,
+                        network: 'USDT-TRC20',
+                        address: PAYMENT_RECEIVE_ADDRESS,
+                        fromAddress: (tx.from || '').trim(),
+                        status: 'confirmed',
+                        autoVerified: true,
+                        onChainAmount: valueNum,
+                        createdAt: new Date().toISOString(),
+                        confirmedAt: new Date().toISOString()
+                    });
+                }
             }
 
             matchedUser.wallet = (matchedUser.wallet || 0) + valueNum;
