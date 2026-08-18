@@ -2090,7 +2090,6 @@
                 if (currentUser) {
                     document.getElementById('payCurrentBalance').innerText = '$' + (currentUser.wallet || 0).toFixed(2);
                 }
-                paymentRefreshSenderWalletStatus();
             } catch (err) {
                 document.getElementById('paymentAddress').innerText = 'ERROR_FETCHING_INFO';
                 banner.style.display = 'block';
@@ -2106,36 +2105,7 @@
             document.getElementById('paymentStage3').style.display = (n === 3) ? '' : 'none';
         }
 
-        function paymentRefreshSenderWalletStatus() {
-            const sender = currentUser && currentUser.settings && currentUser.settings.depositSendAddress;
-            const statusEl = document.getElementById('paySenderStatus');
-            const noteEl = document.getElementById('paymentSenderWalletNote');
-            const field = document.getElementById('paymentSenderWallet');
-            const proceedBtn = document.getElementById('payStage1Next');
-            if (sender) {
-                statusEl.style.color = 'var(--accent)';
-                statusEl.innerText = 'REGISTERED :: ' + sender.substring(0, 8) + '...' + sender.substring(26);
-                field.value = sender;
-                noteEl.style.color = 'var(--accent)';
-                noteEl.innerText = '> REGISTERED :: All USDT sent FROM this wallet to the receive address will auto-credit your account.';
-                proceedBtn.disabled = false;
-            } else {
-                statusEl.style.color = 'var(--warning)';
-                statusEl.innerText = 'NOT_REGISTERED';
-                field.value = '';
-                noteEl.style.color = 'var(--warning)';
-                noteEl.innerText = '!! NOT_REGISTERED :: Save your personal TRC20 sender wallet before depositing, so the system can attribute inbound USDT to your account.';
-                proceedBtn.disabled = true;
-                proceedBtn.title = 'Register a sender wallet first';
-            }
-        }
-
         async function paymentStage1Next() {
-            const sender = currentUser && currentUser.settings && currentUser.settings.depositSendAddress;
-            if (!sender) {
-                alert('!! Register your sender wallet first (TRC20 address that you will send from).');
-                return;
-            }
             const rawAmt = document.getElementById('paymentAmount').value;
             const amt = parseFloat(rawAmt);
             const min = (paymentModalInfo && paymentModalInfo.minAmount) || 10;
@@ -2148,19 +2118,38 @@
                 return;
             }
 
-            paymentPendingAmount = amt;
+            const btn = document.getElementById('payStage1Next');
+            btn.disabled = true;
+            btn.innerText = '[ REQUESTING_UNIQUE_AMOUNT... ]';
 
-            document.getElementById('payStage2AmountBig').innerText = '$' + amt.toFixed(2);
-            document.getElementById('payStage2From').innerText = sender;
+            try {
+                const res = await fetch('/api/payments/request', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount: amt })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Request failed');
 
-            if (paymentModalInfo && paymentModalInfo.address) {
-                renderPaymentQr(paymentModalInfo.address);
+                const finalAmt = data.payment.amount;
+                paymentPendingAmount = finalAmt;
+
+                document.getElementById('payStage2AmountBig').innerText = '$' + finalAmt.toFixed(2);
+
+                if (paymentModalInfo && paymentModalInfo.address) {
+                    renderPaymentQr(paymentModalInfo.address);
+                }
+
+                paymentShowStage(2);
+                document.getElementById('payStage2Acknowledged').style.display = 'none';
+                document.getElementById('payStage2PollingStop').style.display = 'none';
+                document.getElementById('payStage2SentBtn').disabled = false;
+            } catch (err) {
+                alert('!! ERROR: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = '[ PROCEED_TO_PAYMENT >> ]';
             }
-
-            paymentShowStage(2);
-            document.getElementById('payStage2Acknowledged').style.display = 'none';
-            document.getElementById('payStage2PollingStop').style.display = 'none';
-            document.getElementById('payStage2SentBtn').disabled = false;
         }
 
         async function paymentStage2Sent() {
@@ -2658,12 +2647,11 @@
 
             <div id="paymentStage1">
                 <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
-                    STEP_1_OF_3 :: Enter the amount of USDT you are depositing. Minimum is 10 USDT. Your sender wallet must be registered first so the system can attribute your on-chain transfer back to your account.
+                    STEP_1_OF_3 :: Enter the amount of USDT you are depositing. Minimum is 10 USDT. A unique exact amount will be generated for your transfer to enable auto-confirmation.
                 </div>
 
                 <div style="background: var(--bg); border: 1px solid var(--border); padding: 10px; margin-bottom: 15px; font-size: 11px;">
                     <div>CURRENT_BALANCE :: <span id="payCurrentBalance" style="color: var(--accent);">--</span></div>
-                    <div style="margin-top: 4px;">SENDER_WALLET :: <span id="paySenderStatus" style="color: var(--warning);">CHECKING...</span></div>
                 </div>
 
                 <div class="form-group">
@@ -2672,15 +2660,6 @@
                     <div style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">
                         You will be charged a flat minimum of 10 USDT. Larger deposits are credited at 1 USDT = 1 credit.
                     </div>
-                </div>
-
-                <div class="form-group">
-                    <label>YOUR_SENDER_WALLET (TRC20)</label>
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <input type="text" id="paymentSenderWallet" placeholder="T...your_wallet_address" style="font-size: 11px; flex: 1;">
-                        <button onclick="saveSenderWallet()" style="font-size: 10px; padding: 6px 10px;">[ SAVE ]</button>
-                    </div>
-                    <div id="paymentSenderWalletNote" style="font-size: 10px; color: var(--text-muted); margin-top: 6px;"></div>
                 </div>
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 11px; color: var(--text-muted); margin-bottom: 18px;">
@@ -2698,7 +2677,7 @@
 
             <div id="paymentStage2" style="display: none;">
                 <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
-                    STEP_2_OF_3 :: Send <span id="payStage2Amount" style="color: var(--accent); font-weight: bold;">--</span> USDT (TRC20) from your registered sender wallet to the address below using any TRON-compatible wallet (XT.com, TronLink, Trust, Bybit, etc.). Then click <strong>I HAVE SENT</strong> so the system can poll the blockchain for your transaction.
+                    STEP_2_OF_3 :: Send the <strong>EXACT</strong> amount shown below (including decimals) to the receive address. This unique amount allows the system to auto-confirm your payment without a wallet address or TX hash.
                 </div>
 
                 <div style="background: var(--bg); border: 1px solid var(--accent); padding: 10px; margin-bottom: 12px; text-align: center;">
@@ -2718,9 +2697,8 @@
                 </div>
 
                 <div style="background: var(--bg); border: 1px solid var(--border); padding: 10px; margin-bottom: 15px; font-size: 11px;">
-                    <div>FROM :: <code id="payStage2From" style="color: var(--accent); word-break: break-all;">--</code></div>
                     <div style="margin-top: 4px;">NETWORK :: <span style="color: var(--accent);">TRC20</span> &nbsp;|&nbsp; ASSET :: <span style="color: var(--accent);">USDT</span></div>
-                    <div style="margin-top: 4px;">!! IMPORTANT :: Send ONLY from the registered wallet above or the auto-credit will NOT match your account. Send the EXACT amount shown.</div>
+                    <div style="margin-top: 4px; color: var(--warning);">!! IMPORTANT :: You MUST send the EXACT decimal amount shown above. If you send a different amount, the auto-credit will fail.</div>
                 </div>
 
                 <div id="payStage2Acknowledged" style="display: none; text-align: center; padding: 15px; background: var(--bg); border: 1px solid var(--warning); margin-bottom: 15px;">

@@ -1055,6 +1055,61 @@ app.get('/api/payments/info', (req, res) => {
     });
 });
 
+app.post('/api/payments/request', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
+    const { amount } = req.body;
+    const baseAmt = parseFloat(amount);
+    if (!baseAmt || baseAmt <= 0 || !isFinite(baseAmt)) {
+        return res.status(400).json({ error: 'Invalid amount' });
+    }
+    if (baseAmt < MIN_DEPOSIT_USDT) {
+        return res.status(400).json({ error: `Minimum deposit is ${MIN_DEPOSIT_USDT} USDT` });
+    }
+    if (!PAYMENT_RECEIVE_ADDRESS) {
+        return res.status(503).json({ error: 'Payment receiving address is not configured. Set USDT_TRC20_ADDRESS in server env.' });
+    }
+
+    const users = await db.getUsers();
+    const activePending = [];
+    users.forEach(u => {
+        (u.pendingPayments || []).forEach(p => {
+            if (p.status === 'pending') activePending.push(p);
+        });
+    });
+
+    // Generate a unique decimal offset to avoid collisions for the same base amount
+    let finalAmt = baseAmt;
+    let attempts = 0;
+    while (attempts < 50) {
+        const offset = Math.floor(Math.random() * 50 + 1) / 100; // 0.01 to 0.50
+        const candidate = parseFloat((baseAmt + offset).toFixed(2));
+        const collision = activePending.some(p => Math.abs(parseFloat(p.amount) - candidate) < 0.001);
+        if (!collision) {
+            finalAmt = candidate;
+            break;
+        }
+        attempts++;
+    }
+
+    const payment = {
+        id: require('uuid').v4(),
+        amount: finalAmt,
+        status: 'pending',
+        network: 'USDT-TRC20',
+        address: PAYMENT_RECEIVE_ADDRESS,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour expiry
+    };
+
+    const updatedUser = await db.updateUser(req.user.id, {
+        pendingPayments: [...(req.user.pendingPayments || []), payment]
+    });
+
+    // Kick the poller back to FAST cadence
+    kickPoller({ immediate: true });
+
+    res.json({ payment, balance: updatedUser.wallet });
+}));
+
 app.post('/api/payments/submit', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { amount, txHash } = req.body;
     const amt = parseFloat(amount);
@@ -1176,6 +1231,26 @@ async function pollTronPayments() {
                 }
             }
 
+            // 3) Unique amount match (new flow)
+            if (!matchedUser) {
+                for (const u of users) {
+                    const found = (u.pendingPayments || []).find(p =>
+                        p.status === 'pending' &&
+                        Math.abs(parseFloat(p.amount) - valueNum) < 0.001
+                    );
+                    if (found) {
+                        // Check expiry
+                        if (found.expiresAt && new Date(found.expiresAt) < new Date()) {
+                            continue;
+                        }
+                        matchedUser = u;
+                        matchedPayment = found;
+                        matchedMode = 'amount_match';
+                        break;
+                    }
+                }
+            }
+
             if (!matchedUser) {
                 trackProcessedHash(hash);
                 console.log(`[AutoPay] Unmatched inbound TX ${hash} (${valueNum} USDT) from ${tx.from} — no registered sender wallet or pending hash`);
@@ -1184,25 +1259,28 @@ async function pollTronPayments() {
 
             const pending = matchedUser.pendingPayments || [];
 
-            if (matchedMode === 'legacy_hash') {
+            if (matchedMode === 'legacy_hash' || matchedMode === 'amount_match') {
                 if (matchedPayment) {
                     const idx = pending.findIndex(p => p.id === matchedPayment.id);
                     if (idx === -1) {
                         trackProcessedHash(hash);
                         continue;
                     }
-                    const tolerance = 0.01;
-                    const declaredAmount = parseFloat(matchedPayment.amount);
-                    if (Math.abs(declaredAmount - valueNum) > tolerance) {
-                        console.log(`[AutoPay] Amount mismatch for ${hash}: declared=${declaredAmount} on-chain=${valueNum} — holding for manual review`);
-                        trackProcessedHash(hash);
-                        continue;
+                    if (matchedMode === 'legacy_hash') {
+                        const tolerance = 0.01;
+                        const declaredAmount = parseFloat(matchedPayment.amount);
+                        if (Math.abs(declaredAmount - valueNum) > tolerance) {
+                            console.log(`[AutoPay] Amount mismatch for ${hash}: declared=${declaredAmount} on-chain=${valueNum} — holding for manual review`);
+                            trackProcessedHash(hash);
+                            continue;
+                        }
                     }
                     pending[idx].status = 'confirmed';
                     pending[idx].confirmedAt = new Date().toISOString();
                     pending[idx].autoVerified = true;
                     pending[idx].onChainAmount = valueNum;
                     pending[idx].fromAddress = tx.from;
+                    pending[idx].txHash = hash;
                 }
             } else {
                 // sender_wallet mode: synthesize an audit row
