@@ -1,3 +1,7 @@
-User-agent: *  
-Allow: /  
-Sitemap: https://saasproxy.net/sitemap.xml 
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /dashboard.html
+
+Sitemap: https://saasproxylink.store/sitemap.xml
