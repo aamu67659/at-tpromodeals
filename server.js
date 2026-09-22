@@ -1077,6 +1077,7 @@ const TRON_API_BASE = (process.env.TRON_API_BASE || 'https://api.trongrid.io').t
 const TRONGRID_API_KEY = (process.env.TRONGRID_API_KEY || '').trim();
 const AUTO_PAY_POLL_MS = parseInt(process.env.AUTO_PAY_POLL_MS || '30000', 10);
 const AUTO_PAY_POLL_IDLE_MS = parseInt(process.env.AUTO_PAY_POLL_IDLE_MS || '300000', 10);
+const PAYMENT_EXPIRY_MS = parseInt(process.env.PAYMENT_EXPIRY_MS || String(45 * 60 * 1000), 10);
 const AUTO_PAY_LOOKBACK_LIMIT = parseInt(process.env.AUTO_PAY_LOOKBACK_LIMIT || '20', 10);
 // processedTxHashes dedup set is bounded so it can't grow without bound across
 // months of polling. When the cap is reached we evict the oldest entries by
@@ -1154,7 +1155,7 @@ app.post('/api/payments/request', requireAuth, apiLimiter, asyncHandler(async (r
         network: 'USDT-TRC20',
         address: PAYMENT_RECEIVE_ADDRESS,
         createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour expiry
+        expiresAt: new Date(Date.now() + PAYMENT_EXPIRY_MS).toISOString()
     };
 
     const updatedUser = await db.updateUser(req.user.id, {
@@ -1197,7 +1198,8 @@ app.post('/api/payments/submit', requireAuth, apiLimiter, asyncHandler(async (re
         network: 'USDT-TRC20',
         address: PAYMENT_RECEIVE_ADDRESS,
         status: 'pending',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + PAYMENT_EXPIRY_MS).toISOString()
     };
 
     const updatedUser = await db.updateUser(req.user.id, {
@@ -1232,6 +1234,34 @@ app.get('/api/payments/my', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 // --- Auto-verification poller ---
+// Auto-cancels any pending payment whose expiresAt has passed (45 min by
+// default). Runs independently of TronGrid polling so recharges still
+// expire even when USDT_TRC20_ADDRESS isn't configured.
+async function expirePendingPayments() {
+    try {
+        const users = await db.getUsers();
+        const now = Date.now();
+        for (const u of users) {
+            const pending = Array.isArray(u.pendingPayments) ? u.pendingPayments : [];
+            let changed = false;
+            pending.forEach(p => {
+                if (p.status === 'pending' && p.expiresAt && new Date(p.expiresAt).getTime() < now) {
+                    p.status = 'canceled';
+                    p.canceledAt = new Date().toISOString();
+                    p.cancelReason = 'expired';
+                    changed = true;
+                }
+            });
+            if (changed) {
+                await db.updateUser(u.id, { pendingPayments: pending });
+                console.log(`[AutoPay] Auto-canceled expired pending payment(s) for ${u.email}`);
+            }
+        }
+    } catch (err) {
+        console.error('[AutoPay] expiry sweep error:', err.message);
+    }
+}
+
 async function pollTronPayments() {
     if (!PAYMENT_RECEIVE_ADDRESS) {
         console.log('[AutoPay] Skipped poll: USDT_TRC20_ADDRESS not configured');
@@ -1511,6 +1541,14 @@ if (PAYMENT_RECEIVE_ADDRESS) {
 } else {
     console.log('[AutoPay] USDT_TRC20_ADDRESS not set — automatic payment verification disabled');
 }
+
+// Always run the expiry sweep, regardless of TronGrid config, so pending
+// recharges reliably auto-cancel after PAYMENT_EXPIRY_MS (default 45 min).
+const PAYMENT_EXPIRY_SWEEP_MS = 60 * 1000;
+expirePendingPayments();
+const expiryHandle = setInterval(expirePendingPayments, PAYMENT_EXPIRY_SWEEP_MS);
+process.on('SIGTERM', () => clearInterval(expiryHandle));
+process.on('SIGINT', () => clearInterval(expiryHandle));
 
 // ---------------------------------------------------------------------------
 // Telegram bot boot: rebuild chat → user index from disk, then register the

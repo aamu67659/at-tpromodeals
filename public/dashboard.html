@@ -2445,6 +2445,9 @@
                     } else if (p.status === 'rejected') {
                         statusColor = 'var(--danger)';
                         statusLabel = '[REJECTED]';
+                    } else if (p.status === 'canceled') {
+                        statusColor = 'var(--danger)';
+                        statusLabel = p.cancelReason === 'expired' ? '[EXPIRED]' : '[CANCELED]';
                     } else {
                         pendingCount++;
                         actionHtml = `<span style="color:var(--danger); cursor:pointer; font-size:10px; margin-left:8px;" onclick="cancelPayment('${p.id}')">[CANCEL]</span>`;
@@ -2729,6 +2732,7 @@
         loadData();
         fetchAndShowNewsletter();
         loadAntiredDomains();
+        setInterval(refreshPaymentHistory, 30000);
 
         let antiredDomains = [];
 

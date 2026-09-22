@@ -1314,6 +1314,9 @@
                 } else if (p.status === 'rejected') {
                     statusColor = 'var(--danger)';
                     statusLabel = 'REJECTED';
+                } else if (p.status === 'canceled') {
+                    statusColor = 'var(--danger)';
+                    statusLabel = p.cancelReason === 'expired' ? 'EXPIRED (45MIN)' : 'CANCELED';
                 } else {
                     statusColor = 'var(--warning)';
                     statusLabel = 'AWAITING_ONCHAIN';
