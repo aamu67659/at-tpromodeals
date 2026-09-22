@@ -1131,13 +1131,16 @@ app.post('/api/payments/request', requireAuth, apiLimiter, asyncHandler(async (r
         });
     });
 
-    // Generate a unique decimal offset to avoid collisions for the same base amount
-    // REVERTED: Using base amount directly as we now require/rely on sending wallet registration.
+    // Generate a unique decimal offset to avoid collisions for the same base
+    // amount. Sender-wallet registration (depositSendAddress) is tried first
+    // by the poller and doesn't need this, but any user without a registered
+    // sender wallet falls back to unique-amount matching, where two pending
+    // payments for the same round amount (e.g. two people both depositing
+    // $25) would otherwise both match the first matching on-chain transfer.
     let finalAmt = baseAmt;
-    /*
     let attempts = 0;
     while (attempts < 50) {
-        const offset = Math.floor(Math.random() * 50 + 1) / 100; // 0.01 to 0.50
+        const offset = attempts === 0 ? 0 : Math.floor(Math.random() * 50 + 1) / 100; // 0.01 to 0.50
         const candidate = parseFloat((baseAmt + offset).toFixed(2));
         const collision = activePending.some(p => Math.abs(parseFloat(p.amount) - candidate) < 0.001);
         if (!collision) {
@@ -1146,7 +1149,6 @@ app.post('/api/payments/request', requireAuth, apiLimiter, asyncHandler(async (r
         }
         attempts++;
     }
-    */
 
     const payment = {
         id: require('uuid').v4(),
@@ -1575,9 +1577,9 @@ app.post('/api/forced-ips', requireAuth, apiLimiter, asyncHandler(async (req, re
 }));
 
 app.post('/api/blocked-ips', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
-    const { ip } = req.body;
-    if (!ip || !/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) {
-        return res.status(400).json({ error: 'Invalid IP format' });
+    const ip = typeof req.body.ip === 'string' ? req.body.ip.trim() : '';
+    if (!db.ipRuleKind(ip)) {
+        return res.status(400).json({ error: 'INVALID_IP_FORMAT (use exact v4/v6, wildcard, or CIDR)' });
     }
     const currentBlocked = req.user.blockedIps || [];
     if (!currentBlocked.includes(ip)) {
@@ -1597,6 +1599,20 @@ function isExpiryActive(expiryDate) {
     return !isNaN(d.getTime()) && d > new Date();
 }
 
+// Single source of truth for link plan pricing + duration math. Previously
+// duplicated identically across /api/links, /api/links/bulk and
+// /api/renew-link, which risked the three copies drifting out of sync.
+const LINK_PLAN_PRICES = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
+
+function computeExpiryDate(duration, from = new Date()) {
+    const expiry = new Date(from);
+    if (duration === '3days') expiry.setDate(expiry.getDate() + 3);
+    else if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
+    else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);
+    else if (duration === 'month') expiry.setMonth(expiry.getMonth() + 1);
+    return expiry;
+}
+
 async function findActiveConflict(slug, excludeUserId) {
     const all = await db.getUsers();
     for (const u of all) {
@@ -1613,8 +1629,7 @@ async function findActiveConflict(slug, excludeUserId) {
 app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { name, realLink, nonRealLink, slug, antiRed, ispFilter, botFilter, mobileIsps, reallowVisited, duration, allowAfrica, allowEurope } = req.body;
 
-    const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
-    const price = prices[duration];
+    const price = LINK_PLAN_PRICES[duration];
 
     if (!price) return res.status(400).json({ error: 'Invalid duration selected' });
 
@@ -1648,12 +1663,7 @@ app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) =>
         return res.status(400).json({ error: 'Slug is currently active on another uplink and cannot be reused until it expires' });
     }
 
-    const now = new Date();
-    let expiry = new Date(now);
-    if (duration === '3days') expiry.setDate(expiry.getDate() + 3);
-    else if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
-    else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);
-    else if (duration === 'month') expiry.setMonth(expiry.getMonth() + 1);
+    const expiry = computeExpiryDate(duration);
 
     const newLink = {
         id: require('uuid').v4(),
@@ -1683,8 +1693,7 @@ app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) =>
 app.post('/api/links/bulk', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { text, duration, antiRed, ispFilter, botFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope } = req.body;
 
-    const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
-    const pricePerUnit = prices[duration];
+    const pricePerUnit = LINK_PLAN_PRICES[duration];
 
     if (!pricePerUnit) return res.status(400).json({ error: 'Invalid duration selected' });
     if (!text || typeof text !== 'string') return res.status(400).json({ error: 'Input text is required' });
@@ -1705,12 +1714,7 @@ app.post('/api/links/bulk', requireAuth, apiLimiter, asyncHandler(async (req, re
     const errors = [];
     let currentWallet = fresh.wallet;
 
-    const now = new Date();
-    let expiry = new Date(now);
-    if (duration === '3days') expiry.setDate(expiry.getDate() + 3);
-    else if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
-    else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);
-    else if (duration === 'month') expiry.setMonth(expiry.getMonth() + 1);
+    const expiry = computeExpiryDate(duration);
 
     for (const line of lines) {
         const parts = line.split(',').map(p => p.trim());
@@ -1866,8 +1870,7 @@ app.delete('/api/blocked-ips/:ip', requireAuth, asyncHandler(async (req, res) =>
 
 app.post('/api/renew-link', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { slug, duration } = req.body;
-    const prices = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
-    const price = prices[duration];
+    const price = LINK_PLAN_PRICES[duration];
 
     if (!price) return res.status(400).json({ error: 'Invalid duration selected' });
 
@@ -1885,8 +1888,6 @@ app.post('/api/renew-link', requireAuth, apiLimiter, asyncHandler(async (req, re
         // It IS the same user's link; that's expected. This check is a sanity guard for the rename case.
     }
 
-    const now = new Date();
-
     // Only custom uplinks managed by the user can be renewed.
     const links = req.user.links || [];
     const index = links.findIndex(l => l.slug === slug);
@@ -1896,11 +1897,7 @@ app.post('/api/renew-link', requireAuth, apiLimiter, asyncHandler(async (req, re
         return res.status(400).json({ error: 'Uplink is still active and cannot be renewed until it expires. Overlapping renewals are not allowed.' });
     }
 
-    let expiry = new Date(now);
-    if (duration === '3days') expiry.setDate(expiry.getDate() + 3);
-    else if (duration === '1week') expiry.setDate(expiry.getDate() + 7);
-    else if (duration === '2weeks') expiry.setDate(expiry.getDate() + 14);
-    else if (duration === 'month') expiry.setMonth(expiry.getMonth() + 1);
+    const expiry = computeExpiryDate(duration);
 
     links[index].expiryDate = expiry.toISOString();
 

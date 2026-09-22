@@ -308,46 +308,46 @@
         </div>
         <div class="terminal-content">
             <div id="deployment-overlay">
-                <div>DEPLOYING_IDENTITY_TO_GRID...</div>
+                <div>Creating your account...</div>
                 <div class="progress-bar">
                     <div class="progress-fill" id="progress-fill"></div>
                 </div>
             </div>
-            <h2>REGISTER NEW OPERATIVE</h2>
+            <h2>Create Your Account</h2>
             <form id="signupForm">
                 <div class="form-group">
-                    <label>OPERATIVE_HANDLE</label>
+                    <label>Full Name</label>
                     <div class="input-wrapper">
-                        <input type="text" id="name" required spellcheck="false" autocomplete="off" placeholder="display name">
+                        <input type="text" id="name" required spellcheck="false" autocomplete="off" placeholder="your name">
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>COMMS_CHANNEL_EMAIL</label>
+                    <label>Email Address</label>
                     <div class="input-wrapper">
-                        <input type="email" id="email" required spellcheck="false" autocomplete="email" autocapitalize="off" inputmode="email" maxlength="120" placeholder="operative@example.com">
+                        <input type="email" id="email" required spellcheck="false" autocomplete="email" autocapitalize="off" inputmode="email" maxlength="120" placeholder="you@example.com">
                     </div>
                     <div class="error-msg" id="email-error"></div>
                 </div>
                 <div class="form-group">
-                    <label>CALLSIGN_USERNAME</label>
+                    <label>Username</label>
                     <div class="input-wrapper">
-                        <input type="text" id="username" required spellcheck="false" autocomplete="off" autocapitalize="off" minlength="3" maxlength="20" pattern="[a-z0-9]([a-z0-9._-]*[a-z0-9])?" placeholder="login handle">
+                        <input type="text" id="username" required spellcheck="false" autocomplete="off" autocapitalize="off" minlength="3" maxlength="20" pattern="[a-z0-9]([a-z0-9._-]*[a-z0-9])?" placeholder="choose a username">
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>ENCRYPTION_KEY_PASSWORD</label>
+                    <label>Password</label>
                     <div class="input-wrapper">
-                        <input type="password" id="password" required minlength="6" oninput="updateStrength(this.value)">
+                        <input type="password" id="password" required minlength="6" oninput="updateStrength(this.value)" placeholder="at least 6 characters">
                     </div>
                     <div class="strength-meter" id="strength-meter" style="display: none;">
                         <span class="strength-bar" id="strength-bar">[□□□□□□□□]</span>
-                        <span class="strength-text" id="strength-text">ENCRYPTION: NONE</span>
+                        <span class="strength-text" id="strength-text">Password strength: none</span>
                     </div>
                 </div>
-                <button type="submit">[ DEPLOY_IDENTITY ]</button>
+                <button type="submit">Create Account</button>
             </form>
             <div class="footer">
-                ALREADY ENLISTED?<a href="/login">RETURN_TO_TERMINAL</a>
+                Already have an account?<a href="/login">Sign in</a>
             </div>
         </div>
     </div>
@@ -485,15 +485,15 @@
 
             if (score <= 2) {
                 bars = '[■■□□□□□□]';
-                label = 'ENCRYPTION: WEAK';
+                label = 'Password strength: weak';
                 color = 'var(--danger)';
             } else if (score <= 4) {
                 bars = '[■■■■■□□□]';
-                label = 'ENCRYPTION: MEDIUM';
+                label = 'Password strength: medium';
                 color = 'var(--warning)';
             } else {
                 bars = '[■■■■■■■■]';
-                label = 'ENCRYPTION: STRONG';
+                label = 'Password strength: strong';
                 color = 'var(--accent)';
             }
 
@@ -512,7 +512,7 @@
             const emailError = document.getElementById('email-error');
             const basicEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!basicEmail.test(emailRaw)) {
-                emailError.textContent = '!! INVALID_COMMS_FORMAT';
+                emailError.textContent = 'Please enter a valid email address.';
                 emailError.style.display = 'block';
                 return;
             }
@@ -545,22 +545,22 @@
 
                 setTimeout(() => {
                     if (res.ok) {
-                        const u = data && data.username ? ('\nCALLSIGN :: @' + data.username) : '';
-                        alert('IDENTITY_DEPLOYED_SUCCESSFULLY. PROCEED_TO_TERMINAL.' + u);
+                        const u = data && data.username ? ('\nYour username: @' + data.username) : '';
+                        alert('Account created successfully! You can now sign in.' + u);
                         window.location.href = '/login';
                     } else {
                         overlay.style.display = 'none';
-                        alert("!! ERROR: " + (data.error || "IDENTITY_COMPROMISED"));
+                        alert(data.error || "Something went wrong while creating your account.");
                     }
                 }, 1000);
             } catch (err) {
                 overlay.style.display = 'none';
-                alert("!! ERROR: GRID_CONNECTION_INTERRUPTED");
+                alert("Connection lost. Please check your internet and try again.");
             }
         });
 
         window.onerror = function(msg, url, line) {
-            console.error("!! SYSTEM_ERROR: " + msg + " at " + line);
+            console.error("Error: " + msg + " at line " + line);
             return false;
         };
     </script>

