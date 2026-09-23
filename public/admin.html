@@ -352,6 +352,81 @@
         .stat-tile.warning::before { background: var(--warning); }
         .stat-tile.danger::before  { background: var(--danger); }
         .stat-tile:hover { border-color: var(--border-strong); }
+        .stat-tile.clickable { cursor: pointer; }
+        .stat-tile.clickable:hover {
+            border-color: var(--accent-border);
+            box-shadow: 0 0 0 1px var(--accent-border);
+            transform: translateY(-1px);
+        }
+        .stat-tile.clickable:active { transform: translateY(0); }
+        .stat-tile.clickable .stat-sub::after {
+            content: "click for detail →";
+            display: block;
+            margin-top: 4px;
+            color: var(--text-faint);
+            font-size: 9.5px;
+            letter-spacing: 0.04em;
+            text-transform: none;
+        }
+
+        .stat-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 9998;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            backdrop-filter: blur(2px);
+            animation: ta-fade 140ms ease-out;
+        }
+        .stat-modal {
+            width: 100%;
+            max-width: 640px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-strong);
+            border-radius: 14px;
+            box-shadow: var(--shadow-md);
+            animation: ta-pop 180ms cubic-bezier(0.2,0.9,0.3,1.2);
+        }
+        .stat-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            font-family: var(--font-mono);
+            font-weight: 700;
+            font-size: 13px;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .stat-modal-close {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            width: 26px;
+            height: 26px;
+            border-radius: 6px;
+            font-size: 15px;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .stat-modal-close:hover { color: var(--text-primary); border-color: var(--border-strong); }
+        .stat-modal-body {
+            padding: 16px 20px 20px;
+            overflow-y: auto;
+        }
+        @keyframes ta-fade { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes ta-pop { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
 
         .stat-tile .stat-label {
             font-family: var(--font-mono);
@@ -701,6 +776,16 @@
                 <h1 style="border:none; padding:0; margin-bottom: 20px;">SYSTEM_TELEMETRY</h1>
                 <div id="statsContent" style="font-size: 12px;">
                     <div id="statsLoading" style="color: var(--text-muted);">Loading telemetry from all nodes...</div>
+                </div>
+            </div>
+
+            <div id="statDetailModal" class="stat-modal-backdrop" style="display:none;" onclick="if(event.target===this) closeStatModal()">
+                <div class="stat-modal">
+                    <div class="stat-modal-header">
+                        <span id="statModalTitle">DETAIL</span>
+                        <button type="button" class="stat-modal-close" onclick="closeStatModal()" aria-label="Close">×</button>
+                    </div>
+                    <div id="statModalBody" class="stat-modal-body"></div>
                 </div>
             </div>
 
@@ -1075,54 +1160,258 @@
             return d.toLocaleString();
         }
 
-        function tile(label, value, sub, cls) {
-            return `<div class="stat-tile ${cls || ''}">
+        function tile(label, value, sub, cls, onclickAction) {
+            const clickable = onclickAction ? 'clickable' : '';
+            const clickAttr = onclickAction ? `onclick="${onclickAction}" tabindex="0" role="button"` : '';
+            return `<div class="stat-tile ${cls || ''} ${clickable}" ${clickAttr}>
                 <div class="stat-label">${escapeHtml(label)}</div>
                 <div class="stat-value">${escapeHtml(value)}</div>
                 <div class="stat-sub">${escapeHtml(sub || '')}</div>
             </div>`;
         }
 
+        let __lastStats = null;
+
+        function openStatModal(title, bodyHtml) {
+            document.getElementById('statModalTitle').textContent = title;
+            document.getElementById('statModalBody').innerHTML = bodyHtml;
+            document.getElementById('statDetailModal').style.display = 'flex';
+        }
+
+        function closeStatModal() {
+            document.getElementById('statDetailModal').style.display = 'none';
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeStatModal();
+        });
+
+        function statTable(headers, rows) {
+            if (!rows || !rows.length) return '<div class="stats-empty">No data available yet.</div>';
+            return `<table class="stats-table">
+                <thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+        }
+
+        function showUsersDetail(filterLabel, filterFn) {
+            const s = __lastStats;
+            if (!s) return;
+            openStatModal(filterLabel, '<div class="stats-empty">Loading…</div>');
+            fetch('/api/admin/users', { headers: { 'x-admin-token': currentToken } })
+                .then(r => r.json())
+                .then(users => {
+                    const list = (users || []).filter(filterFn);
+                    const rows = list.slice(0, 100).map(u => `
+                        <tr>
+                            <td><strong>${escapeHtml(u.name || u.username || 'ANONYMOUS')}</strong></td>
+                            <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(u.email || '')}</td>
+                            <td style="color:${u.isActive ? 'var(--accent)' : 'var(--danger)'}; font-size:10px;">${u.isActive ? 'OPERATIONAL' : 'DEACTIVATED'}</td>
+                            <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(u.createdAt ? new Date(u.createdAt).toLocaleString() : 'N/A')}</td>
+                        </tr>
+                    `).join('');
+                    const body = `<div style="margin-bottom:10px; color:var(--text-muted); font-size:11px;">${list.length} matching user(s)</div>` +
+                        statTable(['USER', 'EMAIL', 'STATUS', 'REGISTERED'], rows);
+                    openStatModal(filterLabel, body);
+                })
+                .catch(() => openStatModal(filterLabel, '<div class="stats-empty">Failed to load detail.</div>'));
+        }
+
+        function showLinksDetail(filterLabel, filterFn) {
+            const s = __lastStats;
+            if (!s) return;
+            openStatModal(filterLabel, '<div class="stats-empty">Loading…</div>');
+            fetch('/api/admin/users', { headers: { 'x-admin-token': currentToken } })
+                .then(r => r.json())
+                .then(users => {
+                    const list = [];
+                    for (const u of (users || [])) {
+                        for (const l of (u.links || [])) {
+                            if (filterFn(l)) list.push({ owner: u.name || u.username, slug: l.slug, expiryDate: l.expiryDate });
+                        }
+                    }
+                    const rows = list.slice(0, 150).map(l => `
+                        <tr>
+                            <td><strong>${escapeHtml(l.owner || 'ANONYMOUS')}</strong></td>
+                            <td><code>${escapeHtml(l.slug || '')}</code></td>
+                            <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(l.expiryDate ? new Date(l.expiryDate).toLocaleString() : 'N/A')}</td>
+                        </tr>
+                    `).join('');
+                    const body = `<div style="margin-bottom:10px; color:var(--text-muted); font-size:11px;">${list.length} matching link(s)</div>` +
+                        statTable(['OWNER', 'SLUG', 'EXPIRY'], rows);
+                    openStatModal(filterLabel, body);
+                })
+                .catch(() => openStatModal(filterLabel, '<div class="stats-empty">Failed to load detail.</div>'));
+        }
+
+        function showIpRulesDetail(filterLabel, field) {
+            openStatModal(filterLabel, '<div class="stats-empty">Loading…</div>');
+            fetch('/api/admin/users', { headers: { 'x-admin-token': currentToken } })
+                .then(r => r.json())
+                .then(users => {
+                    const list = [];
+                    for (const u of (users || [])) {
+                        for (const ip of (u[field] || [])) {
+                            list.push({ owner: u.name || u.username, ip });
+                        }
+                    }
+                    const rows = list.slice(0, 150).map(e => `
+                        <tr>
+                            <td><strong>${escapeHtml(e.owner || 'ANONYMOUS')}</strong></td>
+                            <td><code>${escapeHtml(e.ip)}</code></td>
+                        </tr>
+                    `).join('');
+                    const body = `<div style="margin-bottom:10px; color:var(--text-muted); font-size:11px;">${list.length} rule(s)</div>` +
+                        statTable(['OWNER', 'IP'], rows);
+                    openStatModal(filterLabel, body);
+                })
+                .catch(() => openStatModal(filterLabel, '<div class="stats-empty">Failed to load detail.</div>'));
+        }
+
+        function showListDetail(title, headers, items, rowFn) {
+            const rows = (items || []).map(rowFn).join('');
+            openStatModal(title, statTable(headers, rows));
+        }
+
+        function showRecentConfirmedDetail(filter, title) {
+            const s = __lastStats;
+            if (!s) return;
+            let list = s.inflow.recentConfirmed || [];
+            if (filter === 'auto') list = list.filter(o => o.autoVerified);
+            if (filter === 'manual') list = list.filter(o => !o.autoVerified);
+            if (filter === '24h') list = list.filter(o => (Date.now() - new Date(o.confirmedAt).getTime()) < 86400000);
+            if (filter === '7d') list = list.filter(o => (Date.now() - new Date(o.confirmedAt).getTime()) < 7 * 86400000);
+            const rows = list.map(o => `
+                <tr>
+                    <td class="hits-cell">$${fmtNum(o.amount)}</td>
+                    <td><strong>${escapeHtml(o.userName)}</strong></td>
+                    <td style="font-size:10px; color:${o.autoVerified ? 'var(--accent)' : 'var(--warning)'};">${o.autoVerified ? 'AUTO' : 'MANUAL'}</td>
+                    <td style="font-size:10px; color:var(--text-muted);">${escapeHtml(new Date(o.confirmedAt).toLocaleString())}</td>
+                </tr>
+            `).join('');
+            const body = `<div style="margin-bottom:10px; color:var(--text-muted); font-size:11px;">Showing up to the 10 most recent confirmed deposits overall, filtered.</div>` +
+                statTable(['AMOUNT', 'USER', 'MODE', 'CONFIRMED_AT'], rows);
+            openStatModal(title, body);
+        }
+
+        function showTopBalanceDetail() {
+            const s = __lastStats;
+            if (!s) return;
+            const rows = (s.topUsers.byBalance || []).map(o => `
+                <tr>
+                    <td><strong>${escapeHtml(o.name || 'ANONYMOUS')}</strong></td>
+                    <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(o.email || '')}</td>
+                    <td class="hits-cell">$${fmtNum(o.wallet)}</td>
+                    <td style="color:${o.isActive ? 'var(--accent)' : 'var(--danger)'}; font-size:10px;">${o.isActive ? 'OPERATIONAL' : 'DEACTIVATED'}</td>
+                </tr>
+            `).join('');
+            openStatModal('Top Users by Balance', statTable(['USER', 'EMAIL', 'WALLET', 'STATUS'], rows));
+        }
+
+        function showTopVisitsDetail() {
+            const s = __lastStats;
+            if (!s) return;
+            const rows = (s.topUsers.mostVisits || []).map(o => `
+                <tr>
+                    <td><strong>${escapeHtml(o.name || 'ANONYMOUS')}</strong></td>
+                    <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(o.email || '')}</td>
+                    <td class="hits-cell">${Number(o.visits) || 0}</td>
+                </tr>
+            `).join('');
+            openStatModal('Top Users by Visits', statTable(['USER', 'EMAIL', 'VISITS'], rows));
+        }
+
+        function showTopIpsDetail() {
+            const s = __lastStats;
+            if (!s) return;
+            const rows = (s.visits.topIpsArr || []).map(o => `
+                <tr>
+                    <td><code>${escapeHtml(o.ip)}</code></td>
+                    <td class="hits-cell">${Number(o.hits) || 0}</td>
+                    <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(fmtMsToLocal(o.lastSeen))}</td>
+                </tr>
+            `).join('');
+            openStatModal('Top Source IPs', statTable(['IP', 'HITS', 'LAST_SEEN'], rows));
+        }
+
+        function showTopIspsDetail() {
+            const s = __lastStats;
+            if (!s) return;
+            const rows = (s.visits.topIspsArr || []).map(o => `
+                <tr>
+                    <td>${escapeHtml(o.isp)}</td>
+                    <td class="hits-cell">${Number(o.hits) || 0}</td>
+                </tr>
+            `).join('');
+            openStatModal('Top ISPs', statTable(['ISP', 'HITS'], rows));
+        }
+
+        function showTopLocationsDetail() {
+            const s = __lastStats;
+            if (!s) return;
+            const rows = (s.visits.topLocationsArr || []).map(o => `
+                <tr>
+                    <td>${escapeHtml(o.location)}</td>
+                    <td class="hits-cell">${Number(o.hits) || 0}</td>
+                    <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(fmtMsToLocal(o.lastSeen))}</td>
+                </tr>
+            `).join('');
+            openStatModal('Top Locations', statTable(['LOCATION', 'HITS', 'LAST_SEEN'], rows));
+        }
+
+        function showTopCountriesDetail() {
+            const s = __lastStats;
+            if (!s) return;
+            const rows = (s.logins.topCountriesArr || []).map(o => `
+                <tr>
+                    <td>${escapeHtml(o.country)}</td>
+                    <td class="hits-cell">${Number(o.count) || 0}</td>
+                </tr>
+            `).join('');
+            openStatModal('Login Origin Countries', statTable(['COUNTRY', 'LOGINS'], rows));
+        }
+
         function renderStats(s) {
+            __lastStats = s;
             const container = document.getElementById('statsContent');
 
             const inflowTiles = `
-                ${tile('TOTAL_INFLOW_USDT', '$' + fmtNum(s.inflow.confirmedTotal), 'confirmed deposit volume', 'accent')}
-                ${tile('AUTO_CREDITED', '$' + fmtNum(s.inflow.autoCreditedTotal), 'via Tron poller', 'accent')}
-                ${tile('MANUAL_CONFIRMED', '$' + fmtNum(s.inflow.manualConfirmedTotal), 'admin approved', 'warning')}
-                ${tile('INFLOW_24H', '$' + fmtNum(s.inflow.confirmed24h), 'last 24 hours', 'accent')}
-                ${tile('INFLOW_7D', '$' + fmtNum(s.inflow.confirmed7d), 'last 7 days', 'accent')}
-                ${tile('PENDING_INFLOW', '$' + fmtNum(s.inflow.pendingTotal), s.inflow.pendingCount + ' unsettled payments', s.inflow.pendingTotal > 0 ? 'warning' : '')}
-                ${tile('REJECTED_INFLOW', '$' + fmtNum(s.inflow.rejectedTotal), 'fraud/abandoned', 'danger')}
+                ${tile('TOTAL_INFLOW_USDT', '$' + fmtNum(s.inflow.confirmedTotal), 'confirmed deposit volume', 'accent', "showRecentConfirmedDetail('all','Confirmed Deposits')")}
+                ${tile('AUTO_CREDITED', '$' + fmtNum(s.inflow.autoCreditedTotal), 'via Tron poller', 'accent', "showRecentConfirmedDetail('auto','Auto-Credited Deposits')")}
+                ${tile('MANUAL_CONFIRMED', '$' + fmtNum(s.inflow.manualConfirmedTotal), 'admin approved', 'warning', "showRecentConfirmedDetail('manual','Manually Confirmed Deposits')")}
+                ${tile('INFLOW_24H', '$' + fmtNum(s.inflow.confirmed24h), 'last 24 hours', 'accent', "showRecentConfirmedDetail('24h','Deposits (Last 24h)')")}
+                ${tile('INFLOW_7D', '$' + fmtNum(s.inflow.confirmed7d), 'last 7 days', 'accent', "showRecentConfirmedDetail('7d','Deposits (Last 7d)')")}
+                ${tile('PENDING_INFLOW', '$' + fmtNum(s.inflow.pendingTotal), s.inflow.pendingCount + ' unsettled payments', s.inflow.pendingTotal > 0 ? 'warning' : '', "showSection('payments')")}
+                ${tile('REJECTED_INFLOW', '$' + fmtNum(s.inflow.rejectedTotal), 'fraud/abandoned', 'danger', "showSection('payments')")}
             `;
 
             const userTiles = `
-                ${tile('TOTAL_USERS', fmtNum(s.users.total, 0), 'all-time registrants', 'accent')}
-                ${tile('ACTIVE_USERS', fmtNum(s.users.active, 0), 'isActive=true', 'accent')}
-                ${tile('DEACTIVATED', fmtNum(s.users.deactivated, 0), 'suspended accounts', s.users.deactivated > 0 ? 'danger' : '')}
-                ${tile('NEW_SIGNUPS_24H', fmtNum(s.users.registeredLast24h, 0), 'last 24h', 'accent')}
-                ${tile('LOGINS_24H', fmtNum(s.users.loggedInLast24h, 0), 'distinct users online', 'accent')}
-                ${tile('TOTAL_CREDITS_OUT', '$' + fmtNum(s.wallet.totalCreditsAcrossUsers), 'sum of all wallets', 'accent')}
-                ${tile('HIGH_WALLET_USERS', fmtNum(s.wallet.highWallets, 0), 'balances >= $100', 'accent')}
-                ${tile('AVG_WALLET', '$' + fmtNum(s.wallet.avgWallet), 'average user balance', '')}
+                ${tile('TOTAL_USERS', fmtNum(s.users.total, 0), 'all-time registrants', 'accent', "showUsersDetail('All Users', u => true)")}
+                ${tile('ACTIVE_USERS', fmtNum(s.users.active, 0), 'isActive=true', 'accent', "showUsersDetail('Active Users', u => u.isActive)")}
+                ${tile('DEACTIVATED', fmtNum(s.users.deactivated, 0), 'suspended accounts', s.users.deactivated > 0 ? 'danger' : '', "showUsersDetail('Deactivated Users', u => !u.isActive)")}
+                ${tile('NEW_SIGNUPS_24H', fmtNum(s.users.registeredLast24h, 0), 'last 24h', 'accent', "showUsersDetail('New Signups (24h)', u => u.createdAt && (Date.now() - new Date(u.createdAt).getTime()) < 86400000)")}
+                ${tile('LOGINS_24H', fmtNum(s.users.loggedInLast24h, 0), 'distinct users online', 'accent', "showUsersDetail('Logged In (24h)', u => u.lastLoginAt && (Date.now() - new Date(u.lastLoginAt).getTime()) < 86400000)")}
+                ${tile('TOTAL_CREDITS_OUT', '$' + fmtNum(s.wallet.totalCreditsAcrossUsers), 'sum of all wallets', 'accent', 'showTopBalanceDetail()')}
+                ${tile('HIGH_WALLET_USERS', fmtNum(s.wallet.highWallets, 0), 'balances >= $100', 'accent', "showUsersDetail('High Wallet Users (>= $100)', u => (u.wallet || 0) >= 100)")}
+                ${tile('AVG_WALLET', '$' + fmtNum(s.wallet.avgWallet), 'average user balance', '', 'showTopBalanceDetail()')}
             `;
 
             const visitTiles = `
-                ${tile('TOTAL_VISITS', fmtNum(s.visits.total, 0), 'all-time clicks into uplinks', 'accent')}
-                ${tile('VISITS_7D', fmtNum(s.visits.last7d, 0), 'rolling 7-day window', 'accent')}
-                ${tile('REAL_VISITS_24H', fmtNum(s.visits.real24h, 0), 'hybrid bypass 24h', 'accent')}
-                ${tile('SAFE_VISITS_24H', fmtNum(s.visits.safe24h, 0), 'redirected to decoy 24h', 'accent')}
-                ${tile('UNIQUE_IPS_24H', fmtNum(s.visits.uniqueIps24h, 0), 'distinct sources 24h', 'accent')}
-                ${tile('HIGHEST_LOCATION', escapeHtml(s.visits.highestLocation || 'N/A'), s.visits.highestLocation ? (s.visits.highestLocationHits + ' hits all-time') : 'awaiting traffic', 'accent')}
+                ${tile('TOTAL_VISITS', fmtNum(s.visits.total, 0), 'all-time clicks into uplinks', 'accent', 'showTopVisitsDetail()')}
+                ${tile('VISITS_7D', fmtNum(s.visits.last7d, 0), 'rolling 7-day window', 'accent', 'showTopVisitsDetail()')}
+                ${tile('REAL_VISITS_24H', fmtNum(s.visits.real24h, 0), 'hybrid bypass 24h', 'accent', 'showTopIpsDetail()')}
+                ${tile('SAFE_VISITS_24H', fmtNum(s.visits.safe24h, 0), 'redirected to decoy 24h', 'accent', 'showTopIspsDetail()')}
+                ${tile('UNIQUE_IPS_24H', fmtNum(s.visits.uniqueIps24h, 0), 'distinct sources 24h', 'accent', 'showTopIpsDetail()')}
+                ${tile('HIGHEST_LOCATION', escapeHtml(s.visits.highestLocation || 'N/A'), s.visits.highestLocation ? (s.visits.highestLocationHits + ' hits all-time') : 'awaiting traffic', 'accent', 'showTopLocationsDetail()')}
             `;
 
             const uplinkTiles = `
-                ${tile('ACTIVE_UPLINKS', fmtNum(s.uplinks.activeCount, 0), 'not expired', 'accent')}
-                ${tile('EXPIRED_UPLINKS', fmtNum(s.uplinks.expiredCount, 0), 'awaiting renewal', 'danger')}
-                ${tile('TOTAL_UPLINKS', fmtNum(s.uplinks.totalCount, 0), 'default + custom', '')}
-                ${tile('FORCED_IP_RULES', fmtNum(s.security.forcedIpEntries, 0), 'routed to REAL', 'warning')}
-                ${tile('BLOCKED_IP_RULES', fmtNum(s.security.blockedIpEntries, 0), 'access denied', 'danger')}
-                ${tile('LOGINS_TOTAL_24H', fmtNum(s.logins.last24h, 0), 'admin-tracked', 'accent')}
+                ${tile('ACTIVE_UPLINKS', fmtNum(s.uplinks.activeCount, 0), 'not expired', 'accent', "showLinksDetail('Active Links', l => l.expiryDate && new Date(l.expiryDate) > new Date())")}
+                ${tile('EXPIRED_UPLINKS', fmtNum(s.uplinks.expiredCount, 0), 'awaiting renewal', 'danger', "showLinksDetail('Expired Links', l => l.expiryDate && new Date(l.expiryDate) <= new Date())")}
+                ${tile('TOTAL_UPLINKS', fmtNum(s.uplinks.totalCount, 0), 'default + custom', '', "showLinksDetail('All Links', l => true)")}
+                ${tile('FORCED_IP_RULES', fmtNum(s.security.forcedIpEntries, 0), 'routed to REAL', 'warning', "showIpRulesDetail('Forced IP Rules', 'forcedIps')")}
+                ${tile('BLOCKED_IP_RULES', fmtNum(s.security.blockedIpEntries, 0), 'access denied', 'danger', "showIpRulesDetail('Blocked IP Rules', 'blockedIps')")}
+                ${tile('LOGINS_TOTAL_24H', fmtNum(s.logins.last24h, 0), 'admin-tracked', 'accent', 'showTopCountriesDetail()')}
             `;
 
             const locRows = (s.visits.topLocationsArr || []).map(o => `

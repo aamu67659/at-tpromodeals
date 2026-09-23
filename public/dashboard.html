@@ -1721,15 +1721,19 @@
                 // Visits
                 const realVisitsTable = document.getElementById('realVisitsTable');
                 realVisitsTable.innerHTML = '';
-                const realVisits = (user.visitedIps || []).filter(v => v.type === 'REAL').reverse();
-                
-                if (realVisits.length === 0) {
-                    realVisitsTable.innerHTML = '<tr><td colspan="4" style="text-align:center;">NO_ACTIVITY_DETECTED</td></tr>';
+                const allVisits = (user.visitedIps || []).slice().reverse();
+
+                if (allVisits.length === 0) {
+                    realVisitsTable.innerHTML = '<tr><td colspan="5" style="text-align:center;">NO_ACTIVITY_DETECTED</td></tr>';
                 } else {
-                    realVisits.forEach(v => {
+                    allVisits.forEach(v => {
+                        const isReal = v.type === 'REAL';
+                        const routeColor = isReal ? 'var(--accent)' : 'var(--warning)';
+                        const routeLabel = isReal ? 'REAL' : 'SAFE';
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
                             <td>${esc(new Date(v.timestamp).toLocaleString())}</td>
+                            <td style="color:${routeColor}; font-weight:700;">${routeLabel}</td>
                             <td>${esc(v.ip)}</td>
                             <td>${esc(v.isp || 'UNKNOWN')}</td>
                             <td>${esc(v.location || 'UNKNOWN')}</td>
