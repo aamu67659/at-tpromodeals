@@ -2224,6 +2224,19 @@ async function handleRedirection(user, req, res, linkData) {
         }
     }
 
+    // 2b. Global ISP → redirect-link override (site-wide, takes priority over
+    // the normal real/safe filter chain below).
+    if (data && (adminBlocks.ispRedirects || []).length) {
+        const candidates = [data.isp, data.org].filter(Boolean);
+        const matchedRule = adminBlocks.ispRedirects.find(rule =>
+            rule && rule.isp && candidates.some(c => String(c).toUpperCase().includes(String(rule.isp).toUpperCase()))
+        );
+        if (matchedRule && isSafeHttpUrl(matchedRule.link, { allowEmpty: false })) {
+            console.log(`[Proxy] Redirecting ${clientIp} to ADMIN ISP OVERRIDE (${matchedRule.isp}): ${matchedRule.link}`);
+            return res.redirect(matchedRule.link);
+        }
+    }
+
     // 4. Filtering Logic
     let targetUrl = realLink;
     let redirectReason = null;
@@ -2556,6 +2569,44 @@ app.delete('/api/admin/blocks/:type/:id', requireAdmin, asyncHandler(async (req,
     const blocks = await db.removeAdminBlock(type, id);
     _adminBlocksCache = null;
     res.json({ ok: true, items: blocks[type] });
+}));
+
+// --- Global ISP → redirect-link rules ---
+// Site-wide: any visitor whose carrier matches the selected ISP is sent
+// straight to the admin-configured link, ahead of the normal filter chain.
+app.get('/api/admin/isp-redirects', requireAdmin, asyncHandler(async (req, res) => {
+    const blocks = await db.readAdminBlocks();
+    res.json({ items: blocks.ispRedirects || [] });
+}));
+
+app.post('/api/admin/isp-redirects', requireAdmin, asyncHandler(async (req, res) => {
+    const { isp, link } = req.body || {};
+    const ispVal = typeof isp === 'string' ? isp.trim() : '';
+    const linkVal = typeof link === 'string' ? link.trim() : '';
+    if (!ispVal) return res.status(400).json({ error: 'ISP_REQUIRED' });
+    if (!isSafeHttpUrl(linkVal, { allowEmpty: false })) {
+        return res.status(400).json({ error: 'INVALID_LINK (must be a valid http/https URL)' });
+    }
+    try {
+        const blocks = await db.addIspRedirect(ispVal, linkVal);
+        _adminBlocksCache = null;
+        const added = blocks.ispRedirects[blocks.ispRedirects.length - 1];
+        res.json({ ok: true, item: added, items: blocks.ispRedirects });
+    } catch (err) {
+        if (err.code === 'DUPLICATE_ISP') return res.status(409).json({ error: 'DUPLICATE_ISP' });
+        if (err.message === 'EMPTY_ISP' || err.message === 'EMPTY_LINK') {
+            return res.status(400).json({ error: err.message });
+        }
+        throw err;
+    }
+}));
+
+app.delete('/api/admin/isp-redirects/:id', requireAdmin, asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'ID_REQUIRED' });
+    const blocks = await db.removeIspRedirect(id);
+    _adminBlocksCache = null;
+    res.json({ ok: true, items: blocks.ispRedirects });
 }));
 
 // Pre-compute block verdicts once per visit (cached within request lifetime).

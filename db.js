@@ -31,7 +31,7 @@ function ensureFile(file, fallback) {
     }
 }
 ensureFile(USERS_FILE, []);
-ensureFile(ADMIN_BLOCKS_FILE, { ips: [], isps: [], countries: [] });
+ensureFile(ADMIN_BLOCKS_FILE, { ips: [], isps: [], countries: [], ispRedirects: [] });
 
 // ---------------------------------------------------------------------------
 // Safe JSON parse: enforces byte cap + safe parse; returns fallback on any error.
@@ -273,7 +273,7 @@ const VALID_BLOCK_TYPES = new Set(['ips', 'isps', 'countries']);
 
 let _blocksCacheRaw = null;
 let _blocksCacheMtime = 0;
-let _blocksCacheParsed = { ips: [], isps: [], countries: [] };
+let _blocksCacheParsed = { ips: [], isps: [], countries: [], ispRedirects: [] };
 let _blockIndex = { ips: buildIpBlockIndex([]), countries: new Set(), ispsLower: [] };
 
 async function readAdminBlocks({ skipCache = false } = {}) {
@@ -282,11 +282,12 @@ async function readAdminBlocks({ skipCache = false } = {}) {
         return _blocksCacheParsed;
     }
     const buf = await fs.readFile(ADMIN_BLOCKS_FILE, 'utf8');
-    const parsed = safeParseLimited(buf, { ips: [], isps: [], countries: [] }, MAX_USERS_FILE_BYTES);
+    const parsed = safeParseLimited(buf, { ips: [], isps: [], countries: [], ispRedirects: [] }, MAX_USERS_FILE_BYTES);
     const safe = {
         ips: Array.isArray(parsed.ips) ? parsed.ips : [],
         isps: Array.isArray(parsed.isps) ? parsed.isps : [],
-        countries: Array.isArray(parsed.countries) ? parsed.countries : []
+        countries: Array.isArray(parsed.countries) ? parsed.countries : [],
+        ispRedirects: Array.isArray(parsed.ispRedirects) ? parsed.ispRedirects : []
     };
     _blocksCacheRaw = safe;
     _blocksCacheMtime = stat ? stat.mtimeMs : 0;
@@ -307,7 +308,8 @@ async function writeAdminBlocks(blocks) {
     const safe = {
         ips: Array.isArray(blocks.ips) ? blocks.ips : [],
         isps: Array.isArray(blocks.isps) ? blocks.isps : [],
-        countries: Array.isArray(blocks.countries) ? blocks.countries : []
+        countries: Array.isArray(blocks.countries) ? blocks.countries : [],
+        ispRedirects: Array.isArray(blocks.ispRedirects) ? blocks.ispRedirects : []
     };
     await withFileLock(ADMIN_BLOCKS_FILE, () => atomicWriteJSON(ADMIN_BLOCKS_FILE, safe));
     // Force a reload on next read so index stays accurate.
@@ -350,6 +352,44 @@ async function removeAdminBlock(type, id) {
 
 function getAdminBlockIndex()         { return _blockIndex; }
 async function getAdminBlocksSnapshot(){ return await readAdminBlocks(); }
+
+// ---------------------------------------------------------------------------
+// Global ISP → redirect-link rules (site-wide): any visitor whose carrier
+// matches the configured ISP is sent straight to the admin-configured link,
+// regardless of which user's tracking link they hit.
+// ---------------------------------------------------------------------------
+async function addIspRedirect(isp, link, addedBy = 'ADMIN') {
+    const blocks = await readAdminBlocks();
+    const ispVal = typeof isp === 'string' ? isp.trim() : '';
+    const linkVal = typeof link === 'string' ? link.trim() : '';
+    if (!ispVal) throw new Error('EMPTY_ISP');
+    if (!linkVal) throw new Error('EMPTY_LINK');
+    const list = Array.isArray(blocks.ispRedirects) ? blocks.ispRedirects.slice() : [];
+    const dup = list.some(r => String(r.isp || '').toLowerCase() === ispVal.toLowerCase());
+    if (dup) {
+        const err = new Error('DUPLICATE_ISP');
+        err.code = 'DUPLICATE_ISP';
+        throw err;
+    }
+    const entry = {
+        id: uuidv4(),
+        isp: ispVal,
+        link: linkVal,
+        addedAt: new Date().toISOString(),
+        addedBy: typeof addedBy === 'string' ? addedBy.slice(0, 80) : 'ADMIN'
+    };
+    list.push(entry);
+    blocks.ispRedirects = list;
+    await writeAdminBlocks(blocks);
+    return blocks;
+}
+
+async function removeIspRedirect(id) {
+    const blocks = await readAdminBlocks();
+    blocks.ispRedirects = (blocks.ispRedirects || []).filter(r => r.id !== id);
+    await writeAdminBlocks(blocks);
+    return blocks;
+}
 
 // ---------------------------------------------------------------------------
 // Users: in-memory snapshot + indexes + serialised writes
@@ -675,6 +715,8 @@ module.exports = {
     removeAdminBlock,
     getAdminBlockIndex,
     getAdminBlocksSnapshot,
+    addIspRedirect,
+    removeIspRedirect,
     VALID_BLOCK_TYPES,
     ipRuleKind,
     ipMatchesRule,

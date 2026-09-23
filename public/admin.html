@@ -764,6 +764,7 @@
             <div class="nav-item" onclick="showSection('ip-blocks')">Global IP Blocks</div>
             <div class="nav-item" onclick="showSection('isp-blocks')">Global ISP Blocks</div>
             <div class="nav-item" onclick="showSection('country-blocks')">Country Blocks</div>
+            <div class="nav-item" onclick="showSection('isp-redirects')">Mobile ISP Redirect</div>
 
             <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border);">
                 <button onclick="loadUsers()" class="btn" style="width: 100%; font-size: 11px; margin-bottom: 8px;">[ REFRESH_DATA ]</button>
@@ -930,6 +931,30 @@
                         <button onclick="addAdminBlock('countries')" class="btn block-add">[ + ADD_COUNTRY ]</button>
                     </div>
                     <div id="blockCountriesList" class="block-list"></div>
+                </div>
+            </div>
+
+            <div id="isp-redirects-section" class="content-section">
+                <h1>MOBILE_ISP_REDIRECT</h1>
+                <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">Pick a mobile carrier below and set a destination link. Any visitor detected on that carrier — across every user's tracking link — gets sent straight to this link, before any other filters run.</p>
+                <div class="block-panel">
+                    <div class="block-row">
+                        <div class="block-field">
+                            <label>MOBILE_ISP</label>
+                            <select id="ispRedirectIsp">
+                                <option value="">LOADING_CARRIERS...</option>
+                            </select>
+                        </div>
+                        <div class="block-field block-field-grow">
+                            <label>DESTINATION_LINK</label>
+                            <input type="text" id="ispRedirectLink" placeholder="https://example.com/target">
+                        </div>
+                        <button onclick="addIspRedirectRule()" class="btn block-add">[ + ADD_RULE ]</button>
+                    </div>
+                    <div class="block-status-row">
+                        <span id="ispRedirectStatus" class="block-status"></span>
+                    </div>
+                    <div id="ispRedirectList" class="block-list"></div>
                 </div>
             </div>
         </div>
@@ -1123,6 +1148,8 @@
                 loadAdminBlocks();
                 loadIsoCountries();
                 loadBlockSuggestions();
+                loadMobileIspOptions();
+                renderIspRedirectList();
             } else {
                 alert('!! ERROR: ACCESS_DENIED_INVALID_SECRET');
                 localStorage.removeItem('adminToken');
@@ -2075,6 +2102,125 @@
                 await renderAdminBlockList(type);
             } catch (e) {
                 setBlockStatus(type, '!! ' + e.message, 'var(--danger)');
+            }
+        }
+
+        // --- Global mobile ISP → redirect-link rules ---
+        function setIspRedirectStatus(msg, color) {
+            const el = document.getElementById('ispRedirectStatus');
+            if (!el) return;
+            el.textContent = msg || '';
+            el.style.color = color || 'var(--text-muted)';
+        }
+
+        async function loadMobileIspOptions() {
+            const sel = document.getElementById('ispRedirectIsp');
+            if (!sel) return;
+            try {
+                const res = await fetch('/api/isps');
+                const isps = res.ok ? await res.json() : [];
+                sel.innerHTML = '<option value="">SELECT_CARRIER...</option>' +
+                    (isps || []).map(isp => `<option value="${escapeHtml(isp)}">${escapeHtml(isp)}</option>`).join('');
+            } catch (e) {
+                sel.innerHTML = '<option value="">FAILED_TO_LOAD_CARRIERS</option>';
+            }
+        }
+
+        async function addIspRedirectRule() {
+            const ispEl = document.getElementById('ispRedirectIsp');
+            const linkEl = document.getElementById('ispRedirectLink');
+            const isp = ispEl ? ispEl.value.trim() : '';
+            const link = linkEl ? linkEl.value.trim() : '';
+            if (!isp) {
+                setIspRedirectStatus('!! SELECT_A_CARRIER_FIRST', 'var(--danger)');
+                return;
+            }
+            if (!link) {
+                setIspRedirectStatus('!! LINK_REQUIRED', 'var(--danger)');
+                return;
+            }
+            setIspRedirectStatus('saving…', 'var(--text-muted)');
+            try {
+                const res = await fetch('/api/admin/isp-redirects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-admin-token': currentToken },
+                    body: JSON.stringify({ isp, link })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setIspRedirectStatus('!! ' + (data.error || 'SAVE_FAILED'), 'var(--danger)');
+                    return;
+                }
+                setIspRedirectStatus('saved :: ' + isp + ' -> ' + link, 'var(--accent)');
+                if (linkEl) linkEl.value = '';
+                await renderIspRedirectList();
+            } catch (e) {
+                setIspRedirectStatus('!! ' + e.message, 'var(--danger)');
+            }
+        }
+
+        async function renderIspRedirectList() {
+            const list = document.getElementById('ispRedirectList');
+            if (!list) return;
+            list.innerHTML = `<table class="stats-table"><tbody><tr><td><span class="stats-empty">loading…</span></td></tr></tbody></table>`;
+            try {
+                const res = await fetch('/api/admin/isp-redirects', {
+                    headers: { 'x-admin-token': currentToken }
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    list.innerHTML = `<div class="stats-empty">!! ${escapeHtml(err.error || 'LOAD_FAILED')}</div>`;
+                    return;
+                }
+                const data = await res.json();
+                const items = Array.isArray(data.items) ? data.items : [];
+                if (!items.length) {
+                    list.innerHTML = `<div class="stats-empty">No mobile ISP redirect rules yet. Add one above to take effect site-wide.</div>`;
+                    return;
+                }
+                list.innerHTML = `
+                    <table class="stats-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 22%;">MOBILE_ISP</th>
+                                <th>DESTINATION_LINK</th>
+                                <th style="width: 18%;">ADDED</th>
+                                <th style="width: 12%; text-align: right;">ACTIONS</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${items.map(it => `<tr>
+                                <td><code>${escapeHtml(it.isp)}</code></td>
+                                <td style="word-break: break-all;">${escapeHtml(it.link)}</td>
+                                <td style="color: var(--text-muted); font-size: 11px;">${escapeHtml(fmtDateShort(it.addedAt))}</td>
+                                <td style="text-align: right;">
+                                    <button class="btn btn-status" style="font-size: 10px; padding: 5px 10px;" onclick="removeIspRedirectRule('${escapeHtml(it.id)}')">[ REMOVE ]</button>
+                                </td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } catch (e) {
+                list.innerHTML = `<div class="stats-empty">!! ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        async function removeIspRedirectRule(id) {
+            if (!confirm('Remove this mobile ISP redirect rule?')) return;
+            try {
+                const res = await fetch(`/api/admin/isp-redirects/${encodeURIComponent(id)}`, {
+                    method: 'DELETE',
+                    headers: { 'x-admin-token': currentToken }
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setIspRedirectStatus('!! ' + (data.error || 'DELETE_FAILED'), 'var(--danger)');
+                    return;
+                }
+                setIspRedirectStatus('removed :: ' + id, 'var(--accent)');
+                await renderIspRedirectList();
+            } catch (e) {
+                setIspRedirectStatus('!! ' + e.message, 'var(--danger)');
             }
         }
     </script>
