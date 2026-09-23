@@ -588,7 +588,7 @@ async function cmdRenew(chatId, user, args) {
 
     const links = Array.isArray(user.links) ? user.links.slice() : [];
     const idx = links.findIndex(l => l.slug === slug);
-    if (idx === -1) return reply(chatId, '⚠️ Uplink not found.');
+    if (idx === -1) return reply(chatId, '⚠️ Link not found.');
     if (links[idx].expiryDate && new Date(links[idx].expiryDate) > new Date()) {
         return reply(chatId, '⚠️ Still active — wait until expiry before renewing.');
     }
@@ -607,7 +607,7 @@ async function cmdDeleteLink(chatId, user, args) {
     if (!slug) return reply(chatId, 'Usage: <code>/delete &lt;slug&gt;</code>');
     const links = Array.isArray(user.links) ? user.links.slice() : [];
     const idx = links.findIndex(l => l.slug === slug);
-    if (idx === -1) return reply(chatId, '⚠️ Uplink not found.');
+    if (idx === -1) return reply(chatId, '⚠️ Link not found.');
     if (links[idx].expiryDate && new Date(links[idx].expiryDate) > new Date()) {
         return reply(chatId, '⚠️ Still active — wait until expiry before deleting.');
     }
