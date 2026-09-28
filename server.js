@@ -46,6 +46,29 @@ if (ADMIN_TOKEN && ADMIN_TOKEN.length < 8) {
     console.warn('[Boot] ADMIN_TOKEN is shorter than 8 characters — consider a longer token.');
 }
 
+// Optional hard IP allowlist for the admin surface. Comma-separated exact
+// IPs / wildcards / CIDRs (same syntax as forced-ips/blocked-ips). Empty =
+// no restriction (back-compat default).
+const ADMIN_IP_ALLOWLIST = (process.env.ADMIN_IP_ALLOWLIST || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+if (ADMIN_IP_ALLOWLIST.length) {
+    console.log(`[Boot] ADMIN_IP_ALLOWLIST active: ${ADMIN_IP_ALLOWLIST.length} rule(s)`);
+}
+
+// Fire-and-forget security alert to the operator's own Telegram bot/chat
+// (distinct from per-user visit notifications). Best-effort only.
+function notifySecurityAlert(message) {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (!token || !chatId) return;
+    axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+    }).catch(err => console.error('[Security] Telegram alert failed:', err.response ? JSON.stringify(err.response.data) : err.message));
+}
+
 const EFFECTIVE_SESSION_SECRET = SESSION_SECRET
     || require('crypto').randomBytes(48).toString('hex');
 
@@ -107,6 +130,98 @@ app.use(express.json({
     }
 }));
 app.use(cookieParser());
+
+// ---------------------------------------------------------------------------
+// Layer: Global IP auto-ban for brute-force / credential-stuffing. Distinct
+// from the per-account LOGIN_LOCKOUTS and the express-rate-limit windows
+// below: this persists to disk (survives restarts) and hard-blocks the IP
+// with a 403 for ALL routes instead of just slowing it down.
+// ---------------------------------------------------------------------------
+const SECURITY_DATA_DIR = fsSync.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
+const IP_BANS_FILE = path.join(SECURITY_DATA_DIR, 'ip-bans.json');
+const IP_BAN_WINDOW_MS = 10 * 60 * 1000;   // window to accumulate failures
+const IP_BAN_DURATION_MS = 60 * 60 * 1000; // ban length once threshold hit
+const IP_LOGIN_FAIL_THRESHOLD = 20;        // failed logins across ANY account, one IP
+const IP_ADMIN_FAIL_THRESHOLD = 5;         // failed admin-token attempts, one IP
+
+const IP_BANS = new Map(); // ip -> banExpiryTimestamp
+try {
+    if (fsSync.existsSync(IP_BANS_FILE)) {
+        const raw = JSON.parse(fsSync.readFileSync(IP_BANS_FILE, 'utf8'));
+        const now = Date.now();
+        for (const [ip, exp] of Object.entries(raw || {})) {
+            if (typeof exp === 'number' && exp > now) IP_BANS.set(ip, exp);
+        }
+    }
+} catch (e) {
+    console.warn('[Security] Failed to load ip-bans.json:', e.message);
+}
+
+function persistIpBans() {
+    try {
+        fsSync.mkdirSync(SECURITY_DATA_DIR, { recursive: true });
+        fsSync.writeFileSync(IP_BANS_FILE, JSON.stringify(Object.fromEntries(IP_BANS)));
+    } catch (e) {
+        console.warn('[Security] Failed to persist ip-bans.json:', e.message);
+    }
+}
+
+function banIp(ip, reason) {
+    const expiry = Date.now() + IP_BAN_DURATION_MS;
+    IP_BANS.set(ip, expiry);
+    persistIpBans();
+    console.warn(`[Security] IP auto-banned: ${ip} (reason=${reason}) until ${new Date(expiry).toISOString()}`);
+    notifySecurityAlert(
+        `🚫 <b>IP Auto-Banned</b>\n📍 <code>${telegramEscapeSafe(ip)}</code>\n` +
+        `🔎 Reason: <b>${telegramEscapeSafe(reason)}</b>\n⏱️ Duration: 1 hour`
+    );
+}
+
+function isIpBanned(ip) {
+    const exp = IP_BANS.get(ip);
+    if (!exp) return false;
+    if (exp <= Date.now()) {
+        IP_BANS.delete(ip);
+        persistIpBans();
+        return false;
+    }
+    return true;
+}
+
+const IP_FAIL_COUNTS = new Map(); // "kind:ip" -> { count, windowStart }
+function recordIpFailure(ip, kind, threshold) {
+    if (!ip) return false;
+    const key = `${kind}:${ip}`;
+    const now = Date.now();
+    const entry = IP_FAIL_COUNTS.get(key) || { count: 0, windowStart: now };
+    if (now - entry.windowStart > IP_BAN_WINDOW_MS) {
+        entry.count = 0;
+        entry.windowStart = now;
+    }
+    entry.count++;
+    IP_FAIL_COUNTS.set(key, entry);
+    if (entry.count >= threshold) {
+        IP_FAIL_COUNTS.delete(key);
+        banIp(ip, kind);
+        return true;
+    }
+    return false;
+}
+
+// Minimal HTML escaper usable before telegramEscape() is declared further
+// down the file (function declarations are hoisted, but this keeps the ban
+// logic self-contained regardless of declaration order).
+function telegramEscapeSafe(s) {
+    return String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+
+app.use((req, res, next) => {
+    const ip = getClientIp(req);
+    if (ip && isIpBanned(ip)) {
+        return res.status(403).json({ error: 'Access temporarily blocked due to suspicious activity.' });
+    }
+    next();
+});
 
 // ---------------------------------------------------------------------------
 // Domain Isolation & Enforcement
@@ -358,6 +473,11 @@ app.get('/signup', (req, res) => {
 });
 
 app.get('/admin', (req, res) => {
+    const ip = getClientIp(req);
+    if (!isAdminIpAllowed(ip)) {
+        console.warn(`[Security] Blocked /admin page load from disallowed IP: ${ip}`);
+        return res.status(403).send('Access Restricted');
+    }
     res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
@@ -382,7 +502,18 @@ async function requireAuth(req, res, next) {
     }
 }
 
+function isAdminIpAllowed(ip) {
+    if (!ADMIN_IP_ALLOWLIST.length) return true; // not configured => no restriction
+    return ADMIN_IP_ALLOWLIST.some(rule => db.ipMatchesRule(ip, rule));
+}
+
 function requireAdmin(req, res, next) {
+    const ip = getClientIp(req);
+    if (!isAdminIpAllowed(ip)) {
+        console.warn(`[Security] Admin API blocked: IP ${ip} not in ADMIN_IP_ALLOWLIST`);
+        notifySecurityAlert(`🚫 <b>Admin API blocked</b> — IP <code>${telegramEscapeSafe(ip)}</code> not in allowlist (${req.method} ${telegramEscapeSafe(req.path)})`);
+        return res.status(403).json({ error: 'Forbidden' });
+    }
     const submitted = (req.headers['x-admin-token'] || req.query.token || '').trim();
     if (!ADMIN_TOKEN) {
         return res.status(503).json({ error: 'Admin disabled: ADMIN_TOKEN not configured' });
@@ -392,6 +523,9 @@ function requireAdmin(req, res, next) {
         const a = Buffer.from(submitted, 'utf8');
         const b = Buffer.from(ADMIN_TOKEN, 'utf8');
         if (a.length !== b.length || !require('crypto').timingSafeEqual(a, b)) {
+            console.warn(`[Security] Failed admin token attempt from ${ip}`);
+            notifySecurityAlert(`⚠️ <b>Failed admin token attempt</b>\n📍 <code>${telegramEscapeSafe(ip)}</code>\n${req.method} ${telegramEscapeSafe(req.path)}`);
+            recordIpFailure(ip, 'admin-token', IP_ADMIN_FAIL_THRESHOLD);
             return res.status(401).json({ error: 'Unauthorized Admin' });
         }
     } catch {
@@ -838,9 +972,14 @@ app.post('/api/login', loginLimiter, asyncHandler(async (req, res) => {
         if (entry.attempts >= LOGIN_LOCKOUT_THRESHOLD) {
             entry.attempts = 0;
             entry.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
+            notifySecurityAlert(
+                `🔒 <b>Account locked</b>: <code>${telegramEscapeSafe(bucketKey)}</code>\n` +
+                `📍 IP: <code>${telegramEscapeSafe(ip)}</code>\n⏱️ 15-minute lockout triggered`
+            );
         }
         LOGIN_LOCKOUTS.set(bucketKey, entry);
         console.log(`[Login] Failed login attempt for ${bucketKey} from ${ip}`);
+        recordIpFailure(ip, 'login', IP_LOGIN_FAIL_THRESHOLD);
         return res.status(401).json({ error: 'Invalid credentials' });
     }
     LOGIN_LOCKOUTS.delete(bucketKey);

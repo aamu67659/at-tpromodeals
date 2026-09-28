@@ -25,3 +25,4 @@ yarn-debug.log*
 # Build output (none today, but future-proof)
 dist/
 build/
+.env.example
