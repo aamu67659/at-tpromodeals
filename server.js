@@ -2082,7 +2082,7 @@ function isExpiryActive(dateStr) {
 
 // Defensive slug format guard: up to 128 chars from a safe alphabet.
 const SLUG_REGEX = /^[A-Za-z0-9._-]{4,128}$/;
-const MAX_VISITED_IPS_PER_USER = 5000;
+const MAX_VISITED_IPS_PER_USER = 20000;
 
 // LRU cache on top of ip-api so repeated visitors don't double-charge /
 // burn latency. We re-insert on hit to evict least-recently-used.
