@@ -1603,7 +1603,8 @@
                 document.getElementById('activeLinksCount').innerText = activeLinks.length;
                 
                 const visits = user.visitedIps || [];
-                document.getElementById('totalVisitsCount').innerText = visits.length;
+                const totalVisitsCount = (typeof user.totalVisits === 'number') ? user.totalVisits : visits.length;
+                document.getElementById('totalVisitsCount').innerText = totalVisitsCount;
                 
                 renderRecentActivity(visits);
                 

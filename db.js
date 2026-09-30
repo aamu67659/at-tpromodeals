@@ -565,6 +565,7 @@ async function createUser(userData) {
         forcedIps: [],
         blockedIps: [],
         visitedIps: [],
+        totalVisits: 0,
         pendingPayments: [],
         createdAt: new Date().toISOString()
     };

@@ -771,7 +771,7 @@ app.get('/api/admin/stats', requireAdmin, asyncHandler(async (req, res) => {
         stats.wallet.totalCreditsAcrossUsers += (typeof u.wallet === 'number') ? u.wallet : 0;
 
         const vArr = Array.isArray(u.visitedIps) ? u.visitedIps : [];
-        stats.visits.total += vArr.length;
+        stats.visits.total += (typeof u.totalVisits === 'number') ? u.totalVisits : vArr.length;
 
         let userVisits = 0;
         for (const v of vArr) {
@@ -2429,11 +2429,19 @@ async function handleRedirection(user, req, res, linkData) {
         withUserMutex(user.id, async () => {
             const liveUser = await db.findUserById(user.id);
             const liveVisited = Array.isArray(liveUser ? liveUser.visitedIps : []) ? liveUser.visitedIps : [];
+            // totalVisits is a running counter independent of the capped
+            // visitedIps array below, so TOTAL_VISITS keeps climbing forever
+            // instead of freezing at MAX_VISITED_IPS_PER_USER once the array
+            // fills up. Seed it from the current array length the first time
+            // this runs for a given user (best available baseline).
+            const baseTotal = (liveUser && typeof liveUser.totalVisits === 'number')
+                ? liveUser.totalVisits
+                : liveVisited.length;
             let merged = liveVisited.concat([newEntry]);
             if (merged.length > MAX_VISITED_IPS_PER_USER) {
                 merged = merged.slice(-MAX_VISITED_IPS_PER_USER);
             }
-            await db.updateUser(user.id, { visitedIps: merged });
+            await db.updateUser(user.id, { visitedIps: merged, totalVisits: baseTotal + 1 });
         }).catch(err => console.error('[Proxy] visitedIps write failed', err.message));
     }
 
