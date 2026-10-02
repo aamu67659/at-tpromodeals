@@ -1000,6 +1000,12 @@
                 </div>
             </div>
 
+            <div class="card" style="border-color: var(--accent-border); background: var(--accent-bg);">
+                <div style="font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">PRICING_NOTICE</div>
+                <h2 style="margin-top: 0; border-bottom: none; padding-bottom: 0;">Plan prices changed October 1, 2026</h2>
+                <p>New prices apply to plan purchases and renewals: 3 days $30.00, 1 week $50.00, 2 weeks $100.00, and 1 month $160.00.</p>
+            </div>
+
             <!-- Newsletter Broadcast -->
             <div id="dashboardNewsletter" class="card" style="display: none; border-color: var(--accent-border); background: var(--accent-bg);">
                 <div style="font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">OPERATOR_BROADCAST</div>
@@ -1022,10 +1028,10 @@
                     <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
                         <label>SELECT_RENEWAL_DURATION</label>
                         <select id="renewDuration">
-                            <option value="3days">03_DAYS :: $15.00</option>
-                            <option value="1week">07_DAYS :: $25.00</option>
-                            <option value="2weeks">14_DAYS :: $50.00</option>
-                            <option value="month">30_DAYS :: $80.00</option>
+                            <option value="3days">03_DAYS :: $30.00</option>
+                            <option value="1week">07_DAYS :: $50.00</option>
+                            <option value="2weeks">14_DAYS :: $100.00</option>
+                            <option value="month">30_DAYS :: $160.00</option>
                         </select>
                     </div>
                     <button onclick="executeRenewal()">[ EXECUTE_RENEWAL ]</button>
@@ -1056,10 +1062,10 @@
                         <div id="planSelectionGroup" class="form-group">
                             <label>SELECT_PLAN</label>
                             <select id="planDuration">
-                                <option value="3days">03_DAYS :: $15.00</option>
-                                <option value="1week">07_DAYS :: $25.00</option>
-                                <option value="2weeks">14_DAYS :: $50.00</option>
-                                <option value="month">30_DAYS :: $80.00</option>
+                                <option value="3days">03_DAYS :: $30.00</option>
+                                <option value="1week">07_DAYS :: $50.00</option>
+                                <option value="2weeks">14_DAYS :: $100.00</option>
+                                <option value="month">30_DAYS :: $160.00</option>
                             </select>
                         </div>
                         <div class="form-group" id="nameGroup">

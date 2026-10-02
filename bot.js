@@ -27,7 +27,7 @@ const PAYMENT_EXCHANGE_NAME = process.env.PAYMENT_EXCHANGE_NAME || 'XT.com';
 const PAYMENT_RECEIVE_ADDRESS = (process.env.USDT_TRC20_ADDRESS || '').trim();
 const PAYMENT_RATE = parseFloat(process.env.PAYMENT_RATE || '1');
 const MIN_DEPOSIT_USDT = parseFloat(process.env.MIN_DEPOSIT_USDT || '10');
-const PRICES = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
+const PRICES = { '3days': 30, '1week': 50, '2weeks': 100, 'month': 160 };
 
 // chatId -> { userId, isAdmin, adminUntil }
 const chatSessions = new Map();

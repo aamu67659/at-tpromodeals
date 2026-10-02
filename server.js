@@ -1741,7 +1741,7 @@ function isExpiryActive(expiryDate) {
 // Single source of truth for link plan pricing + duration math. Previously
 // duplicated identically across /api/links, /api/links/bulk and
 // /api/renew-link, which risked the three copies drifting out of sync.
-const LINK_PLAN_PRICES = { '3days': 15, '1week': 25, '2weeks': 50, 'month': 80 };
+const LINK_PLAN_PRICES = { '3days': 30, '1week': 50, '2weeks': 100, 'month': 160 };
 
 function computeExpiryDate(duration, from = new Date()) {
     const expiry = new Date(from);
