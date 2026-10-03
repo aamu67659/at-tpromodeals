@@ -1,7 +1,8 @@
 User-agent: *
 Allow: /
 Disallow: /admin
-Disallow: /api
+Disallow: /api/
 Disallow: /dashboard.html
+Disallow: /l/
 
 Sitemap: https://saasproxylink.store/sitemap.xml

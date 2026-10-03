@@ -30,6 +30,9 @@
     <meta property="og:title" content="SaaS Proxy · Advanced Anti-Bot Traffic Filtration">
     <meta property="og:description" content="Stop wasting your ad budget on bots. Filter traffic with residential precision and protect your conversion assets.">
     <meta property="og:image" content="https://saasproxylink.store/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="SaaS Proxy — Traffic filtration for ad campaigns">
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
@@ -110,6 +113,8 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
+            border: 0;
+            cursor: pointer;
         }
 
         .btn-signin:hover {
@@ -209,10 +214,12 @@
     <header class="hero">
         <h1>High-Precision Traffic Filtration for Ads & Scale</h1>
         <p>Protect your conversion rates by filtering out bots, crawlers, and suspicious traffic. Deliver real users to your target apps while keeping non-real visitors at bay.</p>
-        <div style="display: flex; gap: 20px; justify-content: center; align-items: center;">
-            <a href="/login" class="btn-signin">Deploy Now</a>
-            <a href="#logic" class="btn-signin">Start Filtering Now</a>
+        <div style="display: flex; gap: 20px; justify-content: center; align-items: center; flex-wrap: wrap;">
+            <a href="/signup" class="btn-signin">Get Started</a>
+            <a href="#logic" class="btn-signin">How It Works</a>
+            <button type="button" id="share-site" class="btn-signin">Share SaaS Proxy</button>
         </div>
+        <p id="share-status" role="status" aria-live="polite" style="font-size: 14px; margin: 20px 0 0;"></p>
     </header>
 
     <section id="logic" class="section">
@@ -280,6 +287,28 @@
     </footer>
 
     <script>
+        document.getElementById('share-site').addEventListener('click', async () => {
+            const url = document.querySelector('link[rel="canonical"]').href;
+            const status = document.getElementById('share-status');
+            if (navigator.share) {
+                try {
+                    await navigator.share({ title: 'SaaS Proxy', url });
+                    status.textContent = 'Thanks for sharing!';
+                } catch (error) {
+                    if (error.name !== 'AbortError') status.textContent = 'Could not open sharing options.';
+                }
+            } else if (navigator.clipboard) {
+                try {
+                    await navigator.clipboard.writeText(url);
+                    status.textContent = 'Link copied to clipboard.';
+                } catch (error) {
+                    window.prompt('Copy this link:', url);
+                }
+            } else {
+                window.prompt('Copy this link:', url);
+            }
+        });
+
         mermaid.initialize({ 
             startOnLoad: true, 
             theme: 'base',

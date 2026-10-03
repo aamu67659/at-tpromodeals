@@ -455,6 +455,13 @@ app.use((req, res, next) => {
     next();
 });
 
+app.use((req, res, next) => {
+    if (/^\/(?:admin(?:\.html)?|dashboard\.html|login(?:\.html)?|signup(?:\.html)?)$/.test(req.path) || req.path.startsWith('/l/')) {
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    }
+    next();
+});
+
 app.use(express.static('public', { etag: true, lastModified: true, fallthrough: true }));
 
 app.get('/', (req, res) => {
