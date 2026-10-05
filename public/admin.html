@@ -1348,6 +1348,41 @@
             openStatModal('Top Users by Visits', statTable(['USER', 'EMAIL', 'VISITS'], rows));
         }
 
+        function showVisitDetail(type) {
+            const title = type === 'REAL' ? 'Real Visits (Last 24h)' : 'Safe Visits (Last 24h)';
+            openStatModal(title, '<div class="stats-empty">Loading…</div>');
+            fetch('/api/admin/users', { headers: { 'x-admin-token': currentToken } })
+                .then(r => {
+                    if (!r.ok) throw new Error('Failed to load visits');
+                    return r.json();
+                })
+                .then(users => {
+                    const now = Date.now();
+                    const visits = [];
+                    for (const u of (users || [])) {
+                        for (const v of (u.visitedIps || [])) {
+                            const timestamp = v.timestamp ? new Date(v.timestamp).getTime() : 0;
+                            if (timestamp && now - timestamp < 86400000 && (v.type === 'REAL' ? 'REAL' : 'SAFE') === type) {
+                                visits.push({ ...v, owner: u.name || u.username, timestamp });
+                            }
+                        }
+                    }
+                    visits.sort((a, b) => b.timestamp - a.timestamp);
+                    const rows = visits.slice(0, 150).map(v => `
+                        <tr>
+                            <td><strong>${escapeHtml(v.owner || 'ANONYMOUS')}</strong></td>
+                            <td><code>${escapeHtml(v.ip || '')}</code></td>
+                            <td>${escapeHtml(v.isp || 'Unknown')}</td>
+                            <td>${escapeHtml(v.location || 'Unknown')}</td>
+                            <td style="color:var(--text-muted); font-size:10px;">${escapeHtml(fmtMsToLocal(v.timestamp))}</td>
+                        </tr>
+                    `).join('');
+                    openStatModal(title, `<div style="margin-bottom:10px; color:var(--text-muted); font-size:11px;">${visits.length} visit(s) in the last 24 hours</div>` +
+                        statTable(['USER', 'IP', 'ISP', 'LOCATION', 'VISITED_AT'], rows));
+                })
+                .catch(() => openStatModal(title, '<div class="stats-empty">Failed to load detail.</div>'));
+        }
+
         function showTopIpsDetail() {
             const s = __lastStats;
             if (!s) return;
@@ -1426,8 +1461,8 @@
             const visitTiles = `
                 ${tile('TOTAL_VISITS', fmtNum(s.visits.total, 0), 'all-time clicks into uplinks', 'accent', 'showTopVisitsDetail()')}
                 ${tile('VISITS_7D', fmtNum(s.visits.last7d, 0), 'rolling 7-day window', 'accent', 'showTopVisitsDetail()')}
-                ${tile('REAL_VISITS_24H', fmtNum(s.visits.real24h, 0), 'hybrid bypass 24h', 'accent', 'showTopIpsDetail()')}
-                ${tile('SAFE_VISITS_24H', fmtNum(s.visits.safe24h, 0), 'redirected to decoy 24h', 'accent', 'showTopIspsDetail()')}
+                ${tile('REAL_VISITS_24H', fmtNum(s.visits.real24h, 0), 'hybrid bypass 24h', 'accent', "showVisitDetail('REAL')")}
+                ${tile('SAFE_VISITS_24H', fmtNum(s.visits.safe24h, 0), 'redirected to decoy 24h', 'accent', "showVisitDetail('SAFE')")}
                 ${tile('UNIQUE_IPS_24H', fmtNum(s.visits.uniqueIps24h, 0), 'distinct sources 24h', 'accent', 'showTopIpsDetail()')}
                 ${tile('HIGHEST_LOCATION', escapeHtml(s.visits.highestLocation || 'N/A'), s.visits.highestLocation ? (s.visits.highestLocationHits + ' hits all-time') : 'awaiting traffic', 'accent', 'showTopLocationsDetail()')}
             `;
