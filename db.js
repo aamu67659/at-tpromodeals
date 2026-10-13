@@ -636,7 +636,8 @@ async function updateUser(id, updates) {
         const users = Array.isArray(parsed) ? parsed : [];
         const index = users.findIndex(u => u.id === id);
         if (index === -1) return null;
-        users[index] = { ...users[index], ...updates };
+        const nextUpdates = typeof updates === 'function' ? await updates(users[index]) : updates;
+        users[index] = { ...users[index], ...nextUpdates };
         await atomicWriteJSON(USERS_FILE, users);
         _usersSnapshot = users;
         _userIndex = rebuildUserIndex(users);

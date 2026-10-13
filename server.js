@@ -75,6 +75,7 @@ const EFFECTIVE_SESSION_SECRET = SESSION_SECRET
 // Error handling wrapper for async routes. Hides internals in production.
 const asyncHandler = fn => (req, res, next) => {
     return Promise.resolve(fn(req, res, next)).catch((err) => {
+        if (err.statusCode === 400) return res.status(400).json({ error: err.message });
         console.error(`[Error] ${req.method} ${req.url}:`, err.message);
         const body = { error: 'Internal Server Error' };
         if (!IS_PROD) body.details = err.message;
@@ -1116,9 +1117,34 @@ app.post('/api/settings', requireAuth, apiLimiter, asyncHandler(async (req, res)
         body.chatId = v;
     }
 
-    const currentSettings = req.user.settings || {};
-    const updatedUser = await db.updateUser(req.user.id, {
-        settings: { ...currentSettings, ...body }
+    const updatedUser = await db.updateUser(req.user.id, user => {
+        const updates = { settings: { ...(user.settings || {}), ...body } };
+        if (body.mobileIspCountries) {
+            let total = 0;
+            updates.links = (user.links || []).map(link => {
+                if (!isExpiryActive(link.expiryDate)) return link;
+                const entitled = activePaidIspCountries(link);
+                const selected = paidIspCountriesFor(body.mobileIspCountries);
+                const newlyPaid = selected.filter(code => !entitled.includes(code));
+                total += newlyPaid.length * PAID_ISP_COUNTRY_PRICE;
+                const countries = link.mobileIspCountries
+                    ? { ...link.mobileIspCountries }
+                    : { US: link.mobileIsps || (user.settings || {}).mobileIsps || [] };
+                for (const code of PAID_ISP_COUNTRIES) {
+                    if (selected.includes(code)) countries[code] = body.mobileIspCountries[code];
+                    else delete countries[code];
+                }
+                return {
+                    ...link,
+                    mobileIspCountries: countries,
+                    paidIspCountries: [...new Set([...entitled, ...newlyPaid])],
+                    paidIspTermExpiry: link.expiryDate
+                };
+            });
+            requireWalletBalance(user, total);
+            updates.wallet = user.wallet - total;
+        }
+        return updates;
     });
 
     // Re-evaluate poller cadence whenever the sender address flips. Adding it
@@ -1767,6 +1793,27 @@ function isExpiryActive(expiryDate) {
 // duplicated identically across /api/links, /api/links/bulk and
 // /api/renew-link, which risked the three copies drifting out of sync.
 const LINK_PLAN_PRICES = { '3days': 30, '1week': 50, '2weeks': 100, 'month': 160 };
+const PAID_ISP_COUNTRY_PRICE = 15;
+const PAID_ISP_COUNTRIES = ['GB', 'CA'];
+
+function paidIspCountriesFor(countries) {
+    return PAID_ISP_COUNTRIES.filter(code => countries && Object.prototype.hasOwnProperty.call(countries, code));
+}
+
+function activePaidIspCountries(link) {
+    return link.paidIspTermExpiry === link.expiryDate && isExpiryActive(link.expiryDate)
+        ? (link.paidIspCountries || []) : [];
+}
+
+function purchaseError(message) {
+    const error = new Error(message);
+    error.statusCode = 400;
+    return error;
+}
+
+function requireWalletBalance(user, price) {
+    if (price > 0 && user.wallet < price) throw purchaseError(`Insufficient credits. Need $${price.toFixed(2)}.`);
+}
 
 function computeExpiryDate(duration, from = new Date()) {
     const expiry = new Date(from);
@@ -1812,12 +1859,6 @@ app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) =>
         return res.status(400).json({ error: 'INVALID_NONREALLINK' });
     }
 
-    const fresh = await db.findUserById(req.user.id);
-    if (!fresh) return res.status(401).json({ error: 'Unauthorized' });
-    if (fresh.wallet < price) {
-        return res.status(400).json({ error: `Insufficient credits. This plan requires $${price.toFixed(2)}.` });
-    }
-
     const newSlug = slug || require('crypto').randomBytes(32).toString('hex');
     
     if (slug && !/^[a-zA-Z0-9-]+$/.test(slug)) {
@@ -1849,9 +1890,14 @@ app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) =>
         createdAt: new Date().toISOString()
     };
 
-    const updatedUser = await db.updateUser(req.user.id, {
-        wallet: req.user.wallet - price,
-        links: [...(req.user.links || []), newLink]
+    const updatedUser = await db.updateUser(req.user.id, user => {
+        const countries = newLink.mobileIspCountries;
+        const paidCountries = paidIspCountriesFor(countries);
+        const total = price + paidCountries.length * PAID_ISP_COUNTRY_PRICE;
+        requireWalletBalance(user, total);
+        newLink.paidIspCountries = paidCountries;
+        newLink.paidIspTermExpiry = newLink.expiryDate;
+        return { wallet: user.wallet - total, links: [...(user.links || []), newLink] };
     });
 
     res.json({ ...newLink, balance: updatedUser.wallet });
@@ -1874,14 +1920,12 @@ app.post('/api/links/bulk', requireAuth, apiLimiter, asyncHandler(async (req, re
     const fresh = await db.findUserById(req.user.id);
     if (!fresh) return res.status(401).json({ error: 'Unauthorized' });
 
-    const totalPrice = lines.length * pricePerUnit;
-    if (fresh.wallet < totalPrice) {
-        return res.status(400).json({ error: `Insufficient credits. Need $${totalPrice.toFixed(2)} for ${lines.length} links.` });
-    }
+    const selectedCountries = parsedCountries !== undefined ? parsedCountries : (mobileIsps !== undefined ? undefined : fresh.settings.mobileIspCountries);
+    const paidCountries = paidIspCountriesFor(selectedCountries);
+    const unitPrice = pricePerUnit + paidCountries.length * PAID_ISP_COUNTRY_PRICE;
 
     const processed = [];
     const errors = [];
-    let currentWallet = fresh.wallet;
 
     const expiry = computeExpiryDate(duration);
 
@@ -1925,25 +1969,27 @@ app.post('/api/links/bulk', requireAuth, apiLimiter, asyncHandler(async (req, re
             ispFilter: ispFilter !== undefined ? ispFilter : true,
             botFilter: botFilter !== undefined ? botFilter : true,
             mobileIsps: mobileIsps || req.user.settings.mobileIsps,
-            mobileIspCountries: parsedCountries !== undefined ? parsedCountries : (mobileIsps !== undefined ? undefined : req.user.settings.mobileIspCountries),
+            mobileIspCountries: selectedCountries,
             reallowVisited: reallowVisited !== undefined ? reallowVisited : true,
             allowAfrica: allowAfrica !== undefined ? allowAfrica : false,
             allowEurope: allowEurope !== undefined ? allowEurope : true,
             expiryDate: expiry.toISOString(),
+            paidIspCountries: paidCountries,
+            paidIspTermExpiry: expiry.toISOString(),
             createdAt: new Date().toISOString()
         };
 
         processed.push(newLink);
-        currentWallet -= pricePerUnit;
     }
 
     if (processed.length === 0) {
         return res.status(400).json({ error: 'No links could be processed', details: errors });
     }
 
-    const updatedUser = await db.updateUser(req.user.id, {
-        wallet: currentWallet,
-        links: [...(fresh.links || []), ...processed]
+    const totalPrice = processed.length * unitPrice;
+    const updatedUser = await db.updateUser(req.user.id, user => {
+        requireWalletBalance(user, totalPrice);
+        return { wallet: user.wallet - totalPrice, links: [...(user.links || []), ...processed] };
     });
 
     res.json({
@@ -2003,29 +2049,42 @@ app.put('/api/links/:oldSlug', requireAuth, apiLimiter, asyncHandler(async (req,
         if (existing) return res.status(400).json({ error: 'New slug is currently active on another uplink and cannot be reused until it expires' });
     }
 
-    const links = req.user.links || [];
-    const index = links.findIndex(l => l.slug === oldSlug);
-    if (index === -1) return res.status(404).json({ error: 'Link not found' });
-
-    links[index] = {
-        ...links[index],
-        name,
-        realLink,
-        nonRealLink,
-        slug: newSlug,
-        antiRed: antiRed !== undefined ? antiRed : links[index].antiRed,
-        ispFilter: ispFilter !== undefined ? ispFilter : links[index].ispFilter,
-        botFilter: botFilter !== undefined ? botFilter : links[index].botFilter,
-        mobileIsps: mobileIsps !== undefined ? mobileIsps : links[index].mobileIsps,
-        mobileIspCountries: parsedCountries !== undefined ? parsedCountries : (mobileIsps !== undefined ? undefined : links[index].mobileIspCountries),
-        reallowVisited: reallowVisited !== undefined ? reallowVisited : links[index].reallowVisited,
-        allowAfrica: allowAfrica !== undefined ? allowAfrica : links[index].allowAfrica,
-        allowEurope: allowEurope !== undefined ? allowEurope : links[index].allowEurope,
-        updatedAt: new Date().toISOString()
-    };
-
-    await db.updateUser(req.user.id, { links });
-    res.json(links[index]);
+    let updatedLink;
+    const updatedUser = await db.updateUser(req.user.id, user => {
+        const links = [...(user.links || [])];
+        const index = links.findIndex(l => l.slug === oldSlug);
+        if (index === -1) throw purchaseError('Uplink not found');
+        const current = links[index];
+        const countries = parsedCountries !== undefined ? parsedCountries : (mobileIsps !== undefined ? undefined : current.mobileIspCountries);
+        const entitled = activePaidIspCountries(current);
+        const newlyPaid = paidIspCountriesFor(countries).filter(code => !entitled.includes(code));
+        if (newlyPaid.length && !isExpiryActive(current.expiryDate)) {
+            throw purchaseError('Renew this uplink before enabling UK or Canada mobile ISPs.');
+        }
+        const total = newlyPaid.length * PAID_ISP_COUNTRY_PRICE;
+        requireWalletBalance(user, total);
+        updatedLink = {
+            ...current,
+            name,
+            realLink,
+            nonRealLink,
+            slug: newSlug,
+            antiRed: antiRed !== undefined ? antiRed : current.antiRed,
+            ispFilter: ispFilter !== undefined ? ispFilter : current.ispFilter,
+            botFilter: botFilter !== undefined ? botFilter : current.botFilter,
+            mobileIsps: mobileIsps !== undefined ? mobileIsps : current.mobileIsps,
+            mobileIspCountries: countries,
+            paidIspCountries: [...new Set([...entitled, ...newlyPaid])],
+            paidIspTermExpiry: current.expiryDate,
+            reallowVisited: reallowVisited !== undefined ? reallowVisited : current.reallowVisited,
+            allowAfrica: allowAfrica !== undefined ? allowAfrica : current.allowAfrica,
+            allowEurope: allowEurope !== undefined ? allowEurope : current.allowEurope,
+            updatedAt: new Date().toISOString()
+        };
+        links[index] = updatedLink;
+        return { wallet: user.wallet - total, links };
+    });
+    res.json({ ...updatedLink, balance: updatedUser.wallet });
 }));
 
 app.delete('/api/forced-ips/:ip', requireAuth, asyncHandler(async (req, res) => {
@@ -2047,39 +2106,34 @@ app.post('/api/renew-link', requireAuth, apiLimiter, asyncHandler(async (req, re
 
     if (!price) return res.status(400).json({ error: 'Invalid duration selected' });
 
-    // Re-read wallet from disk so two requests racing each other can't both
-    // pass a stale balance check.
-    const freshUser = await db.findUserById(req.user.id);
-    if (!freshUser) return res.status(401).json({ error: 'Unauthorized' });
-    if (freshUser.wallet < price) {
-        return res.status(400).json({ error: `Insufficient credits. This plan requires $${price.toFixed(2)}.` });
-    }
-
     // Refuse renewal if a NEW slug (different from this link's current slug) is currently active anywhere
     const linkSlugTaken = await findActiveConflict(slug, req.user.id);
     if (linkSlugTaken && linkSlugTaken.user.id === req.user.id && linkSlugTaken.link.slug === slug && isExpiryActive(linkSlugTaken.link.expiryDate)) {
         // It IS the same user's link; that's expected. This check is a sanity guard for the rename case.
     }
 
-    // Only custom uplinks managed by the user can be renewed.
-    const links = req.user.links || [];
-    const index = links.findIndex(l => l.slug === slug);
-    if (index === -1) return res.status(404).json({ error: 'Uplink not found' });
-
-    if (isExpiryActive(links[index].expiryDate)) {
-        return res.status(400).json({ error: 'Uplink is still active and cannot be renewed until it expires. Overlapping renewals are not allowed.' });
-    }
-
     const expiry = computeExpiryDate(duration);
-
-    links[index].expiryDate = expiry.toISOString();
-
-    const updatedUser = await db.updateUser(req.user.id, {
-        wallet: freshUser.wallet - price,
-        links: links
+    const updatedUser = await db.updateUser(req.user.id, user => {
+        const links = [...(user.links || [])];
+        const index = links.findIndex(l => l.slug === slug);
+        if (index === -1) throw purchaseError('Uplink not found');
+        if (isExpiryActive(links[index].expiryDate)) {
+            throw purchaseError('Uplink is still active and cannot be renewed until it expires. Overlapping renewals are not allowed.');
+        }
+        requireWalletBalance(user, price);
+        const countries = { ...(links[index].mobileIspCountries || {}) };
+        for (const code of PAID_ISP_COUNTRIES) delete countries[code];
+        links[index] = {
+            ...links[index],
+            expiryDate: expiry.toISOString(),
+            mobileIspCountries: countries,
+            paidIspCountries: [],
+            paidIspTermExpiry: null
+        };
+        return { wallet: user.wallet - price, links };
     });
 
-    res.json({ message: 'Uplink extended', expiryDate: links[index].expiryDate, balance: updatedUser.wallet });
+    res.json({ message: 'Uplink extended', expiryDate: expiry.toISOString(), balance: updatedUser.wallet });
 }));
 
 app.get('/api/isps', (req, res) => {
@@ -2444,7 +2498,11 @@ async function handleRedirection(user, req, res, linkData) {
         } else if (useIspFilter) {
             const userISP = (data.isp || data.org || "").toUpperCase();
             const countryIsps = useMobileIspCountries && useMobileIspCountries[data.countryCode];
-            const allowedIsps = useMobileIspCountries ? (Array.isArray(countryIsps) ? countryIsps : []) : (useMobileIsps || []);
+            const countryPaid = !PAID_ISP_COUNTRIES.includes(data.countryCode) ||
+                (linkData && activePaidIspCountries(linkData).includes(data.countryCode));
+            const allowedIsps = useMobileIspCountries
+                ? (countryPaid && Array.isArray(countryIsps) ? countryIsps : [])
+                : (PAID_ISP_COUNTRIES.includes(data.countryCode) ? [] : (useMobileIsps || []));
             const matches = allowedIsps.some(isp => {
                 if (!isp) return false;
                 const carrier = isp.toUpperCase();
