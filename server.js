@@ -1035,6 +1035,7 @@ const SETTINGS_ALLOWED_KEYS = new Set([
     'botFilter',
     'reallowVisited',
     'mobileIsps',
+    'mobileIspCountries',
     'botToken',
     'chatId',
     'allowAfrica',
@@ -1042,6 +1043,18 @@ const SETTINGS_ALLOWED_KEYS = new Set([
 ]);
 const SETTINGS_BOOLEAN_KEYS = new Set(['antiRed', 'ispFilter', 'botFilter', 'reallowVisited', 'allowAfrica', 'allowEurope']);
 const SETTINGS_LIST_KEYS = new Set(['mobileIsps']);
+const MOBILE_ISP_COUNTRY_CODES = new Set(['US', 'GB', 'CA']);
+
+function parseMobileIspCountries(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const countries = {};
+    for (const [code, isps] of Object.entries(value)) {
+        if (!MOBILE_ISP_COUNTRY_CODES.has(code) || !Array.isArray(isps) || isps.length > 64 ||
+            isps.some(isp => typeof isp !== 'string' || isp.trim().length > 40)) return null;
+        countries[code] = [...new Set(isps.map(isp => isp.trim()).filter(Boolean))];
+    }
+    return countries;
+}
 
 app.post('/api/settings', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     // Mass-assignment protection: drop any keys the user has no business
@@ -1086,6 +1099,11 @@ app.post('/api/settings', requireAuth, apiLimiter, asyncHandler(async (req, res)
                 return res.status(400).json({ error: `${k}_ENTRY_TOO_LONG` });
             }
         }
+    }
+    if ('mobileIspCountries' in body) {
+        const countries = parseMobileIspCountries(body.mobileIspCountries);
+        if (!countries) return res.status(400).json({ error: 'INVALID_MOBILE_ISP_COUNTRIES' });
+        body.mobileIspCountries = countries;
     }
     if ('botToken' in body) {
         if (typeof body.botToken !== 'string') return res.status(400).json({ error: 'BOT_TOKEN_INVALID' });
@@ -1773,7 +1791,9 @@ async function findActiveConflict(slug, excludeUserId) {
 }
 
 app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
-    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, botFilter, mobileIsps, reallowVisited, duration, allowAfrica, allowEurope } = req.body;
+    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, botFilter, mobileIsps, mobileIspCountries, reallowVisited, duration, allowAfrica, allowEurope } = req.body;
+    const parsedCountries = mobileIspCountries === undefined ? undefined : parseMobileIspCountries(mobileIspCountries);
+    if (parsedCountries === null) return res.status(400).json({ error: 'INVALID_MOBILE_ISP_COUNTRIES' });
 
     const price = LINK_PLAN_PRICES[duration];
 
@@ -1821,6 +1841,7 @@ app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) =>
         ispFilter: ispFilter !== undefined ? ispFilter : true,
         botFilter: botFilter !== undefined ? botFilter : true,
         mobileIsps: mobileIsps || req.user.settings.mobileIsps,
+        mobileIspCountries: parsedCountries !== undefined ? parsedCountries : (mobileIsps !== undefined ? undefined : req.user.settings.mobileIspCountries),
         reallowVisited: reallowVisited !== undefined ? reallowVisited : true,
         allowAfrica: allowAfrica !== undefined ? allowAfrica : false,
         allowEurope: allowEurope !== undefined ? allowEurope : true,
@@ -1837,7 +1858,9 @@ app.post('/api/links', requireAuth, apiLimiter, asyncHandler(async (req, res) =>
 }));
 
 app.post('/api/links/bulk', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
-    const { text, duration, antiRed, ispFilter, botFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope } = req.body;
+    const { text, duration, antiRed, ispFilter, botFilter, mobileIsps, mobileIspCountries, reallowVisited, allowAfrica, allowEurope } = req.body;
+    const parsedCountries = mobileIspCountries === undefined ? undefined : parseMobileIspCountries(mobileIspCountries);
+    if (parsedCountries === null) return res.status(400).json({ error: 'INVALID_MOBILE_ISP_COUNTRIES' });
 
     const pricePerUnit = LINK_PLAN_PRICES[duration];
 
@@ -1902,6 +1925,7 @@ app.post('/api/links/bulk', requireAuth, apiLimiter, asyncHandler(async (req, re
             ispFilter: ispFilter !== undefined ? ispFilter : true,
             botFilter: botFilter !== undefined ? botFilter : true,
             mobileIsps: mobileIsps || req.user.settings.mobileIsps,
+            mobileIspCountries: parsedCountries !== undefined ? parsedCountries : (mobileIsps !== undefined ? undefined : req.user.settings.mobileIspCountries),
             reallowVisited: reallowVisited !== undefined ? reallowVisited : true,
             allowAfrica: allowAfrica !== undefined ? allowAfrica : false,
             allowEurope: allowEurope !== undefined ? allowEurope : true,
@@ -1949,7 +1973,9 @@ app.delete('/api/links/:slug', requireAuth, asyncHandler(async (req, res) => {
 
 app.put('/api/links/:oldSlug', requireAuth, apiLimiter, asyncHandler(async (req, res) => {
     const { oldSlug } = req.params;
-    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, botFilter, mobileIsps, reallowVisited, allowAfrica, allowEurope } = req.body;
+    const { name, realLink, nonRealLink, slug, antiRed, ispFilter, botFilter, mobileIsps, mobileIspCountries, reallowVisited, allowAfrica, allowEurope } = req.body;
+    const parsedCountries = mobileIspCountries === undefined ? undefined : parseMobileIspCountries(mobileIspCountries);
+    if (parsedCountries === null) return res.status(400).json({ error: 'INVALID_MOBILE_ISP_COUNTRIES' });
 
     if (!name || !realLink || !nonRealLink) {
         return res.status(400).json({ error: 'Name, Real Link, and Safe Link are required' });
@@ -1991,6 +2017,7 @@ app.put('/api/links/:oldSlug', requireAuth, apiLimiter, asyncHandler(async (req,
         ispFilter: ispFilter !== undefined ? ispFilter : links[index].ispFilter,
         botFilter: botFilter !== undefined ? botFilter : links[index].botFilter,
         mobileIsps: mobileIsps !== undefined ? mobileIsps : links[index].mobileIsps,
+        mobileIspCountries: parsedCountries !== undefined ? parsedCountries : (mobileIsps !== undefined ? undefined : links[index].mobileIspCountries),
         reallowVisited: reallowVisited !== undefined ? reallowVisited : links[index].reallowVisited,
         allowAfrica: allowAfrica !== undefined ? allowAfrica : links[index].allowAfrica,
         allowEurope: allowEurope !== undefined ? allowEurope : links[index].allowEurope,
@@ -2341,6 +2368,8 @@ async function handleRedirection(user, req, res, linkData) {
     const useIspFilter = linkData.ispFilter !== undefined ? linkData.ispFilter : settings.ispFilter;
     const useBotFilter = linkData.botFilter !== undefined ? linkData.botFilter : (settings.botFilter !== undefined ? settings.botFilter : true);
     const useMobileIsps = linkData.mobileIsps || settings.mobileIsps;
+    const useMobileIspCountries = linkData.mobileIspCountries !== undefined ? linkData.mobileIspCountries :
+        (linkData.mobileIsps !== undefined ? undefined : settings.mobileIspCountries);
     const useReallowVisited = linkData.reallowVisited !== undefined ? linkData.reallowVisited : settings.reallowVisited;
     const useAllowAfrica = linkData.allowAfrica !== undefined ? linkData.allowAfrica : (settings.allowAfrica !== undefined ? settings.allowAfrica : false);
     const useAllowEurope = linkData.allowEurope !== undefined ? linkData.allowEurope : (settings.allowEurope !== undefined ? settings.allowEurope : true);
@@ -2414,11 +2443,19 @@ async function handleRedirection(user, req, res, linkData) {
             console.log(`[Proxy] Redirecting ${clientIp} to SAFE: Continent Filter (Europe)`);
         } else if (useIspFilter) {
             const userISP = (data.isp || data.org || "").toUpperCase();
-            const matches = (useMobileIsps || []).some(isp => isp && userISP.includes(isp.toUpperCase()));
+            const countryIsps = useMobileIspCountries && useMobileIspCountries[data.countryCode];
+            const allowedIsps = useMobileIspCountries ? (Array.isArray(countryIsps) ? countryIsps : []) : (useMobileIsps || []);
+            const matches = allowedIsps.some(isp => {
+                if (!isp) return false;
+                const carrier = isp.toUpperCase();
+                return carrier.length <= 2 && /^[A-Z0-9]+$/.test(carrier)
+                    ? new RegExp(`(^|[^A-Z0-9])${carrier}($|[^A-Z0-9])`).test(userISP)
+                    : userISP.includes(carrier);
+            });
             if (!matches) {
                 targetUrl = nonRealLink;
                 redirectReason = 'ISP Filter';
-                console.log(`[Proxy] Redirecting ${clientIp} to SAFE: ISP Filter (User ISP: ${userISP}, Allowed: ${useMobileIsps.join(', ')})`);
+                console.log(`[Proxy] Redirecting ${clientIp} to SAFE: ISP Filter (Country: ${data.countryCode}, User ISP: ${userISP}, Allowed: ${allowedIsps.join(', ')})`);
             }
         }
     }
