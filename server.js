@@ -2502,7 +2502,7 @@ async function handleRedirection(user, req, res, linkData) {
             redirectReason = 'Continent Filter (Europe)';
             console.log(`[Proxy] Redirecting ${clientIp} to SAFE: Continent Filter (Europe)`);
         } else if (useIspFilter) {
-            const userISP = (data.isp || data.org || "").toUpperCase();
+            const userISP = [data.isp, data.org].filter(Boolean).map(value => String(value).toUpperCase());
             const countryIsps = useMobileIspCountries && useMobileIspCountries[data.countryCode];
             const countryPaid = !PAID_ISP_COUNTRIES.includes(data.countryCode) ||
                 (linkData && activePaidIspCountries(linkData).includes(data.countryCode));
@@ -2512,9 +2512,9 @@ async function handleRedirection(user, req, res, linkData) {
             const matches = allowedIsps.some(isp => {
                 if (!isp) return false;
                 const carrier = isp.toUpperCase();
-                return carrier.length <= 2 && /^[A-Z0-9]+$/.test(carrier)
-                    ? new RegExp(`(^|[^A-Z0-9])${carrier}($|[^A-Z0-9])`).test(userISP)
-                    : userISP.includes(carrier);
+                return userISP.some(value => carrier.length <= 2 && /^[A-Z0-9]+$/.test(carrier)
+                    ? new RegExp(`(^|[^A-Z0-9])${carrier}($|[^A-Z0-9])`).test(value)
+                    : value.includes(carrier));
             });
             if (!matches) {
                 targetUrl = nonRealLink;

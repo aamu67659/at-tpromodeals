@@ -1153,8 +1153,8 @@
                         </div>
 
                         <div id="newLinkIspConfig" style="margin-top: 15px;">
-                            <label>COUNTRY_AND_MOBILE_CARRIER_TARGETING</label>
-                            <p style="font-size: 11px; color: var(--text-muted);">Choose a country, then select the mobile carriers to allow. UK and Canada cost $15 each, once per uplink plan term; renewals require a new purchase.</p>
+                            <label>COUNTRY_AND_ISP_TARGETING</label>
+                            <p style="font-size: 11px; color: var(--text-muted);">Choose a country, then select the ISPs to allow. UK includes mobile carriers and home broadband (Wi-Fi) providers. UK and Canada cost $15 each, once per uplink plan term; renewals require a new purchase.</p>
                             <div id="newLinkIspList" style="display: grid; gap: 10px;"></div>
                         </div>
                     </div>
@@ -1249,8 +1249,8 @@
                     </div>
                 </div>
                 <div id="globalIspConfig">
-                    <h2>GLOBAL_COUNTRY_AND_MOBILE_CARRIER_TARGETING</h2>
-                    <p style="font-size: 11px; color: var(--text-muted);">Choose a country, then select the mobile carriers to allow. UK and Canada cost $15 each per active uplink plan. Saving applies the selection to all active uplinks; new uplinks are charged on creation. Access ends at plan expiry.</p>
+                    <h2>GLOBAL_COUNTRY_AND_ISP_TARGETING</h2>
+                    <p style="font-size: 11px; color: var(--text-muted);">Choose a country, then select the ISPs to allow. UK includes mobile carriers and home broadband (Wi-Fi) providers. UK and Canada cost $15 each per active uplink plan. Saving applies the selection to all active uplinks; new uplinks are charged on creation. Access ends at plan expiry.</p>
                     <div id="globalIspList" style="display: grid; gap: 10px;"></div>
                 </div>
             </div>
@@ -1871,7 +1871,7 @@
 
         const carrierCountries = {
             US: { label: 'USA MOBILE ISP', isps: [] },
-            GB: { label: 'UNITED KINGDOM MOBILE ISP', isps: ['EE', 'O2', 'Vodafone', 'Three', 'giffgaff', 'Sky Mobile', 'Tesco Mobile'] },
+            GB: { label: 'UNITED KINGDOM MOBILE + BROADBAND ISP', isps: ['EE', 'O2', 'Vodafone', 'Three', 'giffgaff', 'Sky Mobile', 'Tesco Mobile', 'BT', 'British Telecommunications', 'Virgin Media', 'Sky', 'TalkTalk', 'Plusnet', 'Hyperoptic', 'Zen Internet', 'Community Fibre', 'KCOM', 'NOW Broadband'] },
             CA: { label: 'CANADA MOBILE ISP', isps: ['Rogers', 'Bell', 'TELUS', 'Freedom Mobile', 'Fido', 'Koodo', 'Virgin Plus'] }
         };
 
@@ -1903,7 +1903,7 @@
                 summary.style.cssText = 'cursor: pointer; font-size: 11px; color: var(--accent);';
                 const updateSelection = () => {
                     const count = list.querySelectorAll('.carrier-isp:checked').length;
-                    summary.textContent = `SELECT_MOBILE_CARRIERS (${count} selected)`;
+                    summary.textContent = `${code === 'GB' ? 'SELECT_MOBILE_AND_BROADBAND_ISPS' : 'SELECT_MOBILE_CARRIERS'} (${count} selected)`;
                     dropdown.style.display = enabled.checked ? 'block' : 'none';
                     if (enabled.checked) dropdown.open = true;
                 };
@@ -1960,7 +1960,7 @@
             const selected = getSelectedIspCountries(containerId);
             const emptyCountry = Object.keys(selected).find(code => selected[code].length === 0);
             if (emptyCountry) {
-                alert(`!! ERROR: Select at least one mobile carrier for ${carrierCountries[emptyCountry].label}.`);
+                alert(`!! ERROR: Select at least one ISP for ${carrierCountries[emptyCountry].label}.`);
                 return false;
             }
             const chargeCount = links.reduce((total, link) => {
