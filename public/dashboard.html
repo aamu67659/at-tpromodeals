@@ -938,6 +938,112 @@
             td .btn { width: 100%; margin-bottom: 4px; }
         }
 
+        #newLinkIspConfig, #globalIspConfig { min-width: 0; }
+        #newLinkIspConfig > label, #globalIspConfig h2 { overflow-wrap: anywhere; }
+        .carrier-country-panel {
+            min-width: 0;
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-surface);
+        }
+        .carrier-country-panel:has(.carrier-country:checked) { border-color: var(--accent-border); }
+        .carrier-country-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .carrier-country-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            flex: 1 1 auto;
+            margin: 0;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1.4;
+            min-height: 44px;
+            overflow-wrap: normal;
+        }
+        .carrier-country-name { min-width: 0; }
+        .carrier-country-count { display: block; color: var(--text-muted); font-size: 11px; font-weight: 500; text-transform: none; letter-spacing: 0; }
+        .carrier-country-label input, .carrier-isp-option input {
+            flex: 0 0 auto;
+            width: 17px;
+            height: 17px;
+            margin: 0;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+        .carrier-country-price {
+            flex: 0 0 auto;
+            padding: 4px 8px;
+            border: 1px solid var(--accent-border);
+            border-radius: 6px;
+            color: var(--accent);
+            background: var(--accent-bg);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            white-space: nowrap;
+        }
+        .carrier-isp-details { width: 100%; min-width: 0; margin-top: 12px; }
+        .carrier-isp-details summary {
+            padding: 10px 12px;
+            border: 1px solid var(--border-strong);
+            border-radius: 6px;
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1.5;
+            cursor: pointer;
+            overflow-wrap: anywhere;
+        }
+        .carrier-isp-details summary:focus-visible,
+        .carrier-country-label:focus-within,
+        .carrier-isp-option:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .carrier-isp-options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+            gap: 8px;
+            max-height: 240px;
+            overflow-y: auto;
+            margin-top: 12px;
+        }
+        .carrier-isp-group-title { grid-column: 1 / -1; margin-top: 8px; color: var(--text-muted); font-size: 11px; font-weight: 600; }
+        .carrier-isp-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            min-height: 42px;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            background: var(--bg-elevated);
+            font-family: var(--font-sans);
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 1.4;
+            letter-spacing: 0;
+            text-transform: none;
+            margin: 0;
+            overflow-wrap: break-word;
+            cursor: pointer;
+        }
+        .carrier-isp-option:hover { border-color: var(--accent-border); }
+        .carrier-isp-option:has(input:checked) { border-color: var(--accent-border); color: var(--text-primary); background: var(--accent-bg); }
+        .link-form-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+        @media (max-width: 560px) {
+            .carrier-country-panel { padding: 12px; }
+            .carrier-isp-options { grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); max-height: none; overflow: visible; }
+            .link-form-actions button { flex: 1 1 100%; }
+        }
+
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
         }
@@ -1016,7 +1122,7 @@
                 <div style="font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">PRICING_NOTICE</div>
                 <h2 style="margin-top: 0; border-bottom: none; padding-bottom: 0;">Plan prices changed October 1, 2026</h2>
                 <p>New prices apply to plan purchases and renewals: 3 days $30.00, 1 week $50.00, 2 weeks $100.00, and 1 month $160.00.</p>
-                <p>We now offer UK Mobile ISP Filter and Canada Mobile ISP Filter for advanced bot tracking and to help focus your ads on real traffic. Each add-on costs $15 per uplink plan term.</p>
+                <p>UK targeting now supports mobile and home broadband ISPs; Canada supports mobile carriers. Each add-on costs $15 per uplink plan term.</p>
             </div>
 
             <!-- Newsletter Broadcast -->
@@ -1159,7 +1265,7 @@
                         </div>
                     </div>
 
-                    <div style="display: flex; gap: 15px;">
+                    <div class="link-form-actions">
                         <button id="submitLinkBtn" onclick="createLink()">[ DEPLOY ANTIRED ]</button>
                         <button id="cancelEditBtn" onclick="cancelEdit()" style="display: none; border-color: var(--text-muted); color: var(--text-muted);">[ ABORT ]</button>
                     </div>
@@ -1869,10 +1975,11 @@
             }
         }
 
+        const ukMobileIsps = ['EE', 'O2', 'Vodafone', 'Three', 'giffgaff', 'Sky Mobile', 'Tesco Mobile'];
         const carrierCountries = {
-            US: { label: 'USA MOBILE ISP', isps: [] },
-            GB: { label: 'UNITED KINGDOM MOBILE + BROADBAND ISP', isps: ['EE', 'O2', 'Vodafone', 'Three', 'giffgaff', 'Sky Mobile', 'Tesco Mobile', 'BT', 'British Telecommunications', 'Virgin Media', 'Sky', 'TalkTalk', 'Plusnet', 'Hyperoptic', 'Zen Internet', 'Community Fibre', 'KCOM', 'NOW Broadband'] },
-            CA: { label: 'CANADA MOBILE ISP', isps: ['Rogers', 'Bell', 'TELUS', 'Freedom Mobile', 'Fido', 'Koodo', 'Virgin Plus'] }
+            US: { label: 'USA · Mobile', isps: [] },
+            GB: { label: 'UK · Mobile + broadband', isps: [...ukMobileIsps, 'BT', 'British Telecommunications', 'Virgin Media', 'Sky', 'TalkTalk', 'Plusnet', 'Hyperoptic', 'Zen Internet', 'Community Fibre', 'KCOM', 'NOW Broadband'] },
+            CA: { label: 'Canada · Mobile', isps: ['Rogers', 'Bell', 'TELUS', 'Freedom Mobile', 'Fido', 'Koodo', 'Virgin Plus'] }
         };
 
         function renderIspList(containerId, selectedCountries, legacyIsps = []) {
@@ -1886,47 +1993,75 @@
                 const selected = Array.isArray(selections[code]) ? selections[code] : [];
                 const panel = document.createElement('div');
                 panel.className = 'carrier-country-panel';
-                panel.style.cssText = 'padding: 10px; border: 1px solid var(--border); background: var(--bg-surface); border-radius: 8px;';
                 const row = document.createElement('div');
-                row.style.cssText = 'display: flex; align-items: center; gap: 12px; flex-wrap: wrap;';
+                row.className = 'carrier-country-header';
                 const label = document.createElement('label');
-                label.style.cssText = 'display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer;';
+                label.className = 'carrier-country-label';
                 const enabled = document.createElement('input');
                 enabled.type = 'checkbox';
                 enabled.className = 'carrier-country';
                 enabled.value = code;
                 enabled.checked = Object.prototype.hasOwnProperty.call(selections, code);
-                label.append(enabled, document.createTextNode(country.label + (code === 'US' ? '' : ' · $15/PLAN')));
+                const name = document.createElement('span');
+                name.className = 'carrier-country-name';
+                name.textContent = country.label;
+                const countLabel = document.createElement('span');
+                countLabel.className = 'carrier-country-count';
+                countLabel.setAttribute('aria-live', 'polite');
+                name.appendChild(countLabel);
+                label.append(enabled, name);
+                row.appendChild(label);
+                if (code !== 'US') {
+                    const price = document.createElement('span');
+                    price.className = 'carrier-country-price';
+                    price.textContent = '$15 / PLAN';
+                    row.appendChild(price);
+                }
                 const dropdown = document.createElement('details');
+                dropdown.className = 'carrier-isp-details';
                 dropdown.open = enabled.checked;
                 const summary = document.createElement('summary');
-                summary.style.cssText = 'cursor: pointer; font-size: 11px; color: var(--accent);';
                 const updateSelection = () => {
                     const count = list.querySelectorAll('.carrier-isp:checked').length;
-                    summary.textContent = `${code === 'GB' ? 'SELECT_MOBILE_AND_BROADBAND_ISPS' : 'SELECT_MOBILE_CARRIERS'} (${count} selected)`;
+                    summary.textContent = code === 'GB' ? 'Choose mobile & broadband ISPs' : 'Choose mobile carriers';
+                    countLabel.textContent = enabled.checked ? `${count} selected` : `Off${count ? ` · ${count} saved` : ''}`;
                     dropdown.style.display = enabled.checked ? 'block' : 'none';
                     if (enabled.checked) dropdown.open = true;
                 };
                 enabled.addEventListener('change', updateSelection);
                 const list = document.createElement('div');
-                list.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-top: 10px; max-height: 160px; overflow-y: auto;';
+                list.className = 'carrier-isp-options';
                 const isps = [...new Set([...(code === 'US' ? allIsps : country.isps), ...selected])];
-                isps.slice().sort().forEach(isp => {
-                    const option = document.createElement('label');
-                    option.style.cssText = 'display: flex; align-items: center; gap: 5px; font-size: 11px; cursor: pointer; margin: 0;';
-                    const check = document.createElement('input');
-                    check.type = 'checkbox';
-                    check.className = 'carrier-isp';
-                    check.value = isp;
-                    check.checked = selected.includes(isp);
-                    check.addEventListener('change', updateSelection);
-                    option.append(check, document.createTextNode(isp));
-                    list.appendChild(option);
-                });
+                const appendOptions = (options, heading) => {
+                    if (heading) {
+                        const title = document.createElement('div');
+                        title.className = 'carrier-isp-group-title';
+                        title.textContent = heading;
+                        list.appendChild(title);
+                    }
+                    options.sort().forEach(isp => {
+                        const option = document.createElement('label');
+                        option.className = 'carrier-isp-option';
+                        const check = document.createElement('input');
+                        check.type = 'checkbox';
+                        check.className = 'carrier-isp';
+                        check.value = isp;
+                        check.checked = selected.includes(isp);
+                        check.addEventListener('change', updateSelection);
+                        option.append(check, document.createTextNode(isp));
+                        list.appendChild(option);
+                    });
+                };
+                if (code === 'GB') {
+                    const mobile = new Set(ukMobileIsps);
+                    appendOptions(isps.filter(isp => mobile.has(isp)), 'Mobile networks');
+                    appendOptions(isps.filter(isp => !mobile.has(isp)), 'Home broadband & other');
+                } else {
+                    appendOptions(isps);
+                }
                 updateSelection();
                 dropdown.append(summary, list);
-                row.append(label, dropdown);
-                panel.appendChild(row);
+                panel.append(row, dropdown);
                 container.appendChild(panel);
             });
         }
@@ -1968,7 +2103,7 @@
                     ? (link.paidIspCountries || []) : [];
                 return total + ['GB', 'CA'].filter(code => Object.prototype.hasOwnProperty.call(selected, code) && !entitled.includes(code)).length;
             }, 0);
-            return chargeCount === 0 || confirm(`UK/Canada mobile ISP add-ons: $${(chargeCount * 15).toFixed(2)} will be deducted from your wallet ($15 per country per uplink plan). They expire with each plan. Continue?`);
+            return chargeCount === 0 || confirm(`UK/Canada ISP add-ons: $${(chargeCount * 15).toFixed(2)} will be deducted from your wallet ($15 per country per uplink plan). They expire with each plan. Continue?`);
         }
 
         function editLink(slug) {
