@@ -1153,8 +1153,8 @@
                         </div>
 
                         <div id="newLinkIspConfig" style="margin-top: 15px;">
-                            <label>MOBILE_ISP_BY_COUNTRY</label>
-                            <p style="font-size: 11px; color: var(--text-muted);">UK and Canada cost $15 each, once per uplink plan term. Renewals require a new purchase.</p>
+                            <label>COUNTRY_AND_MOBILE_CARRIER_TARGETING</label>
+                            <p style="font-size: 11px; color: var(--text-muted);">Choose a country, then select the mobile carriers to allow. UK and Canada cost $15 each, once per uplink plan term; renewals require a new purchase.</p>
                             <div id="newLinkIspList" style="display: grid; gap: 10px;"></div>
                         </div>
                     </div>
@@ -1249,8 +1249,8 @@
                     </div>
                 </div>
                 <div id="globalIspConfig">
-                    <h2>GLOBAL_MOBILE_ISP_BY_COUNTRY</h2>
-                    <p style="font-size: 11px; color: var(--text-muted);">UK and Canada cost $15 each per active uplink plan. Saving applies the selection to all active uplinks; new uplinks are charged on creation. Access ends at plan expiry.</p>
+                    <h2>GLOBAL_COUNTRY_AND_MOBILE_CARRIER_TARGETING</h2>
+                    <p style="font-size: 11px; color: var(--text-muted);">Choose a country, then select the mobile carriers to allow. UK and Canada cost $15 each per active uplink plan. Saving applies the selection to all active uplinks; new uplinks are charged on creation. Access ends at plan expiry.</p>
                     <div id="globalIspList" style="display: grid; gap: 10px;"></div>
                 </div>
             </div>
@@ -1870,9 +1870,9 @@
         }
 
         const carrierCountries = {
-            US: { label: 'UNITED_STATES', isps: [] },
-            GB: { label: 'UNITED_KINGDOM', isps: ['EE', 'O2', 'Vodafone', 'Three', 'giffgaff', 'Sky Mobile', 'Tesco Mobile'] },
-            CA: { label: 'CANADA', isps: ['Rogers', 'Bell', 'TELUS', 'Freedom Mobile', 'Fido', 'Koodo', 'Virgin Plus'] }
+            US: { label: 'USA MOBILE ISP', isps: [] },
+            GB: { label: 'UNITED KINGDOM MOBILE ISP', isps: ['EE', 'O2', 'Vodafone', 'Three', 'giffgaff', 'Sky Mobile', 'Tesco Mobile'] },
+            CA: { label: 'CANADA MOBILE ISP', isps: ['Rogers', 'Bell', 'TELUS', 'Freedom Mobile', 'Fido', 'Koodo', 'Virgin Plus'] }
         };
 
         function renderIspList(containerId, selectedCountries, legacyIsps = []) {
@@ -1898,9 +1898,16 @@
                 enabled.checked = Object.prototype.hasOwnProperty.call(selections, code);
                 label.append(enabled, document.createTextNode(country.label + (code === 'US' ? '' : ' · $15/PLAN')));
                 const dropdown = document.createElement('details');
+                dropdown.open = enabled.checked;
                 const summary = document.createElement('summary');
-                summary.textContent = 'SELECT_ISPS';
                 summary.style.cssText = 'cursor: pointer; font-size: 11px; color: var(--accent);';
+                const updateSelection = () => {
+                    const count = list.querySelectorAll('.carrier-isp:checked').length;
+                    summary.textContent = `SELECT_MOBILE_CARRIERS (${count} selected)`;
+                    dropdown.style.display = enabled.checked ? 'block' : 'none';
+                    if (enabled.checked) dropdown.open = true;
+                };
+                enabled.addEventListener('change', updateSelection);
                 const list = document.createElement('div');
                 list.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-top: 10px; max-height: 160px; overflow-y: auto;';
                 const isps = [...new Set([...(code === 'US' ? allIsps : country.isps), ...selected])];
@@ -1912,9 +1919,11 @@
                     check.className = 'carrier-isp';
                     check.value = isp;
                     check.checked = selected.includes(isp);
+                    check.addEventListener('change', updateSelection);
                     option.append(check, document.createTextNode(isp));
                     list.appendChild(option);
                 });
+                updateSelection();
                 dropdown.append(summary, list);
                 row.append(label, dropdown);
                 panel.appendChild(row);
@@ -1936,7 +1945,7 @@
         }
 
         function getNewLinkSelectedIsps() {
-            return [...new Set(Object.values(getSelectedIspCountries('newLinkIspList')).flat())];
+            return getSelectedIspCountries('newLinkIspList').US || [];
         }
 
         function renderGlobalIspList(selectedCountries, legacyIsps) {
@@ -1944,11 +1953,16 @@
         }
 
         function getGlobalSelectedIsps() {
-            return [...new Set(Object.values(getSelectedIspCountries('globalIspList')).flat())];
+            return getSelectedIspCountries('globalIspList').US || [];
         }
 
         function confirmIspCharge(containerId, links) {
             const selected = getSelectedIspCountries(containerId);
+            const emptyCountry = Object.keys(selected).find(code => selected[code].length === 0);
+            if (emptyCountry) {
+                alert(`!! ERROR: Select at least one mobile carrier for ${carrierCountries[emptyCountry].label}.`);
+                return false;
+            }
             const chargeCount = links.reduce((total, link) => {
                 const entitled = link && link.paidIspTermExpiry === link.expiryDate && new Date(link.expiryDate) > new Date()
                     ? (link.paidIspCountries || []) : [];

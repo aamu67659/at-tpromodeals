@@ -1130,12 +1130,18 @@ app.post('/api/settings', requireAuth, apiLimiter, asyncHandler(async (req, res)
                 const countries = link.mobileIspCountries
                     ? { ...link.mobileIspCountries }
                     : { US: link.mobileIsps || (user.settings || {}).mobileIsps || [] };
+                if (Object.prototype.hasOwnProperty.call(body.mobileIspCountries, 'US')) {
+                    countries.US = body.mobileIspCountries.US;
+                } else {
+                    delete countries.US;
+                }
                 for (const code of PAID_ISP_COUNTRIES) {
                     if (selected.includes(code)) countries[code] = body.mobileIspCountries[code];
                     else delete countries[code];
                 }
                 return {
                     ...link,
+                    mobileIsps: countries.US || [],
                     mobileIspCountries: countries,
                     paidIspCountries: [...new Set([...entitled, ...newlyPaid])],
                     paidIspTermExpiry: link.expiryDate
