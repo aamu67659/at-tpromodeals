@@ -81,7 +81,7 @@
             animation: panel-in 360ms var(--ease-out);
             display: flex;
             min-height: 80vh;
-            overflow: hidden;
+            overflow: clip;
         }
 
         .sidebar {
@@ -97,9 +97,8 @@
 
         .main-content {
             flex: 1;
+            min-width: 0;
             padding: 32px;
-            overflow-y: auto;
-            max-height: 85vh;
         }
 
         .sidebar-category {
@@ -712,28 +711,98 @@
         }
 
         @media (max-width: 720px) {
-            body { padding: 16px; }
-            .container { padding: 20px; }
+            body { padding: 12px; }
+            .main-content { padding: 20px; }
             table, .stats-table { font-size: 12px; }
             thead th, tbody td { padding: 10px; }
-            .block-row { grid-template-columns: 1fr; }
+            .block-row { grid-template-columns: minmax(0, 1fr); }
             .block-add { width: 100%; }
-            /* Hide lower-priority table columns on tablet/mobile to keep them readable. */
-            table.hide-on-mobile thead th:nth-child(n+4),
-            table.hide-on-mobile tbody td:nth-child(n+4) { display: none; }
         }
 
         @media (max-width: 560px) {
-            .container { padding: 16px; }
-            .card, .panel, .admin-side { padding: 16px; }
-            .metric-grid { grid-template-columns: 1fr; }
+            .main-content { padding: 16px; }
             table, .stats-table { font-size: 12px; }
-            thead th, tbody td { padding: 8px 10px; }
-            table.hide-on-mobile thead th:nth-child(n+3),
-            table.hide-on-mobile tbody td:nth-child(n+3) { display: none; }
-            td .btn, td button, td .block-pill { width: 100%; margin-bottom: 4px; }
+            thead th, tbody td { padding: 10px; }
         }
 
+        .container, .content-section, .block-panel, .block-field, .stats-grid > * { min-width: 0; }
+        .sidebar .logo { color: var(--text-primary); font-size: 17px; font-weight: 700; margin-bottom: 20px; }
+        .sidebar-footer { margin-top: auto; padding-top: 18px; border-top: 1px solid var(--border); display: grid; gap: 8px; }
+        .nav-item, h1, h2, .stats-section-title, .stat-modal-header, .block-field label, .block-bulk-panel summary {
+            font-family: var(--font-sans);
+            letter-spacing: 0.01em;
+        }
+        .nav-item { min-height: 44px; font-size: 13px; font-weight: 500; }
+        .nav-item:focus-visible, .stat-tile.clickable:focus-visible, .block-bulk-panel summary:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+        h1 { font-size: clamp(19px, 2.2vw, 24px); line-height: 1.3; overflow-wrap: anywhere; }
+        h1::before, .stats-section-title::before { display: none; }
+        h2, .stats-section-title { color: var(--text-primary); font-size: 15px; text-transform: none; letter-spacing: 0; }
+        .login-box h2, .login-box .subtitle { font-family: var(--font-sans); }
+        .login-box .subtitle { font-size: 13px; letter-spacing: 0; line-height: 1.5; }
+        input, textarea, select { min-width: 0; min-height: 44px; font-family: var(--font-sans); font-size: 14px; }
+        .btn, .stat-modal-close {
+            min-height: 44px;
+            font-family: var(--font-sans);
+            font-size: 12px;
+            letter-spacing: 0.02em;
+            text-transform: none;
+        }
+        .btn:hover, .btn-status:hover, .btn-status.active:hover { box-shadow: none; }
+        .btn:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; filter: none; }
+        .btn-status:focus-visible, .stat-modal-close:focus-visible { outline: 2px solid var(--danger); outline-offset: 2px; }
+        .btn-secondary { background: transparent; border-color: var(--border-strong); color: var(--text-primary); }
+        .btn-secondary:hover { background: var(--bg-elevated); filter: none; }
+        .stats-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); }
+        .stat-tile .stat-value { overflow-wrap: anywhere; }
+        .stat-modal { max-height: min(80vh, 720px); }
+        .stat-modal-close { min-width: 44px; }
+        .stat-modal-body { min-width: 0; overflow-x: auto; }
+        .table-wrap, .block-list, #statsContent { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .table-wrap table { min-width: 700px; }
+        .stats-table { min-width: 550px; }
+        th, td { overflow-wrap: anywhere; }
+        .block-row { grid-template-columns: minmax(0, 280px) minmax(0, 1fr) auto; }
+        .block-field label { font-size: 12px; text-transform: none; }
+        .block-field input, .block-field select { min-height: 44px; font-family: var(--font-sans); font-size: 14px; }
+        .block-add { height: auto; min-height: 44px; }
+        .block-bulk-panel summary { min-height: 44px; display: flex; align-items: center; font-size: 12px; text-transform: none; }
+        .block-bulk-panel textarea { min-height: 110px; }
+        .action-row, .table-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+        .action-row > span { flex: 1 1 180px; }
+        .table-actions .btn { min-height: 44px; white-space: nowrap; }
+        .btn:focus-visible, .stat-modal-close:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .btn-status:focus-visible { outline-color: var(--danger); }
+        thead th { color: var(--text-muted); font-family: var(--font-sans); text-transform: none; letter-spacing: 0.02em; }
+        .main-content { padding-bottom: 96px; }
+        @media (max-width: 900px) {
+            .sidebar { gap: 6px; }
+            .sidebar .logo { width: 100%; margin: 0 0 8px; }
+            .sidebar-category { width: 100%; margin: 10px 0 2px; }
+            .nav-item { flex: 1 1 145px; }
+            .sidebar-footer { flex: 1 1 100%; margin-top: 10px; padding-top: 12px; display: flex; gap: 8px; }
+            .sidebar-footer .btn { flex: 1 1 145px; margin: 0; }
+        }
+        @media (max-width: 720px) {
+            .block-row { grid-template-columns: minmax(0, 1fr); }
+            .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 560px) {
+            body { padding: 8px; }
+            .sidebar { padding: 14px 12px; }
+            .sidebar .nav-item { flex: 1 1 calc(50% - 8px); justify-content: flex-start; }
+            .main-content { padding: 18px 14px 96px; }
+            .block-panel { padding: 14px; }
+            .action-row .btn { flex: 1 1 100%; }
+            .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .stat-tile { padding: 12px; }
+            .stat-tile .stat-value { font-size: 18px; }
+        }
+        @media (max-width: 360px) {
+            .stats-grid { grid-template-columns: minmax(0, 1fr); }
+        }
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
         }
@@ -741,40 +810,40 @@
 </head>
 <body>
     <div id="loginSection" class="login-box">
-        <h2 style="font-family: 'Share Tech Mono'; color: var(--accent);">ADMIN_ACCESS_REQUIRED</h2>
-        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 25px;">IDENTIFY_SESSION_TOKEN</p>
+        <h2>Admin access</h2>
+        <p class="subtitle">Enter your admin token to continue.</p>
         <input type="password" id="adminToken" placeholder="ENTER_ADMIN_SECRET" onkeydown="if(event.key==='Enter') loadUsers()">
-        <button onclick="loadUsers()" class="btn" style="width: 100%;">[ AUTHENTICATE ]</button>
+        <button onclick="loadUsers()" class="btn" style="width: 100%;">Sign in</button>
     </div>
 
     <div id="adminSection" class="container" style="display: none;">
         <div class="sidebar">
-            <div class="logo" style="margin-bottom: 24px;">Admin Portal</div>
+            <div class="logo">Admin Portal</div>
             
             <div class="sidebar-category">OVERVIEW</div>
-            <div class="nav-item active" onclick="showSection('stats')">Telemetry & Stats</div>
-            <div class="nav-item" onclick="showSection('users')">User Accounts</div>
-            <div class="nav-item" onclick="showSection('payments')">Pending Payments</div>
+            <div class="nav-item active" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" onclick="showSection('stats')">Telemetry & Stats</div>
+            <div class="nav-item" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" onclick="showSection('users')">User Accounts</div>
+            <div class="nav-item" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" onclick="showSection('payments')">Pending Payments</div>
 
             <div class="sidebar-category">MANAGEMENT</div>
-            <div class="nav-item" onclick="showSection('rotator')">Rotator Pool</div>
-            <div class="nav-item" onclick="showSection('broadcast')">Dashboard Notice</div>
+            <div class="nav-item" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" onclick="showSection('rotator')">Rotator Pool</div>
+            <div class="nav-item" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" onclick="showSection('broadcast')">Dashboard Notice</div>
 
             <div class="sidebar-category">SECURITY</div>
-            <div class="nav-item" onclick="showSection('ip-blocks')">Global IP Blocks</div>
-            <div class="nav-item" onclick="showSection('isp-blocks')">Global ISP Blocks</div>
-            <div class="nav-item" onclick="showSection('country-blocks')">Country Blocks</div>
-            <div class="nav-item" onclick="showSection('isp-redirects')">Mobile ISP Redirect</div>
+            <div class="nav-item" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" onclick="showSection('ip-blocks')">Global IP Blocks</div>
+            <div class="nav-item" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" onclick="showSection('isp-blocks')">Global ISP Blocks</div>
+            <div class="nav-item" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" onclick="showSection('country-blocks')">Country Blocks</div>
+            <div class="nav-item" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" onclick="showSection('isp-redirects')">Mobile ISP Redirect</div>
 
-            <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border);">
-                <button onclick="loadUsers()" class="btn" style="width: 100%; font-size: 11px; margin-bottom: 8px;">[ REFRESH_DATA ]</button>
-                <button onclick="logout()" class="btn btn-status" style="width: 100%; font-size: 11px;">[ DISCONNECT ]</button>
+            <div class="sidebar-footer">
+                <button onclick="loadUsers()" class="btn btn-secondary">Refresh data</button>
+                <button onclick="logout()" class="btn btn-status">Disconnect</button>
             </div>
         </div>
 
         <div class="main-content">
             <div id="stats-section" class="content-section active">
-                <h1 style="border:none; padding:0; margin-bottom: 20px;">SYSTEM_TELEMETRY</h1>
+                <h1>Telemetry &amp; stats</h1>
                 <div id="statsContent" style="font-size: 12px;">
                     <div id="statsLoading" style="color: var(--text-muted);">Loading telemetry from all nodes...</div>
                 </div>
@@ -791,7 +860,7 @@
             </div>
 
             <div id="users-section" class="content-section">
-                <h1>USER_NODES_DATABASE</h1>
+                <h1>User accounts</h1>
                 <div class="table-wrap">
                     <table id="userTable">
                         <thead>
@@ -809,7 +878,7 @@
             </div>
 
             <div id="payments-section" class="content-section">
-                <h1>PENDING_RECHARGE_APPROVALS</h1>
+                <h1>Pending payments</h1>
                 <div class="table-wrap">
                     <table id="paymentTable">
                         <thead>
@@ -829,33 +898,33 @@
             </div>
 
             <div id="rotator-section" class="content-section">
-                <h1>ANTIRED_ROTATOR_DOMAINS</h1>
+                <h1>AntiRed domain pool</h1>
                 <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">Public AntiRed link URLs are built from this pool. The webapp origin is <strong>never</strong> used.</p>
                 <div id="antiredDomainsSourceBadge" style="font-size: 10px; margin-bottom: 8px; padding: 6px 10px; border: 1px dashed var(--border); color: var(--text-muted); display: inline-block;">SOURCE :: --</div>
                 <div id="antiredDomainsList" style="display: grid; grid-template-columns: 1fr; gap: 8px; max-width: 800px; margin-bottom: 12px;"></div>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <button id="antiredAddBtn" onclick="addAntiredDomainRow()" class="btn" style="font-size: 11px;">[ + ADD_DOMAIN ]</button>
-                    <button id="antiredSaveBtn" onclick="saveAntiredDomains()" class="btn">[ SAVE_POOL ]</button>
+                <div class="action-row">
+                    <button id="antiredAddBtn" onclick="addAntiredDomainRow()" class="btn btn-secondary">Add domain</button>
+                    <button id="antiredSaveBtn" onclick="saveAntiredDomains()" class="btn">Save pool</button>
                     <span id="antiredDomainStatus" style="font-size: 11px; color: var(--text-muted);"></span>
                 </div>
                 <div id="antiredDomainMeta" style="font-size: 10px; color: var(--text-muted); margin-top: 8px;">No rotator pool on file yet.</div>
             </div>
 
             <div id="broadcast-section" class="content-section">
-                <h1>DASHBOARD_NEWSLETTER_BROADCAST</h1>
+                <h1>Dashboard notice</h1>
                 <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">This notice is shown to every user in a popup the moment they open their Dashboard.</p>
                 <div style="display: grid; grid-template-columns: 1fr; gap: 12px; max-width: 800px;">
                     <div>
-                        <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">HEADLINE_TITLE</label>
+                        <label>Headline</label>
                         <input type="text" id="newsletterTitle" maxlength="120" placeholder="e.g. SCHEDULED_MAINTENANCE_WINDOW" style="margin-top: 4px;">
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">MESSAGE_BODY</label>
+                        <label>Message</label>
                         <textarea id="newsletterBody" rows="6" maxlength="4000" placeholder="Plain text notice." style="margin-top: 4px;"></textarea>
                     </div>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <button onclick="saveNewsletter()" class="btn">[ PUBLISH_TO_DASHBOARD ]</button>
-                        <button onclick="clearNewsletter()" class="btn btn-status">[ CLEAR_BROADCAST ]</button>
+                    <div class="action-row">
+                        <button onclick="saveNewsletter()" class="btn">Publish notice</button>
+                        <button onclick="clearNewsletter()" class="btn btn-status">Clear notice</button>
                         <span id="newsletterStatus" style="font-size: 11px; color: var(--text-muted);"></span>
                     </div>
                     <div id="newsletterMeta" style="font-size: 10px; color: var(--text-muted);">No broadcast on file yet.</div>
@@ -863,25 +932,25 @@
             </div>
 
             <div id="ip-blocks-section" class="content-section">
-                <h1>ADMIN_BLOCK_IPS</h1>
+                <h1>Global IP blocks</h1>
                 <div class="block-panel">
                     <div class="block-row">
                         <div class="block-field">
-                            <label>IP_ADDRESS</label>
+                            <label>IP address</label>
                             <input type="text" id="blockIpsValue" list="blockIpsSuggestions" placeholder="e.g. 192.168.1.42">
                             <datalist id="blockIpsSuggestions"></datalist>
                         </div>
                         <div class="block-field block-field-grow">
-                            <label>REASON (OPTIONAL)</label>
+                            <label>Reason (optional)</label>
                             <input type="text" id="blockIpsReason" maxlength="200" placeholder="e.g. Repeat fraud attempts">
                         </div>
-                        <button onclick="addAdminBlock('ips')" class="btn block-add">[ + ADD_IP ]</button>
+                        <button onclick="addAdminBlock('ips')" class="btn block-add">Add IP</button>
                     </div>
                     <details class="block-bulk-panel">
-                        <summary>[ BULK_IMPORT ]</summary>
+                        <summary>Bulk import</summary>
                         <textarea id="blockIpsBulk" rows="6" placeholder="VALUE, REASON"></textarea>
                         <div style="display: flex; gap: 10px; margin-top: 8px;">
-                            <button onclick="bulkImport('ips')" class="btn">[ IMPORT ]</button>
+                            <button onclick="bulkImport('ips')" class="btn">Import</button>
                         </div>
                     </details>
                     <div id="blockIpsList" class="block-list"></div>
@@ -889,25 +958,25 @@
             </div>
 
             <div id="isp-blocks-section" class="content-section">
-                <h1>ADMIN_BLOCK_ISPS</h1>
+                <h1>Global ISP blocks</h1>
                 <div class="block-panel">
                     <div class="block-row">
                         <div class="block-field">
-                            <label>ISP_OR_ORG_NAME</label>
+                            <label>ISP or organization</label>
                             <input type="text" id="blockIspsValue" list="blockIspsSuggestions" placeholder="e.g. Comcast">
                             <datalist id="blockIspsSuggestions"></datalist>
                         </div>
                         <div class="block-field block-field-grow">
-                            <label>REASON (OPTIONAL)</label>
+                            <label>Reason (optional)</label>
                             <input type="text" id="blockIspsReason" maxlength="200" placeholder="e.g. abuse">
                         </div>
-                        <button onclick="addAdminBlock('isps')" class="btn block-add">[ + ADD_ISP ]</button>
+                        <button onclick="addAdminBlock('isps')" class="btn block-add">Add ISP</button>
                     </div>
                     <details class="block-bulk-panel">
-                        <summary>[ BULK_IMPORT ]</summary>
+                        <summary>Bulk import</summary>
                         <textarea id="blockIspsBulk" rows="6" placeholder="VALUE, REASON"></textarea>
                         <div style="display: flex; gap: 10px; margin-top: 8px;">
-                            <button onclick="bulkImport('isps')" class="btn">[ IMPORT ]</button>
+                            <button onclick="bulkImport('isps')" class="btn">Import</button>
                         </div>
                     </details>
                     <div id="blockIspsList" class="block-list"></div>
@@ -915,7 +984,7 @@
             </div>
 
             <div id="country-blocks-section" class="content-section">
-                <h1>ADMIN_BLOCK_COUNTRIES</h1>
+                <h1>Country blocks</h1>
                 <div class="block-panel">
                     <div class="block-row">
                         <div class="block-field">
@@ -925,31 +994,31 @@
                             </select>
                         </div>
                         <div class="block-field block-field-grow">
-                            <label>REASON (OPTIONAL)</label>
+                            <label>Reason (optional)</label>
                             <input type="text" id="blockCountriesReason" maxlength="200" placeholder="e.g. geo-fencing">
                         </div>
-                        <button onclick="addAdminBlock('countries')" class="btn block-add">[ + ADD_COUNTRY ]</button>
+                        <button onclick="addAdminBlock('countries')" class="btn block-add">Add country</button>
                     </div>
                     <div id="blockCountriesList" class="block-list"></div>
                 </div>
             </div>
 
             <div id="isp-redirects-section" class="content-section">
-                <h1>MOBILE_ISP_REDIRECT</h1>
+                <h1>Mobile ISP redirects</h1>
                 <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 14px;">Pick a mobile carrier below and set a destination link. Any visitor detected on that carrier — across every user's tracking link — gets sent straight to this link, before any other filters run.</p>
                 <div class="block-panel">
                     <div class="block-row">
                         <div class="block-field">
-                            <label>MOBILE_ISP</label>
+                            <label>Mobile ISP</label>
                             <select id="ispRedirectIsp">
                                 <option value="">LOADING_CARRIERS...</option>
                             </select>
                         </div>
                         <div class="block-field block-field-grow">
-                            <label>DESTINATION_LINK</label>
+                            <label>Destination link</label>
                             <input type="text" id="ispRedirectLink" placeholder="https://example.com/target">
                         </div>
-                        <button onclick="addIspRedirectRule()" class="btn block-add">[ + ADD_RULE ]</button>
+                        <button onclick="addIspRedirectRule()" class="btn block-add">Add rule</button>
                     </div>
                     <div class="block-status-row">
                         <span id="ispRedirectStatus" class="block-status"></span>
@@ -992,10 +1061,11 @@
                     '.ta-icon svg{width:34px;height:34px;display:block}' +
                     '.ta-msg{white-space:pre-wrap;margin:0 0 18px;font-weight:600;letter-spacing:0.02em}' +
                     '.ta-btn{display:inline-block;min-width:96px;padding:9px 22px;border:0;' +
-                    'border-radius:999px;background:#6c5ce7;color:#fff;' +
+                    'min-height:44px;border-radius:8px;background:var(--accent);color:var(--accent-deep);' +
                     'font:600 13px/1 inherit;letter-spacing:0.06em;cursor:pointer;' +
                     'transition:transform 120ms ease,background 120ms ease}' +
-                    '.ta-btn:hover{background:#5848d6;transform:translateY(-1px)}' +
+                    '.ta-btn:hover{background:var(--accent-strong)}' +
+                    '.ta-btn:focus-visible{outline:2px solid var(--accent-strong);outline-offset:2px}' +
                     '.ta-btn:active{transform:translateY(0)}' +
                     '@keyframes ta-fade{from{opacity:0}to{opacity:1}}' +
                     '@keyframes ta-pop{from{opacity:0;transform:scale(0.92)}to{opacity:1;transform:scale(1)}}';
@@ -1127,13 +1197,13 @@
                             </span>
                         </td>
                         <td>
-                            <div style="display: flex; gap: 10px;">
-                                <button class="btn" style="font-size: 10px; padding: 5px 10px;" onclick="updateBalance('${escapeHtml(user.id)}')">[ SET_CREDITS ]</button>
-                                <button class="btn btn-status ${user.isActive ? 'active' : ''}" style="font-size: 10px; padding: 5px 10px;" onclick="toggleStatus('${escapeHtml(user.id)}')">
-                                    [ ${user.isActive ? 'DEACTIVATE' : 'ACTIVATE'} ]
+                            <div class="table-actions">
+                                <button class="btn btn-secondary" onclick="updateBalance('${escapeHtml(user.id)}')">Set credits</button>
+                                <button class="btn ${user.isActive ? 'btn-status active' : 'btn-secondary'}" onclick="toggleStatus('${escapeHtml(user.id)}')">
+                                    ${user.isActive ? 'Deactivate' : 'Activate'}
                                 </button>
-                                <button class="btn btn-status" style="font-size: 10px; padding: 5px 10px; background: var(--danger); color: #fff;" onclick="deleteUser('${escapeHtml(user.id)}', '${escapeHtml(user.name || 'ANONYMOUS')}')">
-                                    [ DELETE ]
+                                <button class="btn btn-status" onclick="deleteUser('${escapeHtml(user.id)}', '${escapeHtml(user.name || 'ANONYMOUS')}')">
+                                    Delete
                                 </button>
                             </div>
                         </td>
@@ -2060,7 +2130,7 @@
                                     <td>${reasonSafe}</td>
                                     <td style="color: var(--text-muted); font-size: 11px;">${escapeHtml(fmtDateShort(it.addedAt))}</td>
                                     <td style="text-align: right;">
-                                        <button class="btn btn-status" style="font-size: 10px; padding: 5px 10px;" onclick="removeAdminBlock('${type}', '${escapeHtml(it.id)}')">[ REMOVE ]</button>
+                                        <button class="btn btn-status" onclick="removeAdminBlock('${type}', '${escapeHtml(it.id)}')">Remove</button>
                                     </td>
                                 </tr>`;
                             }).join('')}
@@ -2229,7 +2299,7 @@
                                 <td style="word-break: break-all;">${escapeHtml(it.link)}</td>
                                 <td style="color: var(--text-muted); font-size: 11px;">${escapeHtml(fmtDateShort(it.addedAt))}</td>
                                 <td style="text-align: right;">
-                                    <button class="btn btn-status" style="font-size: 10px; padding: 5px 10px;" onclick="removeIspRedirectRule('${escapeHtml(it.id)}')">[ REMOVE ]</button>
+                                    <button class="btn btn-status" onclick="removeIspRedirectRule('${escapeHtml(it.id)}')">Remove</button>
                                 </td>
                             </tr>`).join('')}
                         </tbody>
